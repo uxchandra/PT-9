@@ -1,0 +1,109 @@
+<?php
+
+namespace App\Imports;
+
+use App\Models\Machine;
+use App\Models\Part;
+use App\Models\Pattern;
+use App\Models\PatternBoard;
+use App\Models\PatternGroupItem;
+use Illuminate\Support\Collection as SupportCollection;
+use Maatwebsite\Excel\Concerns\ToCollection;
+use Maatwebsite\Excel\Concerns\WithHeadingRow;
+
+/**
+ * Imports rows shaped like: Machine | Item | Jumlah Proses | Proses | loading_time | kanban | dandori.
+ *
+ * Each row is one machine+part assignment. Machines and parts are created
+ * automatically if they don't exist yet. loading_time/jumlah_proses/kanban/
+ * dandori belong to the board+part (Kelompok Pattern) and are set from the
+ * first row seen for that part; later rows for the same part only add their
+ * machine assignment (with that row's own "Proses" number) and are checked
+ * against the stored values, reporting a mismatch instead of overwriting.
+ */
+class PatternImport implements ToCollection, WithHeadingRow
+{
+    public int $partsCreated = 0;
+
+    public int $machinesCreated = 0;
+
+    public int $groupItemsCreated = 0;
+
+    public int $assignmentsSaved = 0;
+
+    public int $rowsSkipped = 0;
+
+    /** @var array<int, string> */
+    public array $mismatches = [];
+
+    private int $nextUrutan = 1;
+
+    public function __construct(private PatternBoard $patternBoard)
+    {
+        $this->nextUrutan = (int) $patternBoard->groupItems()->max('urutan') + 1;
+    }
+
+    public function collection(SupportCollection $rows): void
+    {
+        foreach ($rows as $index => $row) {
+            $rowNumber = $index + 2; // account for the heading row
+
+            $machineName = trim((string) ($row['machine'] ?? ''));
+            $partName = trim((string) ($row['item'] ?? ''));
+
+            if ($machineName === '' || $partName === '') {
+                $this->rowsSkipped++;
+
+                continue;
+            }
+
+            $jumlahProses = (int) ($row['jumlah_proses'] ?? 0);
+            $proses = (int) ($row['proses'] ?? 0);
+            $loadingTime = (int) ($row['loading_time'] ?? 0);
+            $kanban = (int) ($row['kanban'] ?? 0);
+            $dandori = (int) ($row['dandori'] ?? 0);
+
+            $machine = Machine::firstOrCreate(['name' => $machineName]);
+            if ($machine->wasRecentlyCreated) {
+                $this->machinesCreated++;
+            }
+
+            $part = Part::firstOrCreate(['name' => $partName]);
+            if ($part->wasRecentlyCreated) {
+                $this->partsCreated++;
+            }
+
+            $groupItem = PatternGroupItem::where('pattern_board_id', $this->patternBoard->id)
+                ->where('part_id', $part->id)
+                ->first();
+
+            if (! $groupItem) {
+                $groupItem = PatternGroupItem::create([
+                    'pattern_board_id' => $this->patternBoard->id,
+                    'part_id' => $part->id,
+                    'urutan' => $this->nextUrutan++,
+                    'loading_time' => $loadingTime,
+                    'jumlah_proses' => $jumlahProses,
+                    'total_kanban' => $kanban,
+                    'dandori' => $dandori,
+                ]);
+                $this->groupItemsCreated++;
+            } elseif ($groupItem->loading_time !== $loadingTime
+                || $groupItem->jumlah_proses !== $jumlahProses
+                || $groupItem->total_kanban !== $kanban
+                || $groupItem->dandori !== $dandori) {
+                $this->mismatches[] = "Baris {$rowNumber} ({$partName}): loading_time/jumlah_proses/kanban/dandori beda dari yang sudah tersimpan, nilai baris ini diabaikan.";
+            }
+
+            Pattern::updateOrCreate(
+                [
+                    'pattern_board_id' => $this->patternBoard->id,
+                    'machine_id' => $machine->id,
+                    'part_id' => $part->id,
+                ],
+                ['proses' => $proses]
+            );
+            $this->assignmentsSaved++;
+        }
+    }
+}

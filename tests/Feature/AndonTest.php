@@ -1,0 +1,184 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\Machine;
+use App\Models\Part;
+use App\Models\Pattern;
+use App\Models\PatternBoard;
+use App\Models\PatternGroupItem;
+use App\Models\Rest;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class AndonTest extends TestCase
+{
+    use RefreshDatabase;
+
+    public function test_andon_index_is_public_and_lists_boards(): void
+    {
+        PatternBoard::create(['name' => 'Board X']);
+
+        $response = $this->get('/andon');
+
+        $response->assertOk();
+        $response->assertSee('Board X');
+    }
+
+    public function test_andon_show_never_splits_loading_or_dandori_around_a_regular_rest(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $partA = Part::create(['name' => 'P1']);
+
+        // dandori (10min) 07:00-07:10, loading_time (100min) 07:10-08:50 — the
+        // 08:00-08:30 Lunch rest falls entirely inside that window but must NOT
+        // pause/split it: only the shift-change gap does that now.
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $partA->id,
+            'urutan' => 1,
+            'loading_time' => 100,
+            'jumlah_proses' => 2,
+            'total_kanban' => 5,
+            'dandori' => 10,
+        ]);
+
+        Rest::create([
+            'name' => 'Lunch',
+            'start_time' => '08:00',
+            'end_time' => '08:30',
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $partA->id,
+            'proses' => 1,
+        ]);
+
+        $response = $this->get("/andon/{$board->id}");
+        $response->assertOk();
+
+        $html = $response->getContent();
+
+        $response->assertSee('M1');
+        // The rest band still renders (as a reference marker, behind the bar) even
+        // though it no longer affects scheduling.
+        $response->assertSee('Lunch');
+        $response->assertSee('P1 1/2');
+
+        // One continuous segment (div): title attribute + 1 visible span = 2 occurrences.
+        // If this were split around the rest it would be 3+ (regression guard).
+        $this->assertSame(2, substr_count($html, 'P1 1/2'));
+
+        // Free time blocks are hidden for now.
+        $response->assertDontSee('FREE TIME');
+    }
+
+    public function test_andon_show_orders_machine_rows_naturally_by_name(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+
+        // Created out of order, and each assigned to a part whose "urutan" would
+        // group them in this same wrong order (99, 91, 92) if rows still followed
+        // part order instead of being sorted by machine name afterwards.
+        $pt99 = Machine::create(['name' => 'PT99']);
+        $pt91 = Machine::create(['name' => 'PT91']);
+        $pt92 = Machine::create(['name' => 'PT92']);
+
+        $partA = Part::create(['name' => 'A']);
+        $partB = Part::create(['name' => 'B']);
+        $partC = Part::create(['name' => 'C']);
+
+        foreach ([$partA, $partB, $partC] as $i => $part) {
+            PatternGroupItem::create([
+                'pattern_board_id' => $board->id,
+                'part_id' => $part->id,
+                'urutan' => $i + 1,
+                'loading_time' => 10,
+                'jumlah_proses' => 1,
+                'total_kanban' => 1,
+                'dandori' => 0,
+            ]);
+        }
+
+        Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $pt99->id, 'part_id' => $partA->id, 'proses' => 1]);
+        Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $pt91->id, 'part_id' => $partB->id, 'proses' => 1]);
+        Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $pt92->id, 'part_id' => $partC->id, 'proses' => 1]);
+
+        $html = $this->get("/andon/{$board->id}")->getContent();
+
+        $posPt91 = strpos($html, 'PT91');
+        $posPt92 = strpos($html, 'PT92');
+        $posPt99 = strpos($html, 'PT99');
+
+        $this->assertNotFalse($posPt91);
+        $this->assertNotFalse($posPt92);
+        $this->assertNotFalse($posPt99);
+        $this->assertTrue($posPt91 < $posPt92 && $posPt92 < $posPt99, 'machine rows must render in natural name order PT91, PT92, PT99');
+    }
+
+    public function test_andon_show_orders_each_machines_blocks_by_assignment_creation_order_not_group_item_urutan(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+
+        $partHigh = Part::create(['name' => 'PartHigh']); // urutan=1, listed first in Kelompok Pattern
+        $partLow = Part::create(['name' => 'PartLow']);   // urutan=2, listed second
+
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id, 'part_id' => $partHigh->id,
+            'urutan' => 1, 'loading_time' => 10, 'jumlah_proses' => 1, 'total_kanban' => 1, 'dandori' => 0,
+        ]);
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id, 'part_id' => $partLow->id,
+            'urutan' => 2, 'loading_time' => 10, 'jumlah_proses' => 1, 'total_kanban' => 1, 'dandori' => 0,
+        ]);
+
+        // Assignment for the urutan=2 part is created (imported) FIRST for this
+        // machine — the andon board must schedule it first too, ignoring urutan.
+        Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $partLow->id, 'proses' => 1]);
+        Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $partHigh->id, 'proses' => 1]);
+
+        $html = $this->get("/andon/{$board->id}")->getContent();
+
+        $posLow = strpos($html, 'PartLow');
+        $posHigh = strpos($html, 'PartHigh');
+
+        $this->assertNotFalse($posLow);
+        $this->assertNotFalse($posHigh);
+        $this->assertTrue($posLow < $posHigh, 'blocks must follow assignment creation/import order, not Kelompok Pattern urutan');
+    }
+
+    public function test_andon_show_renders_the_shift_change_gap_between_shift_1_and_shift_2(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $part = Part::create(['name' => 'P1']);
+
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $part->id,
+            'urutan' => 1,
+            'loading_time' => 30,
+            'jumlah_proses' => 1,
+            'total_kanban' => 5,
+            'dandori' => 0,
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $part->id,
+            'proses' => 1,
+        ]);
+
+        $response = $this->get("/andon/{$board->id}");
+
+        $response->assertOk();
+        $response->assertSee('Pergantian Shift');
+        // 05:00 the next day (tail end of shift 2) must be on the axis.
+        $response->assertSee('05:00');
+    }
+}

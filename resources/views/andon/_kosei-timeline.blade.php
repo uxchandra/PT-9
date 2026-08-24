@@ -1,0 +1,45 @@
+@if ($koseiParts->isEmpty())
+    <div class="h-full flex items-center justify-center text-center text-slate-400">
+        {{ __('Belum ada part yang di-assign untuk board ini.') }}
+    </div>
+@else
+    @php $totalWidth = max($timelineEnd - $dayStart, 1) * $pxPerMinute; @endphp
+    <div class="andon-scroll h-full overflow-auto">
+        <div class="h-full flex flex-col" style="width: {{ 110 + $totalWidth }}px;">
+
+            {{-- Time axis header --}}
+            <div class="shrink-0 flex sticky top-0 z-30 bg-slate-50 border-b border-slate-300">
+                <div class="sticky left-0 z-40 bg-slate-50 shrink-0" style="width: 110px;"></div>
+                <div class="relative shrink-0" style="width: {{ $totalWidth }}px; height: 28px;">
+                    @for ($t = $dayStart; $t <= $timelineEnd; $t += 60)
+                        <div class="absolute top-0 h-full border-l border-slate-200 flex items-center text-[10px] text-slate-500 font-semibold pl-1"
+                             style="left: {{ ($t - $dayStart) * $pxPerMinute }}px;">
+                            {{ sprintf('%02d:00', floor($t / 60) % 24) }}
+                        </div>
+                    @endfor
+                </div>
+            </div>
+
+            {{-- Part rows --}}
+            <div class="relative flex-1">
+                @for ($t = $dayStart; $t <= $timelineEnd; $t += 60)
+                    <div class="grid-line z-0" style="left: {{ 110 + ($t - $dayStart) * $pxPerMinute }}px;"></div>
+                @endfor
+
+                @foreach ($koseiParts as $part)
+                    <div class="flex border-b border-slate-200 cursor-pointer transition-colors {{ $loop->even ? 'bg-slate-50/60' : 'bg-white' }}"
+                         style="height: 48px;"
+                         @click="selectKoseiPart({ id: {{ $part->id }}, name: @js($part->name) })"
+                         :class="koseiPart && koseiPart.id === {{ $part->id }} ? 'bg-brand-50' : ''">
+                        <div class="sticky left-0 z-20 flex items-center px-3 shrink-0"
+                             style="width: 110px; background: inherit;"
+                             :style="koseiPart && koseiPart.id === {{ $part->id }} ? 'background-color: #eff6ff;' : 'background-color: {{ $loop->even ? '#f8fafc' : '#ffffff' }};'">
+                            <span class="font-bold text-slate-700 text-xs truncate">{{ $part->name }}</span>
+                        </div>
+                        <div class="relative shrink-0" style="width: {{ $totalWidth }}px;"></div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    </div>
+@endif
