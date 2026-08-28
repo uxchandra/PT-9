@@ -3,7 +3,9 @@
         {{ __('Belum ada pattern yang di-assign ke mesin untuk board ini.') }}
     </div>
 @else
-    @php $totalWidth = max($timelineEnd - $dayStart, 1) * $pxPerMinute; @endphp
+    {{-- +60min so the last hour tick gets a full column of its own instead of
+         sitting flush against the right edge with no room after it. --}}
+    @php $totalWidth = (max($timelineEnd - $dayStart, 1) + 60) * $pxPerMinute; @endphp
     <div class="andon-scroll h-full overflow-auto">
         <div class="h-full flex flex-col" style="width: {{ 110 + $totalWidth }}px;">
 

@@ -25,14 +25,26 @@
         <div class="bg-white border border-gray-100 shadow-sm rounded-2xl overflow-hidden">
             <div class="flex flex-wrap items-center justify-between gap-4 p-6 border-b border-gray-100">
                 <h3 class="text-lg font-semibold text-gray-800">{{ __('Stock Part All') }}</h3>
-                <div class="flex items-center gap-2">
-                    <input type="text" id="stock-part-search" value="{{ $search }}" autocomplete="off"
-                           placeholder="{{ __('Cari part no / store / line...') }}"
-                           class="rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700 w-64">
-                    <button type="button" id="stock-part-reset"
-                            class="text-sm text-gray-500 hover:text-gray-700 {{ $search === '' ? 'hidden' : '' }}">
-                        {{ __('Reset') }}
-                    </button>
+                <div class="flex flex-wrap items-center gap-4">
+                    <div class="flex items-center gap-2 text-sm text-gray-600">
+                        <span>{{ __('Tampilkan') }}</span>
+                        <select id="stock-part-per-page"
+                                class="rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700">
+                            @foreach ([10, 25, 50, 100] as $option)
+                                <option value="{{ $option }}" @selected($perPage === $option)>{{ $option }}</option>
+                            @endforeach
+                        </select>
+                        <span>{{ __('entri') }}</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="stock-part-search" value="{{ $search }}" autocomplete="off"
+                               placeholder="{{ __('Cari part no / store / line...') }}"
+                               class="rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700 w-64">
+                        <button type="button" id="stock-part-reset"
+                                class="text-sm text-gray-500 hover:text-gray-700 {{ $search === '' ? 'hidden' : '' }}">
+                            {{ __('Reset') }}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -47,12 +59,13 @@
             const baseUrl = @json(route('stock-part-all.index'));
             const input = document.getElementById('stock-part-search');
             const resetButton = document.getElementById('stock-part-reset');
+            const perPageSelect = document.getElementById('stock-part-per-page');
             const results = document.getElementById('stock-part-results');
 
             let debounceTimer = null;
             let controller = null;
 
-            function fetchResults(query) {
+            function fetchResults(query, perPage) {
                 if (controller) {
                     controller.abort();
                 }
@@ -62,6 +75,7 @@
                 if (query) {
                     target.searchParams.set('q', query);
                 }
+                target.searchParams.set('per_page', perPage);
 
                 results.classList.add('opacity-50');
 
@@ -87,14 +101,18 @@
                 clearTimeout(debounceTimer);
                 const query = input.value.trim();
                 debounceTimer = setTimeout(function () {
-                    fetchResults(query);
+                    fetchResults(query, perPageSelect.value);
                 }, 350);
             });
 
             resetButton.addEventListener('click', function () {
                 input.value = '';
                 input.focus();
-                fetchResults('');
+                fetchResults('', perPageSelect.value);
+            });
+
+            perPageSelect.addEventListener('change', function () {
+                fetchResults(input.value.trim(), perPageSelect.value);
             });
         })();
     </script>

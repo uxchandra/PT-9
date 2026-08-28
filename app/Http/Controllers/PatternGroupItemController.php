@@ -7,13 +7,14 @@ use App\Models\PatternBoard;
 use App\Models\PatternGroupItem;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class PatternGroupItemController extends Controller
 {
     public function create(PatternBoard $patternBoard): View
     {
-        $parts = Part::orderBy('name')->get();
+        $parts = Part::orderBy('part_no')->get();
 
         return view('pattern-group-items.create', compact('patternBoard', 'parts'));
     }
@@ -31,7 +32,7 @@ class PatternGroupItemController extends Controller
 
     public function edit(PatternGroupItem $patternGroupItem): View
     {
-        $parts = Part::orderBy('name')->get();
+        $parts = Part::orderBy('part_no')->get();
 
         return view('pattern-group-items.edit', compact('patternGroupItem', 'parts'));
     }
@@ -62,13 +63,20 @@ class PatternGroupItemController extends Controller
             'part_id' => [
                 'required',
                 'exists:parts,id',
-                'unique:pattern_group_items,part_id,'.($ignore?->id ?? 'NULL').',id,pattern_board_id,'.$patternBoard->id,
+                Rule::unique('pattern_group_items', 'part_id')
+                    ->where(fn ($query) => $query
+                        ->where('pattern_board_id', $patternBoard->id)
+                        ->where('shift', $request->input('shift')))
+                    ->ignore($ignore?->id),
             ],
+            'shift' => ['required', Rule::in([1, 2])],
             'urutan' => ['required', 'integer', 'min:1'],
             'loading_time' => ['required', 'integer', 'min:0'],
             'jumlah_proses' => ['required', 'integer', 'min:1'],
             'total_kanban' => ['required', 'integer', 'min:0'],
             'dandori' => ['required', 'integer', 'min:0'],
+        ], [
+            'part_id.unique' => 'Part ini sudah terdaftar di Kelompok Pattern untuk shift yang dipilih pada board ini.',
         ]);
     }
 }

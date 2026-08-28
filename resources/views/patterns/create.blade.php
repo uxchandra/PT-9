@@ -14,6 +14,17 @@
                 </div>
 
                 <div>
+                    <x-input-label for="shift" :value="__('Shift')" />
+                    <select id="shift" name="shift" required
+                            class="mt-1 block w-full border-gray-300 focus:border-brand-700 focus:ring-brand-700 rounded-lg shadow-sm text-sm transition">
+                        @foreach (\App\Models\Pattern::SHIFT_LABELS as $value => $label)
+                            <option value="{{ $value }}" @selected(old('shift', 1) == $value)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <x-input-error :messages="$errors->get('shift')" class="mt-2" />
+                </div>
+
+                <div>
                     <x-input-label for="machine_id" :value="__('Machine')" />
                     <select id="machine_id" name="machine_id" required
                             class="mt-1 block w-full border-gray-300 focus:border-brand-700 focus:ring-brand-700 rounded-lg shadow-sm text-sm transition">
@@ -31,7 +42,7 @@
                             class="mt-1 block w-full border-gray-300 focus:border-brand-700 focus:ring-brand-700 rounded-lg shadow-sm text-sm transition">
                         <option value="">{{ __('-- Pilih Part --') }}</option>
                         @foreach ($parts as $part)
-                            <option value="{{ $part->id }}" @selected(old('part_id') == $part->id)>{{ $part->name }}</option>
+                            <option value="{{ $part->id }}" @selected(old('part_id') == $part->id)>{{ $part->part_no }}</option>
                         @endforeach
                     </select>
                     @if ($parts->isEmpty())

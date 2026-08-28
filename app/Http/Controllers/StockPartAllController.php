@@ -13,10 +13,17 @@ class StockPartAllController extends Controller
 {
     private const CACHE_KEY = 'stock-part-all-data';
 
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
+
     public function index(Request $request, StockPartApi $api): View
     {
         $search = trim((string) $request->query('q', ''));
-        $perPage = 25;
+        $perPage = (int) $request->query('per_page', 25);
+
+        if (! in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
+            $perPage = 25;
+        }
+
         $page = LengthAwarePaginator::resolveCurrentPage();
 
         $rows = Cache::remember(self::CACHE_KEY, now()->addMinute(), fn () => $api->fetchRows());
@@ -55,6 +62,6 @@ class StockPartAllController extends Controller
             return view('stock-part-all._results', compact('stockParts', 'error'));
         }
 
-        return view('stock-part-all.index', compact('stockParts', 'search', 'error'));
+        return view('stock-part-all.index', compact('stockParts', 'search', 'perPage', 'error'));
     }
 }

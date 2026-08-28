@@ -12,14 +12,16 @@ use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
 /**
- * Imports rows shaped like: Machine | Item | Jumlah Proses | Proses | loading_time | kanban | dandori.
+ * Imports rows shaped like: Machine | Item | Jumlah Proses | Proses | loading_time | kanban | dandori | Shift.
  *
  * Each row is one machine+part assignment. Machines and parts are created
  * automatically if they don't exist yet. loading_time/jumlah_proses/kanban/
- * dandori belong to the board+part (Kelompok Pattern) and are set from the
- * first row seen for that part; later rows for the same part only add their
- * machine assignment (with that row's own "Proses" number) and are checked
- * against the stored values, reporting a mismatch instead of overwriting.
+ * dandori belong to the board+part+shift (Kelompok Pattern) and are set from
+ * the first row seen for that part+shift; later rows for the same part+shift
+ * only add their machine assignment (with that row's own "Proses" number) and
+ * are checked against the stored values, reporting a mismatch instead of
+ * overwriting. Shift defaults to 1 (07:00-16:00) when the column is left out
+ * or has an invalid value; 2 means the 20:00-06:00 shift.
  */
 class PatternImport implements ToCollection, WithHeadingRow
 {
@@ -62,25 +64,32 @@ class PatternImport implements ToCollection, WithHeadingRow
             $loadingTime = (int) ($row['loading_time'] ?? 0);
             $kanban = (int) ($row['kanban'] ?? 0);
             $dandori = (int) ($row['dandori'] ?? 0);
+            $shift = (int) ($row['shift'] ?? 1);
+
+            if (! in_array($shift, [1, 2], true)) {
+                $shift = 1;
+            }
 
             $machine = Machine::firstOrCreate(['name' => $machineName]);
             if ($machine->wasRecentlyCreated) {
                 $this->machinesCreated++;
             }
 
-            $part = Part::firstOrCreate(['name' => $partName]);
+            $part = Part::firstOrCreate(['part_no' => $partName]);
             if ($part->wasRecentlyCreated) {
                 $this->partsCreated++;
             }
 
             $groupItem = PatternGroupItem::where('pattern_board_id', $this->patternBoard->id)
                 ->where('part_id', $part->id)
+                ->where('shift', $shift)
                 ->first();
 
             if (! $groupItem) {
                 $groupItem = PatternGroupItem::create([
                     'pattern_board_id' => $this->patternBoard->id,
                     'part_id' => $part->id,
+                    'shift' => $shift,
                     'urutan' => $this->nextUrutan++,
                     'loading_time' => $loadingTime,
                     'jumlah_proses' => $jumlahProses,
@@ -92,7 +101,7 @@ class PatternImport implements ToCollection, WithHeadingRow
                 || $groupItem->jumlah_proses !== $jumlahProses
                 || $groupItem->total_kanban !== $kanban
                 || $groupItem->dandori !== $dandori) {
-                $this->mismatches[] = "Baris {$rowNumber} ({$partName}): loading_time/jumlah_proses/kanban/dandori beda dari yang sudah tersimpan, nilai baris ini diabaikan.";
+                $this->mismatches[] = "Baris {$rowNumber} ({$partName}, shift {$shift}): loading_time/jumlah_proses/kanban/dandori beda dari yang sudah tersimpan, nilai baris ini diabaikan.";
             }
 
             Pattern::updateOrCreate(
@@ -100,6 +109,7 @@ class PatternImport implements ToCollection, WithHeadingRow
                     'pattern_board_id' => $this->patternBoard->id,
                     'machine_id' => $machine->id,
                     'part_id' => $part->id,
+                    'shift' => $shift,
                 ],
                 ['proses' => $proses]
             );

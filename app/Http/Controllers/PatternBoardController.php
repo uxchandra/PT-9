@@ -28,7 +28,9 @@ class PatternBoardController extends Controller
 
             // Unpaginated lookup so the Assignment Mesin table can show "proses/jumlah_proses"
             // even when the matching Kelompok Pattern item isn't on the currently viewed page.
-            $groupItemsByPart = $selectedBoard->groupItems()->get()->keyBy('part_id');
+            // Keyed by part_id+shift since a part can have a separate item per shift.
+            $groupItemsByPart = $selectedBoard->groupItems()->get()
+                ->keyBy(fn ($item) => $item->part_id.'-'.$item->shift);
         }
 
         return view('pattern-boards.index', compact('patternBoards', 'selectedBoard', 'groupItems', 'patterns', 'groupItemsByPart'));

@@ -63,26 +63,31 @@ class PatternController extends Controller
 
     private function availableParts(PatternBoard $patternBoard)
     {
-        return Part::whereIn('id', $patternBoard->groupItems()->pluck('part_id'))->orderBy('name')->get();
+        return Part::whereIn('id', $patternBoard->groupItems()->pluck('part_id'))->orderBy('part_no')->get();
     }
 
     private function validated(Request $request, PatternBoard $patternBoard): array
     {
+        $shift = $request->input('shift');
+
         return $request->validate([
             'machine_id' => ['required', 'exists:machines,id'],
+            'shift' => ['required', Rule::in([1, 2])],
             'part_id' => [
                 'required',
                 'exists:parts,id',
                 Rule::exists('pattern_group_items', 'part_id')
-                    ->where('pattern_board_id', $patternBoard->id),
+                    ->where('pattern_board_id', $patternBoard->id)
+                    ->where('shift', $shift),
             ],
             'proses' => [
                 'required',
                 'integer',
                 'min:1',
-                function ($attribute, $value, $fail) use ($request, $patternBoard) {
+                function ($attribute, $value, $fail) use ($request, $patternBoard, $shift) {
                     $groupItem = PatternGroupItem::where('pattern_board_id', $patternBoard->id)
                         ->where('part_id', $request->input('part_id'))
+                        ->where('shift', $shift)
                         ->first();
 
                     if ($groupItem && $value > $groupItem->jumlah_proses) {
@@ -91,7 +96,7 @@ class PatternController extends Controller
                 },
             ],
         ], [
-            'part_id.exists' => 'Part ini belum terdaftar di Kelompok Pattern untuk board ini.',
+            'part_id.exists' => 'Part ini belum terdaftar di Kelompok Pattern untuk shift yang dipilih pada board ini.',
         ]);
     }
 }

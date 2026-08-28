@@ -1,19 +1,66 @@
 <x-app-layout>
     <x-slot name="header">
-        {{ __('Parts') }}
+        {{ __('Part List') }}
     </x-slot>
+
+    <style>
+        .parts-table-scroll {
+            scrollbar-width: thin;
+            scrollbar-color: #9ca3af #f3f4f6;
+        }
+        .parts-table-scroll::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        .parts-table-scroll::-webkit-scrollbar-track {
+            background: #f3f4f6;
+        }
+        .parts-table-scroll::-webkit-scrollbar-thumb {
+            background: #9ca3af;
+            border-radius: 10px;
+            border: 2px solid #f3f4f6;
+        }
+        .parts-table-scroll::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+    </style>
 
     <div class="p-4 sm:p-6 lg:p-8">
         <div class="bg-white border border-gray-100 shadow-sm rounded-2xl overflow-hidden">
-            <div class="flex items-center justify-between p-6 border-b border-gray-100">
-                <div>
-                    <h3 class="text-lg font-semibold text-gray-800">{{ __('Daftar Parts') }}</h3>
-                    <p class="mt-1 text-sm text-gray-500">{{ $parts->total() }} {{ __('part terdaftar') }}</p>
+            <div class="flex flex-wrap items-center justify-between gap-4 p-6 border-b border-gray-100">
+                <h3 class="text-lg font-semibold text-gray-800">{{ __('Part List') }}</h3>
+
+                <div class="flex flex-wrap items-center gap-3">
+                    <div class="flex items-center gap-2 text-sm text-gray-600">
+                        <span>{{ __('Tampilkan') }}</span>
+                        <select id="parts-per-page"
+                                class="rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700">
+                            @foreach ([10, 15, 25, 50, 100] as $option)
+                                <option value="{{ $option }}" @selected($perPage === $option)>{{ $option }}</option>
+                            @endforeach
+                        </select>
+                        <span>{{ __('entri') }}</span>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="parts-search" value="{{ $search }}" autocomplete="off"
+                               placeholder="{{ __('Cari part no / nama / customer...') }}"
+                               class="rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700 w-56">
+                        <button type="button" id="parts-search-reset"
+                                class="text-sm text-gray-500 hover:text-gray-700 {{ $search === '' ? 'hidden' : '' }}">
+                            {{ __('Reset') }}
+                        </button>
+                    </div>
+
+                    <a href="{{ route('parts.import.create') }}"
+                       class="inline-flex items-center justify-center px-4 py-2.5 bg-white border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition ease-in-out duration-150 shadow-sm">
+                        {{ __('Import Part') }}
+                    </a>
+                    <a href="{{ route('parts.create') }}"
+                       class="inline-flex items-center justify-center px-4 py-2.5 bg-brand-800 border border-transparent rounded-lg font-semibold text-sm text-white hover:bg-brand-900 transition ease-in-out duration-150 shadow-sm">
+                        {{ __('Tambah Part') }}
+                    </a>
                 </div>
-                <a href="{{ route('parts.create') }}"
-                   class="inline-flex items-center justify-center px-4 py-2.5 bg-brand-800 border border-transparent rounded-lg font-semibold text-sm text-white hover:bg-brand-900 transition ease-in-out duration-150 shadow-sm">
-                    {{ __('Tambah Part') }}
-                </a>
             </div>
 
             @if (session('status'))
@@ -25,41 +72,72 @@
                 </div>
             @endif
 
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                            <th class="px-6 py-3">{{ __('Nama') }}</th>
-                            <th class="px-6 py-3 w-40 text-right">{{ __('Aksi') }}</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100">
-                        @forelse ($parts as $part)
-                            <tr class="hover:bg-gray-50">
-                                <td class="px-6 py-3 text-gray-800">{{ $part->name }}</td>
-                                <td class="px-6 py-3 text-right">
-                                    <a href="{{ route('parts.edit', $part) }}" class="text-brand-700 hover:text-brand-900 font-medium">{{ __('Edit') }}</a>
-                                    <form action="{{ route('parts.destroy', $part) }}" method="POST" class="inline" onsubmit="return confirm('{{ __('Hapus part ini?') }}');">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button type="submit" class="ml-3 text-red-600 hover:text-red-800 font-medium">{{ __('Hapus') }}</button>
-                                    </form>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="2" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada data part.') }}</td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
+            <div id="parts-results" class="transition-opacity duration-150">
+                @include('parts._results')
             </div>
-
-            @if ($parts->hasPages())
-                <div class="px-6 py-4 border-t border-gray-100">
-                    {{ $parts->links() }}
-                </div>
-            @endif
         </div>
     </div>
+
+    <script>
+        (function () {
+            const baseUrl = @json(route('parts.index'));
+            const searchInput = document.getElementById('parts-search');
+            const resetButton = document.getElementById('parts-search-reset');
+            const perPageSelect = document.getElementById('parts-per-page');
+            const results = document.getElementById('parts-results');
+
+            let debounceTimer = null;
+            let controller = null;
+
+            function fetchResults(query, perPage) {
+                if (controller) {
+                    controller.abort();
+                }
+                controller = new AbortController();
+
+                const target = new URL(baseUrl);
+                if (query) {
+                    target.searchParams.set('q', query);
+                }
+                target.searchParams.set('per_page', perPage);
+
+                results.classList.add('opacity-50');
+
+                fetch(target.toString(), {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                    signal: controller.signal,
+                })
+                    .then((response) => response.text())
+                    .then((html) => {
+                        results.innerHTML = html;
+                        results.classList.remove('opacity-50');
+                        window.history.replaceState({}, '', target.toString());
+                        resetButton.classList.toggle('hidden', query === '');
+                    })
+                    .catch((error) => {
+                        if (error.name !== 'AbortError') {
+                            results.classList.remove('opacity-50');
+                        }
+                    });
+            }
+
+            searchInput.addEventListener('input', function () {
+                clearTimeout(debounceTimer);
+                const query = searchInput.value.trim();
+                debounceTimer = setTimeout(function () {
+                    fetchResults(query, perPageSelect.value);
+                }, 350);
+            });
+
+            resetButton.addEventListener('click', function () {
+                searchInput.value = '';
+                searchInput.focus();
+                fetchResults('', perPageSelect.value);
+            });
+
+            perPageSelect.addEventListener('change', function () {
+                fetchResults(searchInput.value.trim(), perPageSelect.value);
+            });
+        })();
+    </script>
 </x-app-layout>

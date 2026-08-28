@@ -9,9 +9,9 @@
                 @csrf
 
                 <div>
-                    <x-input-label for="name" :value="__('Nama')" />
-                    <x-text-input id="name" name="name" type="text" class="block w-full mt-1" :value="old('name')" required autofocus />
-                    <x-input-error :messages="$errors->get('name')" class="mt-2" />
+                    <x-input-label for="part_no" :value="__('Part No')" />
+                    <x-text-input id="part_no" name="part_no" type="text" class="block w-full mt-1" :value="old('part_no')" required autofocus />
+                    <x-input-error :messages="$errors->get('part_no')" class="mt-2" />
                 </div>
 
                 <div class="flex items-center gap-3">

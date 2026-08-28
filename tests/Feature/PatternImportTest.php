@@ -70,7 +70,7 @@ class PatternImportTest extends TestCase
         $this->assertSame(2, PatternGroupItem::count());
         $this->assertSame(3, Pattern::count());
 
-        $ga = Part::where('name', 'GA241-04750')->first();
+        $ga = Part::where('part_no', 'GA241-04750')->first();
         $groupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $ga->id)->first();
         $this->assertSame(40, $groupItem->loading_time);
         $this->assertSame(9, $groupItem->jumlah_proses);
@@ -91,7 +91,7 @@ class PatternImportTest extends TestCase
     public function test_reimporting_a_part_with_different_group_values_does_not_overwrite_but_still_saves_assignment(): void
     {
         $board = PatternBoard::create(['name' => 'A']);
-        $part = Part::create(['name' => 'GA241-04750']);
+        $part = Part::create(['part_no' => 'GA241-04750']);
         $machineA = Machine::create(['name' => 'PT91']);
         $machineB = Machine::create(['name' => 'PT92']);
 
@@ -149,5 +149,66 @@ class PatternImportTest extends TestCase
         $response->assertSessionHas('status');
         $this->assertStringContainsString('2 baris dilewati', session('status'));
         $this->assertSame(1, Pattern::count());
+    }
+
+    public function test_shift_column_is_imported_and_defaults_to_1_when_left_out(): void
+    {
+        $board = PatternBoard::create(['name' => 'A']);
+
+        $csv = "Machine,Item,Jumlah Proses,Proses,loading_time,kanban,dandori,Shift\n"
+            ."PT91,GA241-04750,9,2,40,10,10,1\n"
+            ."PT91,57453-BZ140,8,2,160,20,10,2\n"
+            ."PT91,NO-SHIFT-COL,1,1,10,1,0,\n"; // blank -> defaults to shift 1
+
+        $response = $this->actingAs($this->authorizedUser())
+            ->post(route('pattern-boards.import.store', $board), [
+                'file' => UploadedFile::fake()->createWithContent('import.csv', $csv),
+            ]);
+
+        $response->assertRedirect(route('pattern-boards.index', ['board' => $board->id]));
+
+        $shift1Part = Part::where('part_no', 'GA241-04750')->first();
+        $shift2Part = Part::where('part_no', '57453-BZ140')->first();
+        $blankShiftPart = Part::where('part_no', 'NO-SHIFT-COL')->first();
+
+        $shift1GroupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $shift1Part->id)->first();
+        $shift2GroupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $shift2Part->id)->first();
+        $blankShiftGroupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $blankShiftPart->id)->first();
+
+        $this->assertSame(1, $shift1GroupItem->shift);
+        $this->assertSame(2, $shift2GroupItem->shift);
+        $this->assertSame(1, $blankShiftGroupItem->shift);
+
+        $machine = Machine::where('name', 'PT91')->first();
+        $shift2Assignment = Pattern::where('machine_id', $machine->id)->where('part_id', $shift2Part->id)->first();
+        $this->assertSame(2, $shift2Assignment->shift);
+    }
+
+    public function test_same_part_can_have_separate_group_items_for_each_shift(): void
+    {
+        $board = PatternBoard::create(['name' => 'A']);
+
+        // Same part+machine, once per shift, with different loading_time —
+        // these must not be treated as conflicting/duplicate rows.
+        $csv = "Machine,Item,Jumlah Proses,Proses,loading_time,kanban,dandori,Shift\n"
+            ."PT91,GA241-04750,9,2,40,10,10,1\n"
+            ."PT91,GA241-04750,9,5,55,15,10,2\n";
+
+        $response = $this->actingAs($this->authorizedUser())
+            ->post(route('pattern-boards.import.store', $board), [
+                'file' => UploadedFile::fake()->createWithContent('import.csv', $csv),
+            ]);
+
+        $this->assertEmpty(session('importMismatches', []));
+
+        $part = Part::where('part_no', 'GA241-04750')->first();
+        $this->assertSame(2, PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $part->id)->count());
+        $this->assertSame(2, Pattern::where('pattern_board_id', $board->id)->where('part_id', $part->id)->count());
+
+        $shift1GroupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $part->id)->where('shift', 1)->first();
+        $shift2GroupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $part->id)->where('shift', 2)->first();
+
+        $this->assertSame(40, $shift1GroupItem->loading_time);
+        $this->assertSame(55, $shift2GroupItem->loading_time);
     }
 }

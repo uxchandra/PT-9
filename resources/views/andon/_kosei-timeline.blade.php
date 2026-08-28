@@ -3,7 +3,9 @@
         {{ __('Belum ada part yang di-assign untuk board ini.') }}
     </div>
 @else
-    @php $totalWidth = max($timelineEnd - $dayStart, 1) * $pxPerMinute; @endphp
+    {{-- +60min so the last hour tick gets a full column of its own instead of
+         sitting flush against the right edge with no room after it. --}}
+    @php $totalWidth = (max($timelineEnd - $dayStart, 1) + 60) * $pxPerMinute; @endphp
     <div class="andon-scroll h-full overflow-auto">
         <div class="h-full flex flex-col" style="width: {{ 110 + $totalWidth }}px;">
 
@@ -29,12 +31,12 @@
                 @foreach ($koseiParts as $part)
                     <div class="flex border-b border-slate-200 cursor-pointer transition-colors {{ $loop->even ? 'bg-slate-50/60' : 'bg-white' }}"
                          style="height: 48px;"
-                         @click="selectKoseiPart({ id: {{ $part->id }}, name: @js($part->name) })"
+                         @click="selectKoseiPart({ id: {{ $part->id }}, name: @js($part->part_no) })"
                          :class="koseiPart && koseiPart.id === {{ $part->id }} ? 'bg-brand-50' : ''">
                         <div class="sticky left-0 z-20 flex items-center px-3 shrink-0"
                              style="width: 110px; background: inherit;"
                              :style="koseiPart && koseiPart.id === {{ $part->id }} ? 'background-color: #eff6ff;' : 'background-color: {{ $loop->even ? '#f8fafc' : '#ffffff' }};'">
-                            <span class="font-bold text-slate-700 text-xs truncate">{{ $part->name }}</span>
+                            <span class="font-bold text-slate-700 text-xs truncate">{{ $part->part_no }}</span>
                         </div>
                         <div class="relative shrink-0" style="width: {{ $totalWidth }}px;"></div>
                     </div>

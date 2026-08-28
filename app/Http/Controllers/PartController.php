@@ -9,11 +9,43 @@ use Illuminate\View\View;
 
 class PartController extends Controller
 {
-    public function index(): View
-    {
-        $parts = Part::orderBy('name')->paginate(15);
+    private const PER_PAGE_OPTIONS = [10, 15, 25, 50, 100];
 
-        return view('parts.index', compact('parts'));
+    public function index(Request $request): View
+    {
+        $search = trim((string) $request->query('q', ''));
+        $perPage = (int) $request->query('per_page', 15);
+
+        if (! in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
+            $perPage = 15;
+        }
+
+        $query = Part::query();
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('part_no', 'like', "%{$search}%")
+                    ->orWhere('part_no_fg', 'like', "%{$search}%")
+                    ->orWhere('part_name', 'like', "%{$search}%")
+                    ->orWhere('customer_code', 'like', "%{$search}%")
+                    ->orWhere('model', 'like', "%{$search}%")
+                    ->orWhere('job_no', 'like', "%{$search}%")
+                    ->orWhere('line', 'like', "%{$search}%")
+                    ->orWhere('rack_no', 'like', "%{$search}%");
+            });
+        }
+
+        $parts = $query->orderByRaw('import_order is null')
+            ->orderBy('import_order')
+            ->orderBy('part_no')
+            ->paginate($perPage)
+            ->withQueryString();
+
+        if ($request->ajax()) {
+            return view('parts._results', compact('parts'));
+        }
+
+        return view('parts.index', compact('parts', 'search', 'perPage'));
     }
 
     public function create(): View
@@ -24,7 +56,7 @@ class PartController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            'part_no' => ['required', 'string', 'max:255'],
         ]);
 
         Part::create($validated);
@@ -40,7 +72,7 @@ class PartController extends Controller
     public function update(Request $request, Part $part): RedirectResponse
     {
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            'part_no' => ['required', 'string', 'max:255'],
         ]);
 
         $part->update($validated);

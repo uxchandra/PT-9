@@ -33,7 +33,8 @@
                                 <th class="px-2 py-1 border-r border-blue-200">Proses</th>
                                 <th class="px-2 py-1 border-r border-blue-200">loading_time</th>
                                 <th class="px-2 py-1 border-r border-blue-200">kanban</th>
-                                <th class="px-2 py-1">dandori</th>
+                                <th class="px-2 py-1 border-r border-blue-200">dandori</th>
+                                <th class="px-2 py-1">Shift</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -44,15 +45,17 @@
                                 <td class="px-2 py-1 border-r border-blue-200 border-t border-blue-200">2</td>
                                 <td class="px-2 py-1 border-r border-blue-200 border-t border-blue-200">40</td>
                                 <td class="px-2 py-1 border-r border-blue-200 border-t border-blue-200">10</td>
-                                <td class="px-2 py-1 border-t border-blue-200">10</td>
+                                <td class="px-2 py-1 border-r border-blue-200 border-t border-blue-200">10</td>
+                                <td class="px-2 py-1 border-t border-blue-200">1</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
                 <ul class="mt-3 space-y-1 list-disc list-inside text-blue-700">
                     <li>{{ __('Satu baris = satu assignment machine + part. Machine dan Item yang belum ada otomatis dibuat.') }}</li>
-                    <li>{{ __('loading_time, Jumlah Proses, kanban, dandori disimpan di Kelompok Pattern per part — diambil dari baris pertama part tersebut ditemukan. Kalau baris lain untuk part yang sama beda nilainya, baris itu dilewati untuk kolom-kolom tersebut (assignment mesinnya tetap disimpan).') }}</li>
+                    <li>{{ __('loading_time, Jumlah Proses, kanban, dandori disimpan di Kelompok Pattern per part+shift — diambil dari baris pertama part+shift tersebut ditemukan. Kalau baris lain untuk part+shift yang sama beda nilainya, baris itu dilewati untuk kolom-kolom tersebut (assignment mesinnya tetap disimpan).') }}</li>
                     <li>{{ __('Proses & Machine tetap disimpan per baris (per assignment).') }}</li>
+                    <li>{{ __('Shift: isi 1 untuk Shift 1 (07:00–16:00) atau 2 untuk Shift 2 (20:00–06:00). Kolom ini boleh dikosongkan / tidak ada — defaultnya Shift 1.') }}</li>
                 </ul>
             </div>
 

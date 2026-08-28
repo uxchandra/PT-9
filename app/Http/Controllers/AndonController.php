@@ -16,8 +16,8 @@ class AndonController extends Controller
 {
     private const DAY_START = 7 * 60;
 
-    // 05:00 the following day: shift 1 (07:00-16:00) + gap (16:00-20:00) + shift 2 (20:00-05:00).
-    private const DAY_END = 24 * 60 + 5 * 60;
+    // 06:00 the following day: shift 1 (07:00-16:00) + gap (16:00-20:00) + shift 2 (20:00-06:00).
+    private const DAY_END = 24 * 60 + 6 * 60;
 
     private const SHIFT_GAP_START = 16 * 60;
 
@@ -38,7 +38,11 @@ class AndonController extends Controller
     {
         $patternBoards = PatternBoard::orderBy('name')->get();
 
-        $groupItems = PatternGroupItem::where('pattern_board_id', $patternBoard->id)->get()->keyBy('part_id');
+        $groupItems = PatternGroupItem::where('pattern_board_id', $patternBoard->id)->get();
+
+        // A part can have its own group item per shift, so lookups during block
+        // building are keyed by part_id+shift rather than part_id alone.
+        $groupItemsByPartShift = $groupItems->keyBy(fn ($item) => $item->part_id.'-'.$item->shift);
 
         // Ordered by id (creation order) rather than the part's Kelompok Pattern
         // "urutan", so each machine's sequence of blocks follows the order rows
@@ -47,13 +51,13 @@ class AndonController extends Controller
             ->with(['machine', 'part'])
             ->orderBy('id')
             ->get()
-            ->filter(fn (Pattern $pattern) => $groupItems->has($pattern->part_id));
+            ->filter(fn (Pattern $pattern) => $groupItemsByPartShift->has($pattern->part_id.'-'.$pattern->shift));
 
         $patterns = $filteredPatterns->groupBy('machine_id');
 
         // Part list for the Kosei stock view — one row per part assigned to this
-        // board, independent of which machine(s) run it.
-        $koseiParts = $filteredPatterns->pluck('part')->unique('id')->sortBy('name')->values();
+        // board, independent of which machine(s) or shift run it.
+        $koseiParts = $filteredPatterns->pluck('part')->unique('id')->sortBy('part_no')->values();
 
         // Rest bands are shown for reference at their real clock time, but only the
         // shift-change gap actually pauses production — regular rests no longer
@@ -66,42 +70,25 @@ class AndonController extends Controller
 
         foreach ($patterns as $machineId => $machinePatterns) {
             $machine = $machinePatterns->first()->machine;
-            $cursor = self::DAY_START;
-            $blocks = [];
 
-            foreach ($machinePatterns as $pattern) {
-                $groupItem = $groupItems->get($pattern->part_id);
-                $label = $pattern->part->name.' '.$pattern->proses.'/'.$groupItem->jumlah_proses;
+            // Shift 1 and shift 2 are scheduled independently, each from its own
+            // start of window, so shift 2 gets filled instead of always sitting
+            // empty behind the shift-change gap.
+            [$shift1Blocks, $cursor1] = $this->buildShiftBlocks(
+                $machinePatterns->where('shift', 1), $groupItemsByPartShift, self::DAY_START, $pauseIntervals
+            );
+            [$shift2Blocks, $cursor2] = $this->buildShiftBlocks(
+                $machinePatterns->where('shift', 2), $groupItemsByPartShift, self::SHIFT_GAP_END, $pauseIntervals
+            );
 
-                if ($groupItem->dandori > 0) {
-                    [$segments, $cursor] = $this->placeSegment($cursor, $groupItem->dandori, $pauseIntervals);
-                    foreach ($segments as $i => [$start, $end]) {
-                        $blocks[] = [
-                            'type' => 'dandori',
-                            'start' => $start,
-                            'end' => $end,
-                            'label' => (string) $groupItem->dandori,
-                            'showLabel' => $i === 0,
-                        ];
-                    }
-                }
+            $blocks = array_merge($shift1Blocks, $shift2Blocks);
 
-                [$segments, $cursor] = $this->placeSegment($cursor, $groupItem->loading_time, $pauseIntervals);
-                foreach ($segments as $i => [$start, $end]) {
-                    $blocks[] = [
-                        'type' => 'loading',
-                        'start' => $start,
-                        'end' => $end,
-                        'label' => $label,
-                        'kanban' => $groupItem->total_kanban,
-                        'showLabel' => $i === 0,
-                        'part_id' => $pattern->part_id,
-                    ];
-                }
+            foreach ($this->splitAroundRests($cursor1, self::SHIFT_GAP_START, $pauseIntervals) as [$start, $end]) {
+                $blocks[] = ['type' => 'free', 'start' => $start, 'end' => $end, 'label' => 'FREE TIME'];
             }
 
-            $filledThrough = max($cursor, self::DAY_END);
-            foreach ($this->splitAroundRests($cursor, self::DAY_END, $pauseIntervals) as [$start, $end]) {
+            $filledThrough = max($cursor2, self::SHIFT_GAP_END);
+            foreach ($this->splitAroundRests($cursor2, self::DAY_END, $pauseIntervals) as [$start, $end]) {
                 $blocks[] = ['type' => 'free', 'start' => $start, 'end' => $end, 'label' => 'FREE TIME'];
             }
 
@@ -142,7 +129,7 @@ class AndonController extends Controller
 
     /**
      * Actual captured snapshots for one part (Kosei's "Timeline Stok" table),
-     * matched to the source system by part name === stock_snapshots.part_no,
+     * matched to the source system by parts.part_no === stock_snapshots.part_no,
      * scoped to the current 07:00–06:00(+1) window. Only real snapshot rows are
      * returned (no filler slots), labeled with their real captured_at time so
      * movement between captures (every 5 min) is visible as it happens.
@@ -151,7 +138,7 @@ class AndonController extends Controller
     {
         [$windowStart, $windowEnd] = $this->currentStockWindow();
 
-        $points = StockSnapshot::where('part_no', $part->name)
+        $points = StockSnapshot::where('part_no', $part->part_no)
             ->whereBetween('captured_at', [$windowStart, $windowEnd])
             ->orderBy('captured_at')
             ->get()
@@ -184,6 +171,8 @@ class AndonController extends Controller
     /**
      * Assign each part a stable, visually distinct color (ordered by Kelompok
      * Pattern urutan) so the same part reads consistently across every machine row.
+     * A part with a group item in both shifts only gets one color, taken from
+     * whichever shift's urutan sorts first.
      *
      * @return array<int, string>
      */
@@ -198,8 +187,12 @@ class AndonController extends Controller
         $colors = [];
         $i = 0;
 
-        foreach ($groupItems->sortBy('urutan') as $partId => $groupItem) {
-            $colors[$partId] = $palette[$i % count($palette)];
+        foreach ($groupItems->sortBy('urutan') as $groupItem) {
+            if (isset($colors[$groupItem->part_id])) {
+                continue;
+            }
+
+            $colors[$groupItem->part_id] = $palette[$i % count($palette)];
             $i++;
         }
 
@@ -207,10 +200,61 @@ class AndonController extends Controller
     }
 
     /**
+     * Place one shift's dandori+loading_time blocks back to back starting at
+     * $windowStart, in $patterns' order. Returns the blocks plus the cursor
+     * reached after the last one (or $windowStart unchanged if $patterns is empty).
+     *
+     * @return array{0: array<int, array<string, mixed>>, 1: int}
+     */
+    private function buildShiftBlocks($patterns, $groupItemsByPartShift, int $windowStart, $pauseIntervals): array
+    {
+        $cursor = $windowStart;
+        $blocks = [];
+
+        foreach ($patterns as $pattern) {
+            $groupItem = $groupItemsByPartShift->get($pattern->part_id.'-'.$pattern->shift);
+
+            if (! $groupItem) {
+                continue;
+            }
+
+            $label = $pattern->part->part_no.' '.$pattern->proses.'/'.$groupItem->jumlah_proses;
+
+            if ($groupItem->dandori > 0) {
+                [$segments, $cursor] = $this->placeSegment($cursor, $groupItem->dandori, $pauseIntervals);
+                foreach ($segments as $i => [$start, $end]) {
+                    $blocks[] = [
+                        'type' => 'dandori',
+                        'start' => $start,
+                        'end' => $end,
+                        'label' => (string) $groupItem->dandori,
+                        'showLabel' => $i === 0,
+                    ];
+                }
+            }
+
+            [$segments, $cursor] = $this->placeSegment($cursor, $groupItem->loading_time, $pauseIntervals);
+            foreach ($segments as $i => [$start, $end]) {
+                $blocks[] = [
+                    'type' => 'loading',
+                    'start' => $start,
+                    'end' => $end,
+                    'label' => $label,
+                    'kanban' => $groupItem->total_kanban,
+                    'showLabel' => $i === 0,
+                    'part_id' => $pattern->part_id,
+                ];
+            }
+        }
+
+        return [$blocks, $cursor];
+    }
+
+    /**
      * Rest windows from the database, plus the fixed shift-change gap, expressed
      * as minutes since 00:00 of the andon's start day. A rest that falls before
      * DAY_START (e.g. an early-morning break) is assumed to belong to the
-     * following calendar day, since the timeline runs 07:00 through 05:00+1.
+     * following calendar day, since the timeline runs 07:00 through 06:00+1.
      */
     private function buildRestIntervals()
     {

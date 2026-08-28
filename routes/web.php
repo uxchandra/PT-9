@@ -3,6 +3,7 @@
 use App\Http\Controllers\AndonController;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\PartController;
+use App\Http\Controllers\PartImportController;
 use App\Http\Controllers\PatternBoardController;
 use App\Http\Controllers\PatternController;
 use App\Http\Controllers\PatternGroupItemController;
@@ -40,6 +41,11 @@ Route::middleware('auth')->group(function () {
     Route::resource('machines', MachineController::class)->middleware('can:manage machines');
     Route::resource('parts', PartController::class)->middleware('can:manage parts');
     Route::resource('rests', RestController::class)->middleware('can:manage rest');
+
+    Route::middleware('can:manage parts')->group(function () {
+        Route::get('parts-import', [PartImportController::class, 'create'])->name('parts.import.create');
+        Route::post('parts-import', [PartImportController::class, 'store'])->name('parts.import.store');
+    });
 
     Route::middleware('can:manage patterns')->group(function () {
         Route::resource('pattern-boards', PatternBoardController::class)->except(['show']);

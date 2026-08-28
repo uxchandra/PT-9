@@ -29,7 +29,7 @@ class AndonTest extends TestCase
     {
         $board = PatternBoard::create(['name' => 'TestBoard']);
         $machine = Machine::create(['name' => 'M1']);
-        $partA = Part::create(['name' => 'P1']);
+        $partA = Part::create(['part_no' => 'P1']);
 
         // dandori (10min) 07:00-07:10, loading_time (100min) 07:10-08:50 — the
         // 08:00-08:30 Lunch rest falls entirely inside that window but must NOT
@@ -87,9 +87,9 @@ class AndonTest extends TestCase
         $pt91 = Machine::create(['name' => 'PT91']);
         $pt92 = Machine::create(['name' => 'PT92']);
 
-        $partA = Part::create(['name' => 'A']);
-        $partB = Part::create(['name' => 'B']);
-        $partC = Part::create(['name' => 'C']);
+        $partA = Part::create(['part_no' => 'A']);
+        $partB = Part::create(['part_no' => 'B']);
+        $partC = Part::create(['part_no' => 'C']);
 
         foreach ([$partA, $partB, $partC] as $i => $part) {
             PatternGroupItem::create([
@@ -124,8 +124,8 @@ class AndonTest extends TestCase
         $board = PatternBoard::create(['name' => 'TestBoard']);
         $machine = Machine::create(['name' => 'M1']);
 
-        $partHigh = Part::create(['name' => 'PartHigh']); // urutan=1, listed first in Kelompok Pattern
-        $partLow = Part::create(['name' => 'PartLow']);   // urutan=2, listed second
+        $partHigh = Part::create(['part_no' => 'PartHigh']); // urutan=1, listed first in Kelompok Pattern
+        $partLow = Part::create(['part_no' => 'PartLow']);   // urutan=2, listed second
 
         PatternGroupItem::create([
             'pattern_board_id' => $board->id, 'part_id' => $partHigh->id,
@@ -155,7 +155,7 @@ class AndonTest extends TestCase
     {
         $board = PatternBoard::create(['name' => 'TestBoard']);
         $machine = Machine::create(['name' => 'M1']);
-        $part = Part::create(['name' => 'P1']);
+        $part = Part::create(['part_no' => 'P1']);
 
         PatternGroupItem::create([
             'pattern_board_id' => $board->id,
@@ -178,7 +178,70 @@ class AndonTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Pergantian Shift');
-        // 05:00 the next day (tail end of shift 2) must be on the axis.
-        $response->assertSee('05:00');
+        // 06:00 the next day (tail end of shift 2) must be on the axis.
+        $response->assertSee('06:00');
+    }
+
+    public function test_andon_show_schedules_shift_2_assignments_starting_at_20_00_instead_of_leaving_it_empty(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $partShift1 = Part::create(['part_no' => 'SHIFT1-PART']);
+        $partShift2 = Part::create(['part_no' => 'SHIFT2-PART']);
+
+        // Shift 1's own item — a short job that finishes long before 16:00,
+        // the way the old single-cursor scheduling used to leave everything
+        // after it (including all of shift 2) marked as free time.
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $partShift1->id,
+            'shift' => 1,
+            'urutan' => 1,
+            'loading_time' => 30,
+            'jumlah_proses' => 1,
+            'total_kanban' => 5,
+            'dandori' => 0,
+        ]);
+
+        // A separate item explicitly for shift 2.
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $partShift2->id,
+            'shift' => 2,
+            'urutan' => 2,
+            'loading_time' => 45,
+            'jumlah_proses' => 1,
+            'total_kanban' => 8,
+            'dandori' => 0,
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $partShift1->id,
+            'shift' => 1,
+            'proses' => 1,
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $partShift2->id,
+            'shift' => 2,
+            'proses' => 1,
+        ]);
+
+        $html = $this->get("/andon/{$board->id}")->getContent();
+
+        // Both shifts' blocks must render — shift 2 is no longer stuck empty
+        // just because shift 1 finished its own workload early.
+        $this->assertStringContainsString('SHIFT1-PART 1/1', $html);
+        $this->assertStringContainsString('SHIFT2-PART 1/1', $html);
+
+        // The shift 2 block must start at 20:00 (minute 1200 since day start
+        // 07:00 = minute 420), not right after shift 1's block ends at 07:30.
+        $pxPerMinute = 1.8;
+        $expectedLeft = (1200 - 420) * $pxPerMinute;
+        $this->assertStringContainsString('left: '.$expectedLeft.'px', $html);
     }
 }
