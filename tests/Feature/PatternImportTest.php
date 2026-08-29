@@ -52,10 +52,15 @@ class PatternImportTest extends TestCase
     {
         $board = PatternBoard::create(['name' => 'A']);
 
-        $csv = "Machine,Item,Jumlah Proses,Proses,loading_time,kanban,dandori\n"
-            ."PT91,GA241-04750,9,2,40,10,10\n"
-            ."PT92,GA241-04750,9,3,40,10,10\n"
-            ."PT91,57453-BZ140,8,2,160,20,10\n";
+        // Pre-existing so its Qty Kbn (Part List) is available for total_kanban's
+        // lot ÷ qty_kbn calculation; the other part is created fresh by the
+        // import with no Qty Kbn, so its total_kanban falls back to 0.
+        Part::create(['part_no' => 'GA241-04750', 'qty_kbn' => 20]);
+
+        $csv = "Machine,Item,Jumlah Proses,Proses,loading_time,dandori,lot\n"
+            ."PT91,GA241-04750,9,2,40,10,190\n"
+            ."PT92,GA241-04750,9,3,40,10,190\n"
+            ."PT91,57453-BZ140,8,2,160,10,100\n";
 
         $file = UploadedFile::fake()->createWithContent('import.csv', $csv);
 
@@ -74,6 +79,7 @@ class PatternImportTest extends TestCase
         $groupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $ga->id)->first();
         $this->assertSame(40, $groupItem->loading_time);
         $this->assertSame(9, $groupItem->jumlah_proses);
+        // lot 190 ÷ qty_kbn 20 = 9.5, rounded up to 10.
         $this->assertSame(10, $groupItem->total_kanban);
         $this->assertSame(10, $groupItem->dandori);
         $this->assertSame(1, $groupItem->urutan);
@@ -210,5 +216,30 @@ class PatternImportTest extends TestCase
 
         $this->assertSame(40, $shift1GroupItem->loading_time);
         $this->assertSame(55, $shift2GroupItem->loading_time);
+    }
+
+    public function test_lot_column_is_imported_and_defaults_to_0_when_left_out(): void
+    {
+        $board = PatternBoard::create(['name' => 'A']);
+
+        $csv = "Machine,Item,Jumlah Proses,Proses,loading_time,kanban,dandori,Shift,lot\n"
+            ."PT91,GA241-04750,9,2,40,10,10,1,150\n"
+            ."PT91,NO-LOT-COL,1,1,10,1,0,1,\n"; // blank -> defaults to 0
+
+        $response = $this->actingAs($this->authorizedUser())
+            ->post(route('pattern-boards.import.store', $board), [
+                'file' => UploadedFile::fake()->createWithContent('import.csv', $csv),
+            ]);
+
+        $response->assertRedirect(route('pattern-boards.index', ['board' => $board->id]));
+
+        $withLotPart = Part::where('part_no', 'GA241-04750')->first();
+        $blankLotPart = Part::where('part_no', 'NO-LOT-COL')->first();
+
+        $withLotGroupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $withLotPart->id)->first();
+        $blankLotGroupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $blankLotPart->id)->first();
+
+        $this->assertSame(150, $withLotGroupItem->lot);
+        $this->assertSame(0, $blankLotGroupItem->lot);
     }
 }

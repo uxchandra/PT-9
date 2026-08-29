@@ -8,6 +8,7 @@ use App\Models\Pattern;
 use App\Models\PatternBoard;
 use App\Models\PatternGroupItem;
 use App\Models\Rest;
+use App\Models\StockSnapshot;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -243,5 +244,184 @@ class AndonTest extends TestCase
         $pxPerMinute = 1.8;
         $expectedLeft = (1200 - 420) * $pxPerMinute;
         $this->assertStringContainsString('left: '.$expectedLeft.'px', $html);
+    }
+
+    /** @return array{0: \Illuminate\Support\Carbon, 1: \Illuminate\Support\Carbon} */
+    private function currentStockWindow(): array
+    {
+        $now = now();
+        $cutoff = $now->copy()->setTime(6, 0);
+        $windowStart = $now->lt($cutoff) ? $now->copy()->subDay()->setTime(7, 0) : $now->copy()->setTime(7, 0);
+
+        return [$windowStart, $windowStart->copy()->addHours(23)];
+    }
+
+    public function test_kosei_timeline_shows_a_tick_per_kanban_when_stock_drops(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]); // 1 pc = 1 kanban, easy to count
+
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $part->id,
+            'urutan' => 1,
+            'loading_time' => 10,
+            'jumlah_proses' => 1,
+            'total_kanban' => 1,
+            'dandori' => 0,
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $part->id,
+            'proses' => 1,
+        ]);
+
+        [$windowStart] = $this->currentStockWindow();
+
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 50, 'std_min' => 10, 'captured_at' => $windowStart]);
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 48, 'std_min' => 10, 'captured_at' => $windowStart->copy()->addMinutes(15)]);
+        // Restock — must not produce a tick.
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 60, 'std_min' => 10, 'captured_at' => $windowStart->copy()->addMinutes(30)]);
+
+        $html = $this->get("/andon/{$board->id}")->getContent();
+
+        $this->assertStringContainsString('stok turun 2 kanban (2 pcs)', $html);
+        $this->assertStringNotContainsString('kanban (12 pcs)', $html, 'a stock increase must not produce a decrease tick');
+
+        // 2 red tick bars for the 2-kanban drop, plus the "2" label under them.
+        $eventTitlePos = strpos($html, 'stok turun 2 kanban (2 pcs)');
+        $this->assertNotFalse($eventTitlePos);
+        $snippet = substr($html, $eventTitlePos, 700);
+        $this->assertSame(2, substr_count($snippet, 'bg-red-500'));
+        $this->assertStringContainsString('>2</span>', $snippet);
+    }
+
+    public function test_kosei_timeline_rounds_a_sub_kanban_decrease_up_to_1_tick(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        // A 2pc drop is far smaller than this part's 100pc Qty Kbn, but the
+        // same round-up rule as total_kanban still counts it as 1 kanban.
+        $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 100]);
+
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $part->id,
+            'urutan' => 1,
+            'loading_time' => 10,
+            'jumlah_proses' => 1,
+            'total_kanban' => 1,
+            'dandori' => 0,
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $part->id,
+            'proses' => 1,
+        ]);
+
+        [$windowStart] = $this->currentStockWindow();
+
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 50, 'std_min' => 10, 'captured_at' => $windowStart]);
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 48, 'std_min' => 10, 'captured_at' => $windowStart->copy()->addMinutes(15)]);
+
+        $html = $this->get("/andon/{$board->id}")->getContent();
+
+        $this->assertStringContainsString('stok turun 1 kanban (2 pcs)', $html);
+    }
+
+    public function test_timeline_stok_shows_every_part_side_by_side_without_needing_a_click(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $partA = Part::create(['part_no' => 'PART-A']);
+        $partB = Part::create(['part_no' => 'PART-B']);
+
+        foreach ([$partA, $partB] as $i => $part) {
+            PatternGroupItem::create([
+                'pattern_board_id' => $board->id,
+                'part_id' => $part->id,
+                'urutan' => $i + 1,
+                'loading_time' => 10,
+                'jumlah_proses' => 1,
+                'total_kanban' => 1,
+                'dandori' => 0,
+            ]);
+
+            Pattern::create([
+                'pattern_board_id' => $board->id,
+                'machine_id' => $machine->id,
+                'part_id' => $part->id,
+                'proses' => 1,
+            ]);
+        }
+
+        [$windowStart] = $this->currentStockWindow();
+
+        // Both parts captured in the same run/timestamp, like the real
+        // snapshot command does — PART-B is under its std_min.
+        StockSnapshot::create(['part_no' => 'PART-A', 'stock' => 50, 'std_min' => 10, 'captured_at' => $windowStart]);
+        StockSnapshot::create(['part_no' => 'PART-B', 'stock' => 5, 'std_min' => 10, 'captured_at' => $windowStart]);
+
+        $html = $this->get("/andon/{$board->id}")->getContent();
+
+        // Both parts appear as columns, with no click/selection needed.
+        $this->assertStringContainsString('PART-A', $html);
+        $this->assertStringContainsString('PART-B', $html);
+        $this->assertStringNotContainsString('Pilih part di Kosei', $html);
+
+        // One shared time row carries both parts' stock values — search only
+        // within the Timeline Stok panel, since the same "07:00" text also
+        // appears earlier on the Pattern gantt's own time axis.
+        $stockPanelPos = strpos($html, 'TIMELINE STOK');
+        $this->assertNotFalse($stockPanelPos);
+        $timePos = strpos($html, $windowStart->format('H:i'), $stockPanelPos);
+        $this->assertNotFalse($timePos);
+        $rowSnippet = substr($html, $timePos, 1000);
+        $this->assertMatchesRegularExpression('/>\s*50\s*</', $rowSnippet);
+        $this->assertMatchesRegularExpression('/>\s*5\s*</', $rowSnippet);
+        // PART-B's under-min cell is highlighted.
+        $this->assertStringContainsString('bg-red-50 text-red-600', $rowSnippet);
+    }
+
+    public function test_andon_show_returns_json_partials_for_ajax_refresh_instead_of_the_full_page(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $part = Part::create(['part_no' => 'P1']);
+
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $part->id,
+            'urutan' => 1,
+            'loading_time' => 10,
+            'jumlah_proses' => 1,
+            'total_kanban' => 1,
+            'dandori' => 0,
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $part->id,
+            'proses' => 1,
+        ]);
+
+        $response = $this->get("/andon/{$board->id}", ['X-Requested-With' => 'XMLHttpRequest']);
+
+        $response->assertOk();
+        $response->assertJsonStructure(['timeline', 'kosei', 'stockTimeline', 'nowMinute', 'serverTime']);
+
+        // The 3 panel fragments must not include the full page shell (no
+        // duplicate <html>/board switcher) — just the fragment markup itself.
+        $data = $response->json();
+        $this->assertStringContainsString('P1', $data['timeline']);
+        $this->assertStringContainsString('P1', $data['kosei']);
+        $this->assertStringNotContainsString('<html', $data['timeline']);
+        $this->assertIsInt($data['nowMinute']);
     }
 }

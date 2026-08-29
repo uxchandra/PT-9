@@ -2,13 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Part;
 use App\Models\Pattern;
 use App\Models\PatternBoard;
 use App\Models\PatternGroupItem;
 use App\Models\Rest;
 use App\Models\StockSnapshot;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\View\View;
 
@@ -34,7 +34,7 @@ class AndonController extends Controller
         return view('andon.index', compact('patternBoards'));
     }
 
-    public function show(PatternBoard $patternBoard): View
+    public function show(Request $request, PatternBoard $patternBoard): View|JsonResponse
     {
         $patternBoards = PatternBoard::orderBy('name')->get();
 
@@ -58,6 +58,14 @@ class AndonController extends Controller
         // Part list for the Kosei stock view — one row per part assigned to this
         // board, independent of which machine(s) or shift run it.
         $koseiParts = $filteredPatterns->pluck('part')->unique('id')->sortBy('part_no')->values();
+
+        // Tick marks drawn directly on each part's Kosei row wherever its stock
+        // dropped between two 5-minute captures, converted to kanban.
+        $stockDecreaseEvents = $this->buildStockDecreaseEvents($koseiParts);
+
+        // Timeline Stok: every part's stock side by side, sharing one time
+        // column, instead of only showing whichever part was last clicked.
+        $stockHistoryRows = $this->buildStockHistoryRows($koseiParts);
 
         // Rest bands are shown for reference at their real clock time, but only the
         // shift-change gap actually pauses production — regular rests no longer
@@ -114,7 +122,12 @@ class AndonController extends Controller
 
         $partColors = $this->assignPartColors($groupItems);
 
-        return view('andon.show', [
+        // Where "now" sits on the chart's own minute scale, so the browser can
+        // auto-scroll each panel to the current time instead of starting at 07:00.
+        [$windowStart] = $this->currentStockWindow();
+        $nowMinute = self::DAY_START + (int) $windowStart->diffInMinutes(now());
+
+        $viewData = [
             'patternBoard' => $patternBoard,
             'patternBoards' => $patternBoards,
             'rows' => $rows,
@@ -124,32 +137,143 @@ class AndonController extends Controller
             'timelineEnd' => $timelineEnd,
             'pxPerMinute' => self::PX_PER_MINUTE,
             'partColors' => $partColors,
-        ]);
+            'stockDecreaseEvents' => $stockDecreaseEvents,
+            'stockHistoryRows' => $stockHistoryRows,
+            'nowMinute' => $nowMinute,
+        ];
+
+        if ($request->ajax()) {
+            // Periodic refresh fetches this instead of reloading the page, so
+            // the three panels update in place with no visible tab reload.
+            return response()->json([
+                'timeline' => view('andon._timeline', $viewData)->render(),
+                'kosei' => view('andon._kosei-timeline', $viewData)->render(),
+                'stockTimeline' => view('andon._stock-timeline', $viewData)->render(),
+                'nowMinute' => $nowMinute,
+                'serverTime' => now()->format('H:i:s'),
+            ]);
+        }
+
+        return view('andon.show', $viewData);
     }
 
     /**
-     * Actual captured snapshots for one part (Kosei's "Timeline Stok" table),
-     * matched to the source system by parts.part_no === stock_snapshots.part_no,
-     * scoped to the current 07:00–06:00(+1) window. Only real snapshot rows are
-     * returned (no filler slots), labeled with their real captured_at time so
-     * movement between captures (every 5 min) is visible as it happens.
+     * Timeline Stok, all parts at once: one row per captured_at timestamp
+     * (all parts share the same captures since CaptureStockSnapshot writes
+     * them in the same run), each row carrying every part's stock reading at
+     * that moment keyed by part id — a part missing a reading for a given
+     * timestamp (e.g. it dropped out of the source feed that cycle) is simply
+     * absent from that row's values. Scoped to the same 07:00–06:00(+1)
+     * window as the stock-decrease ticks.
+     *
+     * @return array<int, array{time: string, values: array<int, array{stock: int, under_min: bool}>}>
      */
-    public function stockHistory(Part $part): JsonResponse
+    private function buildStockHistoryRows($koseiParts): array
     {
-        [$windowStart, $windowEnd] = $this->currentStockWindow();
+        if ($koseiParts->isEmpty()) {
+            return [];
+        }
 
-        $points = StockSnapshot::where('part_no', $part->part_no)
+        [$windowStart, $windowEnd] = $this->currentStockWindow();
+        $partIdByPartNo = $koseiParts->pluck('id', 'part_no');
+
+        $snapshots = StockSnapshot::whereIn('part_no', $partIdByPartNo->keys())
+            ->whereBetween('captured_at', [$windowStart, $windowEnd])
+            ->orderBy('captured_at')
+            ->get();
+
+        $rows = [];
+
+        foreach ($snapshots->groupBy(fn (StockSnapshot $s) => $s->captured_at->toDateTimeString()) as $timestamp => $group) {
+            $values = [];
+
+            foreach ($group as $snapshot) {
+                $partId = $partIdByPartNo->get($snapshot->part_no);
+
+                if ($partId !== null) {
+                    $values[$partId] = [
+                        'stock' => $snapshot->stock,
+                        'under_min' => $snapshot->stock < $snapshot->std_min,
+                    ];
+                }
+            }
+
+            // groupBy preserves first-seen order, and $snapshots was already
+            // fetched ordered by captured_at, so this is already chronological.
+            $rows[] = ['time' => Carbon::parse($timestamp)->format('H:i'), 'values' => $values];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * For each Kosei part, every moment its TD-process stock (StockSnapshot,
+     * captured from Stock Part All every 5 minutes) dropped between one
+     * capture and the next — the same window as stockHistory()'s "Timeline
+     * Stok" — converted from pcs to kanban via lot÷qty_kbn rounded up, the
+     * same rule as PatternGroupItem::calculateTotalKanban (so any decrease,
+     * even smaller than one full Qty Kbn, still shows at least 1 tick). Only
+     * decreases produce a tick; a flat or increasing (restock) reading is
+     * ignored, and a part with no Qty Kbn set produces no tick either.
+     *
+     * @return array<int, array<int, array{minute: int, kanban: int, pcs: int, time: string}>>
+     */
+    private function buildStockDecreaseEvents($koseiParts): array
+    {
+        if ($koseiParts->isEmpty()) {
+            return [];
+        }
+
+        [$windowStart, $windowEnd] = $this->currentStockWindow();
+        $partNumbers = $koseiParts->pluck('part_no')->all();
+
+        // One "seed" snapshot per part from just before the window, so the
+        // first in-window reading still has something to compare against.
+        // Fetched in bulk (2 queries total) rather than per part, since this
+        // page reloads on its own every 60 seconds.
+        $seedSnapshots = StockSnapshot::whereIn('part_no', $partNumbers)
+            ->where('captured_at', '<', $windowStart)
+            ->orderBy('part_no')
+            ->orderByDesc('captured_at')
+            ->get()
+            ->unique('part_no')
+            ->keyBy('part_no');
+
+        $snapshotsByPart = StockSnapshot::whereIn('part_no', $partNumbers)
             ->whereBetween('captured_at', [$windowStart, $windowEnd])
             ->orderBy('captured_at')
             ->get()
-            ->map(fn (StockSnapshot $snapshot) => [
-                'time' => $snapshot->captured_at->format('H:i'),
-                'stock' => $snapshot->stock,
-                'std_min' => $snapshot->std_min,
-                'under_min' => $snapshot->stock < $snapshot->std_min,
-            ]);
+            ->groupBy('part_no');
 
-        return response()->json($points);
+        $events = [];
+
+        foreach ($koseiParts as $part) {
+            $previous = $seedSnapshots->get($part->part_no);
+            $partEvents = [];
+
+            foreach ($snapshotsByPart->get($part->part_no, collect()) as $snapshot) {
+                $decreasePcs = $previous ? $previous->stock - $snapshot->stock : 0;
+
+                if ($decreasePcs > 0) {
+                    $kanban = PatternGroupItem::calculateTotalKanban($decreasePcs, $part->qty_kbn);
+
+                    if ($kanban > 0) {
+                        $partEvents[] = [
+                            'minute' => self::DAY_START + (int) $windowStart->diffInMinutes($snapshot->captured_at),
+                            'kanban' => $kanban,
+                            'pcs' => $decreasePcs,
+                            'time' => $snapshot->captured_at->format('H:i'),
+                        ];
+                    }
+                }
+
+                $previous = $snapshot;
+            }
+
+            $events[$part->id] = $partEvents;
+        }
+
+        return $events;
     }
 
     /**

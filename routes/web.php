@@ -20,7 +20,6 @@ Route::get('/', function () {
 
 Route::get('/andon', [AndonController::class, 'index'])->name('andon.index');
 Route::get('/andon/{patternBoard}', [AndonController::class, 'show'])->name('andon.show');
-Route::get('/andon-kosei/stock-history/{part}', [AndonController::class, 'stockHistory'])->name('andon.stock-history');
 
 Route::get('/dashboard', function () {
     $andonPreviewBoard = PatternBoard::where('name', 'A')->first()

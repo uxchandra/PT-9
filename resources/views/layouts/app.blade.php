@@ -149,8 +149,19 @@
                     </a>
                     @endcan
 
-                    @canany(['manage machines', 'manage parts', 'manage rest', 'manage patterns'])
-                    @php $masterDataActive = request()->routeIs(['machines.*', 'parts.*', 'rests.*', 'patterns.*', 'pattern-boards.*', 'group-items.*']); @endphp
+                    @can('manage patterns')
+                    <a href="{{ route('pattern-boards.index') }}"
+                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs(['pattern-boards.*', 'group-items.*', 'patterns.*']) ? 'active' : '' }}">
+                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M4 6h16M4 10h16M4 14h10M4 18h10"/>
+                        </svg>
+                        <span class="font-semibold text-sm">{{ __('Pattern') }}</span>
+                    </a>
+                    @endcan
+
+                    @canany(['manage machines', 'manage parts', 'manage rest'])
+                    @php $masterDataActive = request()->routeIs(['machines.*', 'parts.*', 'rests.*']); @endphp
                     <div x-data="{ open: {{ $masterDataActive ? 'true' : 'false' }} }">
                         <button @click="open = !open" type="button"
                                 class="menu-group-header w-full flex items-center justify-between text-gray-300 {{ $masterDataActive ? 'group-has-active' : '' }}">
@@ -194,16 +205,6 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                 </svg>
                                 {{ __('Rest') }}
-                            </a>
-                            @endcan
-                            @can('manage patterns')
-                            <a href="{{ route('pattern-boards.index') }}"
-                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300 {{ $masterDataActive && request()->routeIs(['pattern-boards.*','group-items.*','patterns.*']) ? 'active' : '' }}">
-                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                          d="M4 6h16M4 10h16M4 14h10M4 18h10"/>
-                                </svg>
-                                {{ __('Pattern') }}
                             </a>
                             @endcan
                         </div>

@@ -20,7 +20,7 @@
                             class="mt-1 block w-full border-gray-300 focus:border-brand-700 focus:ring-brand-700 rounded-lg shadow-sm text-sm transition">
                         <option value="">{{ __('-- Pilih Part --') }}</option>
                         @foreach ($parts as $part)
-                            <option value="{{ $part->id }}" @selected(old('part_id', $patternGroupItem->part_id) == $part->id)>{{ $part->part_no }}</option>
+                            <option value="{{ $part->id }}" data-qty-kbn="{{ $part->qty_kbn }}" @selected(old('part_id', $patternGroupItem->part_id) == $part->id)>{{ $part->part_no }}</option>
                         @endforeach
                     </select>
                     <x-input-error :messages="$errors->get('part_id')" class="mt-2" />
@@ -44,6 +44,12 @@
                     <x-input-error :messages="$errors->get('urutan')" class="mt-2" />
                 </div>
 
+                <div>
+                    <x-input-label for="lot" :value="__('Lot')" />
+                    <x-text-input id="lot" name="lot" type="number" min="0" class="block w-full mt-1" :value="old('lot', $patternGroupItem->lot)" required />
+                    <x-input-error :messages="$errors->get('lot')" class="mt-2" />
+                </div>
+
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <x-input-label for="loading_time" :value="__('Loading Time (menit)')" />
@@ -59,9 +65,9 @@
 
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <x-input-label for="total_kanban" :value="__('Total Kanban')" />
-                        <x-text-input id="total_kanban" name="total_kanban" type="number" min="0" class="block w-full mt-1" :value="old('total_kanban', $patternGroupItem->total_kanban)" required />
-                        <x-input-error :messages="$errors->get('total_kanban')" class="mt-2" />
+                        <x-input-label :value="__('Total Kanban')" />
+                        <div id="total-kanban-preview" class="mt-1 flex items-center h-10 px-3 rounded-lg border border-gray-200 bg-gray-50 text-sm font-medium text-gray-700">{{ $patternGroupItem->total_kanban }}</div>
+                        <p class="mt-1 text-xs text-gray-500">{{ __('Otomatis: Lot ÷ Qty Kbn part (dibulatkan ke atas). Bukan input manual.') }}</p>
                     </div>
                     <div>
                         <x-input-label for="dandori" :value="__('Dandori (menit)')" />
@@ -77,4 +83,28 @@
             </form>
         </div>
     </div>
+
+    <script>
+        (function () {
+            const partSelect = document.getElementById('part_id');
+            const lotInput = document.getElementById('lot');
+            const preview = document.getElementById('total-kanban-preview');
+
+            function updatePreview() {
+                const option = partSelect.options[partSelect.selectedIndex];
+                const qtyKbn = option ? parseFloat(option.dataset.qtyKbn) : NaN;
+                const lot = parseFloat(lotInput.value);
+
+                if (!option || !option.value || isNaN(qtyKbn) || qtyKbn <= 0 || isNaN(lot)) {
+                    preview.textContent = '—';
+                    return;
+                }
+
+                preview.textContent = Math.ceil(lot / qtyKbn);
+            }
+
+            partSelect.addEventListener('change', updatePreview);
+            lotInput.addEventListener('input', updatePreview);
+        })();
+    </script>
 </x-app-layout>

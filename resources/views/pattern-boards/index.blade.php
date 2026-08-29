@@ -157,6 +157,7 @@
                                 <th class="px-6 py-3">{{ __('No') }}</th>
                                 <th class="px-6 py-3">{{ __('P/N') }}</th>
                                 <th class="px-6 py-3">{{ __('Shift') }}</th>
+                                <th class="px-6 py-3">{{ __('Lot') }}</th>
                                 <th class="px-6 py-3">{{ __('Loading Time') }}</th>
                                 <th class="px-6 py-3">{{ __('Jumlah Proses') }}</th>
                                 <th class="px-6 py-3">{{ __('Total Kanban') }}</th>
@@ -175,6 +176,7 @@
                                             {{ __('Shift') }} {{ $item->shift }}
                                         </span>
                                     </td>
+                                    <td class="px-6 py-3 text-gray-600">{{ $item->lot }}</td>
                                     <td class="px-6 py-3 text-gray-600">{{ $item->loading_time }} {{ __('menit') }}</td>
                                     <td class="px-6 py-3 text-gray-600">{{ $item->jumlah_proses }}</td>
                                     <td class="px-6 py-3 text-gray-600">{{ $item->total_kanban }}</td>
@@ -190,7 +192,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="8" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada item kelompok pattern.') }}</td>
+                                    <td colspan="9" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada item kelompok pattern.') }}</td>
                                 </tr>
                             @endforelse
                         </tbody>

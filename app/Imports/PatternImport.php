@@ -12,16 +12,18 @@ use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
 /**
- * Imports rows shaped like: Machine | Item | Jumlah Proses | Proses | loading_time | kanban | dandori | Shift.
+ * Imports rows shaped like: Machine | Item | Jumlah Proses | Proses | loading_time | kanban | dandori | Shift | lot.
  *
  * Each row is one machine+part assignment. Machines and parts are created
- * automatically if they don't exist yet. loading_time/jumlah_proses/kanban/
- * dandori belong to the board+part+shift (Kelompok Pattern) and are set from
- * the first row seen for that part+shift; later rows for the same part+shift
- * only add their machine assignment (with that row's own "Proses" number) and
- * are checked against the stored values, reporting a mismatch instead of
+ * automatically if they don't exist yet. loading_time/jumlah_proses/dandori/lot
+ * belong to the board+part+shift (Kelompok Pattern) and are set from the first
+ * row seen for that part+shift; later rows for the same part+shift only add
+ * their machine assignment (with that row's own "Proses" number) and are
+ * checked against the stored values, reporting a mismatch instead of
  * overwriting. Shift defaults to 1 (07:00-16:00) when the column is left out
- * or has an invalid value; 2 means the 20:00-06:00 shift.
+ * or has an invalid value; 2 means the 20:00-06:00 shift. lot defaults to 0
+ * when left out. total_kanban is never read from the file — it's always
+ * derived from lot ÷ the part's Qty Kbn (Part List), rounded up.
  */
 class PatternImport implements ToCollection, WithHeadingRow
 {
@@ -62,8 +64,8 @@ class PatternImport implements ToCollection, WithHeadingRow
             $jumlahProses = (int) ($row['jumlah_proses'] ?? 0);
             $proses = (int) ($row['proses'] ?? 0);
             $loadingTime = (int) ($row['loading_time'] ?? 0);
-            $kanban = (int) ($row['kanban'] ?? 0);
             $dandori = (int) ($row['dandori'] ?? 0);
+            $lot = (int) ($row['lot'] ?? 0);
             $shift = (int) ($row['shift'] ?? 1);
 
             if (! in_array($shift, [1, 2], true)) {
@@ -80,6 +82,8 @@ class PatternImport implements ToCollection, WithHeadingRow
                 $this->partsCreated++;
             }
 
+            $totalKanban = PatternGroupItem::calculateTotalKanban($lot, $part->qty_kbn);
+
             $groupItem = PatternGroupItem::where('pattern_board_id', $this->patternBoard->id)
                 ->where('part_id', $part->id)
                 ->where('shift', $shift)
@@ -91,17 +95,18 @@ class PatternImport implements ToCollection, WithHeadingRow
                     'part_id' => $part->id,
                     'shift' => $shift,
                     'urutan' => $this->nextUrutan++,
+                    'lot' => $lot,
                     'loading_time' => $loadingTime,
                     'jumlah_proses' => $jumlahProses,
-                    'total_kanban' => $kanban,
+                    'total_kanban' => $totalKanban,
                     'dandori' => $dandori,
                 ]);
                 $this->groupItemsCreated++;
-            } elseif ($groupItem->loading_time !== $loadingTime
+            } elseif ($groupItem->lot !== $lot
+                || $groupItem->loading_time !== $loadingTime
                 || $groupItem->jumlah_proses !== $jumlahProses
-                || $groupItem->total_kanban !== $kanban
                 || $groupItem->dandori !== $dandori) {
-                $this->mismatches[] = "Baris {$rowNumber} ({$partName}, shift {$shift}): loading_time/jumlah_proses/kanban/dandori beda dari yang sudah tersimpan, nilai baris ini diabaikan.";
+                $this->mismatches[] = "Baris {$rowNumber} ({$partName}, shift {$shift}): lot/loading_time/jumlah_proses/dandori beda dari yang sudah tersimpan, nilai baris ini diabaikan.";
             }
 
             Pattern::updateOrCreate(

@@ -29,16 +29,26 @@
                 @endfor
 
                 @foreach ($koseiParts as $part)
-                    <div class="flex border-b border-slate-200 cursor-pointer transition-colors {{ $loop->even ? 'bg-slate-50/60' : 'bg-white' }}"
-                         style="height: 48px;"
-                         @click="selectKoseiPart({ id: {{ $part->id }}, name: @js($part->part_no) })"
-                         :class="koseiPart && koseiPart.id === {{ $part->id }} ? 'bg-brand-50' : ''">
+                    <div class="flex border-b border-slate-200 transition-colors {{ $loop->even ? 'bg-slate-50/60' : 'bg-white' }}"
+                         style="height: 48px;">
                         <div class="sticky left-0 z-20 flex items-center px-3 shrink-0"
-                             style="width: 110px; background: inherit;"
-                             :style="koseiPart && koseiPart.id === {{ $part->id }} ? 'background-color: #eff6ff;' : 'background-color: {{ $loop->even ? '#f8fafc' : '#ffffff' }};'">
+                             style="width: 110px; background-color: {{ $loop->even ? '#f8fafc' : '#ffffff' }};">
                             <span class="font-bold text-slate-700 text-xs truncate">{{ $part->part_no }}</span>
                         </div>
-                        <div class="relative shrink-0" style="width: {{ $totalWidth }}px;"></div>
+                        <div class="relative shrink-0" style="width: {{ $totalWidth }}px;">
+                            @foreach ($stockDecreaseEvents[$part->id] ?? [] as $event)
+                                <div class="absolute top-1 bottom-0.5 z-10 flex flex-col items-center"
+                                     style="left: {{ ($event['minute'] - $dayStart) * $pxPerMinute }}px;"
+                                     title="{{ $event['time'] }} — stok turun {{ $event['kanban'] }} kanban ({{ $event['pcs'] }} pcs)">
+                                    <div class="flex-1 flex items-end gap-px">
+                                        @for ($i = 0; $i < $event['kanban']; $i++)
+                                            <span class="block w-0.5 h-full bg-red-500 rounded-sm"></span>
+                                        @endfor
+                                    </div>
+                                    <span class="text-[9px] leading-none font-bold text-red-600 mt-0.5">{{ $event['kanban'] }}</span>
+                                </div>
+                            @endforeach
+                        </div>
                     </div>
                 @endforeach
             </div>

@@ -23,6 +23,9 @@ class PatternGroupItemController extends Controller
     {
         $validated = $this->validated($request, $patternBoard);
         $validated['pattern_board_id'] = $patternBoard->id;
+        $validated['total_kanban'] = PatternGroupItem::calculateTotalKanban(
+            $validated['lot'], Part::find($validated['part_id'])->qty_kbn
+        );
 
         PatternGroupItem::create($validated);
 
@@ -40,6 +43,9 @@ class PatternGroupItemController extends Controller
     public function update(Request $request, PatternGroupItem $patternGroupItem): RedirectResponse
     {
         $validated = $this->validated($request, $patternGroupItem->patternBoard, $patternGroupItem);
+        $validated['total_kanban'] = PatternGroupItem::calculateTotalKanban(
+            $validated['lot'], Part::find($validated['part_id'])->qty_kbn
+        );
 
         $patternGroupItem->update($validated);
 
@@ -71,9 +77,9 @@ class PatternGroupItemController extends Controller
             ],
             'shift' => ['required', Rule::in([1, 2])],
             'urutan' => ['required', 'integer', 'min:1'],
+            'lot' => ['required', 'integer', 'min:0'],
             'loading_time' => ['required', 'integer', 'min:0'],
             'jumlah_proses' => ['required', 'integer', 'min:1'],
-            'total_kanban' => ['required', 'integer', 'min:0'],
             'dandori' => ['required', 'integer', 'min:0'],
         ], [
             'part_id.unique' => 'Part ini sudah terdaftar di Kelompok Pattern untuk shift yang dipilih pada board ini.',
