@@ -23,6 +23,7 @@ class RolePermissionSeeder extends Seeder
             'manage patterns',
             'view andon',
             'view stock part all',
+            'manage planning',
         ];
 
         foreach ($permissions as $permission) {

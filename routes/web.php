@@ -20,6 +20,8 @@ Route::get('/', function () {
 
 Route::get('/andon', [AndonController::class, 'index'])->name('andon.index');
 Route::get('/andon/{patternBoard}', [AndonController::class, 'show'])->name('andon.show');
+Route::get('/andon-planning/{patternBoard}', [AndonController::class, 'planning'])->name('andon.planning');
+Route::post('/andon-planning/pattern/{pattern}/actual', [AndonController::class, 'updateActual'])->name('andon.planning.actual.update');
 
 Route::get('/dashboard', function () {
     $andonPreviewBoard = PatternBoard::where('name', 'A')->first()
@@ -36,6 +38,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/stock-part-all', [StockPartAllController::class, 'index'])
         ->middleware('can:view stock part all')
         ->name('stock-part-all.index');
+
+    Route::middleware('can:manage planning')->group(function () {
+        Route::get('/planning', [AndonController::class, 'planningBoards'])->name('planning.index');
+        Route::get('/planning/{patternBoard}', [AndonController::class, 'planningTable'])->name('planning.table');
+    });
 
     Route::resource('machines', MachineController::class)->middleware('can:manage machines');
     Route::resource('parts', PartController::class)->middleware('can:manage parts');

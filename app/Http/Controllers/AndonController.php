@@ -3,13 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Models\Pattern;
+use App\Models\PatternActual;
 use App\Models\PatternBoard;
 use App\Models\PatternGroupItem;
 use App\Models\Rest;
 use App\Models\StockSnapshot;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class AndonController extends Controller
@@ -36,8 +39,359 @@ class AndonController extends Controller
 
     public function show(Request $request, PatternBoard $patternBoard): View|JsonResponse
     {
-        $patternBoards = PatternBoard::orderBy('name')->get();
+        [$rows, $timelineEnd, $groupItems, $koseiParts, $partColors, $restIntervals] = $this->buildScheduleRows($patternBoard);
 
+        // Tick marks drawn directly on each part's Kosei row wherever its stock
+        // dropped between two 5-minute captures, converted to kanban.
+        $stockDecreaseEvents = $this->buildStockDecreaseEvents($koseiParts);
+
+        // Timeline Stok: every part's stock side by side, sharing one time
+        // column, instead of only showing whichever part was last clicked.
+        $stockHistoryRows = $this->buildStockHistoryRows($koseiParts);
+
+        // Andon Planning card: the exact same schedule, but its kanban counts
+        // come from Kesei demand rather than total_kanban — see
+        // applyPlanningKanban(). Built from a copy of $rows so the Pattern
+        // card's own total_kanban-based blocks are untouched.
+        $planningRows = $this->applyPlanningKanban($rows, $koseiParts);
+
+        // Marks each part's closing time(s) on its Kesei row, so it's visible
+        // exactly which stock-decrease tick feeds the Planning card's kanban.
+        $closingTimeMarkers = $this->buildClosingTimeMarkers($rows);
+
+        // Where "now" sits on the chart's own minute scale, so the browser can
+        // auto-scroll each panel to the current time instead of starting at 07:00.
+        [$windowStart] = $this->currentStockWindow();
+        $nowMinute = self::DAY_START + (int) $windowStart->diffInMinutes(now());
+
+        $viewData = [
+            'patternBoard' => $patternBoard,
+            'patternBoards' => PatternBoard::orderBy('name')->get(),
+            'rows' => $rows,
+            'planningRows' => $planningRows,
+            'koseiParts' => $koseiParts,
+            'restIntervals' => $restIntervals,
+            'dayStart' => self::DAY_START,
+            'timelineEnd' => $timelineEnd,
+            'pxPerMinute' => self::PX_PER_MINUTE,
+            'partColors' => $partColors,
+            'stockDecreaseEvents' => $stockDecreaseEvents,
+            'stockHistoryRows' => $stockHistoryRows,
+            'closingTimeMarkers' => $closingTimeMarkers,
+            'nowMinute' => $nowMinute,
+        ];
+
+        if ($request->ajax()) {
+            // Periodic refresh fetches this instead of reloading the page, so
+            // the panels update in place with no visible tab reload.
+            return response()->json([
+                'timeline' => view('andon._timeline', $viewData)->render(),
+                'kosei' => view('andon._kosei-timeline', $viewData)->render(),
+                'stockTimeline' => view('andon._stock-timeline', $viewData)->render(),
+                'planning' => view('andon._timeline', ['rows' => $planningRows, 'isPlanning' => true, 'editable' => false] + $viewData)->render(),
+                'nowMinute' => $nowMinute,
+                'serverTime' => now()->format('H:i:s'),
+            ]);
+        }
+
+        return view('andon.show', $viewData);
+    }
+
+    /**
+     * Standalone full-page Andon Planning, for a kiosk that only ever needs
+     * to show this one board. The same Planning card also lives inline on
+     * the main Andon page (show()) as a collapsible 3rd card.
+     */
+    public function planning(Request $request, PatternBoard $patternBoard): View|JsonResponse
+    {
+        [$rows, $timelineEnd, , $koseiParts, $partColors, $restIntervals] = $this->buildScheduleRows($patternBoard);
+
+        $rows = $this->applyPlanningKanban($rows, $koseiParts);
+
+        [$windowStart] = $this->currentStockWindow();
+        $nowMinute = self::DAY_START + (int) $windowStart->diffInMinutes(now());
+
+        $viewData = [
+            'patternBoard' => $patternBoard,
+            'patternBoards' => PatternBoard::orderBy('name')->get(),
+            'rows' => $rows,
+            'restIntervals' => $restIntervals,
+            'dayStart' => self::DAY_START,
+            'timelineEnd' => $timelineEnd,
+            'pxPerMinute' => self::PX_PER_MINUTE,
+            'partColors' => $partColors,
+            'nowMinute' => $nowMinute,
+            'isPlanning' => true,
+            'editable' => true,
+        ];
+
+        if ($request->ajax()) {
+            return response()->json([
+                'timeline' => view('andon._timeline', $viewData)->render(),
+                'nowMinute' => $nowMinute,
+                'serverTime' => now()->format('H:i:s'),
+            ]);
+        }
+
+        return view('andon.planning', $viewData);
+    }
+
+    /**
+     * Board picker for the Planning table (a normal in-app page, not the
+     * Andon-style kiosk timeline) — same list as andon.index, but linking
+     * into planningTable() below.
+     */
+    public function planningBoards(): View
+    {
+        $patternBoards = PatternBoard::withCount('patterns')->orderBy('name')->get();
+
+        return view('planning.index', compact('patternBoards'));
+    }
+
+    /**
+     * Planning as a plain searchable/paginated table — same schedule and
+     * kanban data as the Andon Planning timeline, just laid out like every
+     * other admin table (Stock Part All, Pattern) instead of a Gantt chart.
+     * Supports browsing/editing a date other than today via ?date=.
+     */
+    public function planningTable(Request $request, PatternBoard $patternBoard): View
+    {
+        $date = $this->resolvePlanningDate($request->query('date'));
+
+        [$rows, , , $koseiParts] = $this->buildScheduleRows($patternBoard);
+
+        [$windowStart, $windowEnd] = $this->stockWindowForDate($date);
+        $rows = $this->applyPlanningKanban($rows, $koseiParts, $windowStart, $windowEnd);
+
+        $items = collect();
+        foreach ($rows as $row) {
+            foreach ($row['blocks'] as $block) {
+                if ($block['type'] !== 'loading' || ! ($block['showLabel'] ?? true) || ! isset($block['pattern_id'])) {
+                    continue;
+                }
+
+                $items->push((object) [
+                    'machine' => $row['machine']->name,
+                    'label' => $block['label'],
+                    'shift' => $block['shift'] ?? null,
+                    'pattern_id' => $block['pattern_id'],
+                    'kanban_auto' => $block['kanban_auto'],
+                    'kanban_override' => $block['kanban_override'],
+                    'kanban' => $block['kanban'],
+                    'actual_kanban' => $block['actual_kanban'],
+                ]);
+            }
+        }
+
+        // All shift 1 assignments first, then all shift 2 — across every
+        // machine, not grouped machine-by-machine. Stable sort, so machines
+        // still list in their existing (schedule) order within each shift.
+        $items = $items->sortBy('shift')->values();
+
+        $search = trim((string) $request->query('search', ''));
+        if ($search !== '') {
+            $needle = Str::lower($search);
+            $items = $items->filter(fn ($item) => str_contains(Str::lower($item->machine.' '.$item->label), $needle))->values();
+        }
+
+        $perPageOptions = [10, 25, 50, 100];
+        $perPage = (int) $request->query('per_page', 25);
+        if (! in_array($perPage, $perPageOptions, true)) {
+            $perPage = 25;
+        }
+        $page = LengthAwarePaginator::resolveCurrentPage();
+
+        $planningRows = new LengthAwarePaginator(
+            $items->forPage($page, $perPage)->values(),
+            $items->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
+
+        $viewData = [
+            'patternBoard' => $patternBoard,
+            'planningRows' => $planningRows,
+            'date' => $date,
+            'search' => $search,
+            'perPage' => $perPage,
+        ];
+
+        if ($request->ajax()) {
+            return view('planning._results', $viewData);
+        }
+
+        return view('planning.show', $viewData + ['patternBoards' => PatternBoard::orderBy('name')->get()]);
+    }
+
+    /**
+     * A ?date= query value if it parses, otherwise today's production date
+     * (same rule as currentStockWindow: before 06:00 still counts as
+     * yesterday).
+     */
+    private function resolvePlanningDate(?string $date): string
+    {
+        if ($date) {
+            try {
+                return Carbon::parse($date)->toDateString();
+            } catch (\Exception) {
+                // Fall through to today's production date below.
+            }
+        }
+
+        return $this->currentStockWindow()[0]->toDateString();
+    }
+
+    /**
+     * Replaces every loading block's kanban count with the actual demand
+     * pulled from Kesei — the kanban that had already come out of stock
+     * (buildDecreaseEventsInRange) as of that block's "closing time" (4
+     * hours before the part starts, i.e. its dandori start, or its loading
+     * start when there's no dandori). A part with no stock decrease recorded
+     * at/before its closing time plans for 0 kanban. Operates on (and
+     * returns) a copy of $rows — the caller's original is left untouched.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyPlanningKanban(array $rows, $koseiParts, ?Carbon $windowStart = null, ?Carbon $windowEnd = null): array
+    {
+        if ($windowStart === null || $windowEnd === null) {
+            [$windowStart, $windowEnd] = $this->currentStockWindow();
+        }
+
+        // A part scheduled right at the top of the day (07:00) has a closing
+        // time of 03:00 that same calendar day — before this window even
+        // starts — so the lookup range is padded 4h earlier to still catch it.
+        $decreaseEventsByPart = $this->buildDecreaseEventsInRange(
+            $koseiParts, $windowStart->copy()->subHours(4), $windowEnd
+        );
+
+        // Manually-entered "actual kanban produced" and manual kanban
+        // overrides, one row per pattern for today (the board's own day,
+        // keyed by its start date). whereDate() (not where()) because the
+        // date cast stores produced_on with a "00:00:00" time part, which a
+        // plain string match won't hit.
+        $actualsByPatternId = PatternActual::whereDate('produced_on', $windowStart->toDateString())
+            ->get()
+            ->keyBy('pattern_id');
+
+        foreach ($rows as &$row) {
+            foreach ($row['blocks'] as &$block) {
+                if ($block['type'] !== 'loading' || ! isset($block['production_start'])) {
+                    continue;
+                }
+
+                $productionTime = $windowStart->copy()->addMinutes($block['production_start'] - self::DAY_START);
+                $closingTime = $productionTime->copy()->subHours(4);
+
+                $autoKanban = $this->kanbanAsOf($decreaseEventsByPart->get($block['part_id'], collect()), $closingTime);
+                $actual = $actualsByPatternId->get($block['pattern_id']);
+
+                // A manually-entered kanban always wins over the Kesei-computed
+                // demand — it's how a planner corrects the plan when Kesei data
+                // is late, wrong, or simply not there yet.
+                $override = $actual?->kanban_override;
+                $block['kanban'] = $override ?? $autoKanban;
+                $block['kanban_is_override'] = $override !== null;
+                $block['kanban_override'] = $override;
+                $block['kanban_auto'] = $autoKanban;
+                $block['actual_kanban'] = $actual?->actual_kanban;
+            }
+            unset($block);
+        }
+        unset($row);
+
+        return $rows;
+    }
+
+    /**
+     * Where each part's "closing time" (4h before its production start, same
+     * rule as applyPlanningKanban) falls on the chart's own minute scale, so
+     * Kesei can mark it — making it visible exactly which stock-decrease
+     * tick feeds the Planning card's kanban for that part. A part scheduled
+     * more than once (different shifts/machines) can have more than one
+     * closing time; ones landing before the visible window's start
+     * (self::DAY_START, i.e. before 07:00 — there's no room to draw them)
+     * are dropped.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array<int, int>>
+     */
+    private function buildClosingTimeMarkers(array $rows): array
+    {
+        $markers = [];
+
+        foreach ($rows as $row) {
+            foreach ($row['blocks'] as $block) {
+                if ($block['type'] !== 'loading' || ! isset($block['production_start']) || ! ($block['showLabel'] ?? true)) {
+                    continue;
+                }
+
+                $closingMinute = $block['production_start'] - 4 * 60;
+
+                if ($closingMinute < self::DAY_START) {
+                    continue;
+                }
+
+                $markers[$block['part_id']][] = $closingMinute;
+            }
+        }
+
+        foreach ($markers as &$minutes) {
+            $minutes = array_values(array_unique($minutes));
+        }
+        unset($minutes);
+
+        return $markers;
+    }
+
+    /**
+     * Saves the actual kanban really produced (and/or a manual kanban
+     * override) for one machine assignment — entered inline on the Andon
+     * Planning board (always "today"), or from the Planning table, which can
+     * pass an explicit produced_on to edit a different date.
+     */
+    public function updateActual(Request $request, Pattern $pattern): JsonResponse
+    {
+        $validated = $request->validate([
+            'actual_kanban' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'kanban_override' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            'produced_on' => ['sometimes', 'date'],
+        ]);
+
+        // Each input auto-saves independently on its own change event, so
+        // only the field actually sent should be touched — otherwise saving
+        // one would silently null out the other.
+        $updates = array_intersect_key($validated, array_flip(['actual_kanban', 'kanban_override']));
+
+        if (isset($validated['produced_on'])) {
+            $producedOn = Carbon::parse($validated['produced_on'])->toDateString();
+        } else {
+            [$windowStart] = $this->currentStockWindow();
+            $producedOn = $windowStart->toDateString();
+        }
+
+        $actual = PatternActual::updateOrCreate(
+            ['pattern_id' => $pattern->id, 'produced_on' => $producedOn],
+            $updates
+        );
+
+        return response()->json([
+            'ok' => true,
+            'actual_kanban' => $actual->actual_kanban,
+            'kanban_override' => $actual->kanban_override,
+        ]);
+    }
+
+    /**
+     * The machine/part schedule shared by both the Pattern board and Andon
+     * Planning: which parts run on which machines and when, for both shifts.
+     *
+     * @return array{0: array<int, array<string, mixed>>, 1: int, 2: \Illuminate\Support\Collection, 3: \Illuminate\Support\Collection, 4: array<int, string>, 5: \Illuminate\Support\Collection}
+     */
+    private function buildScheduleRows(PatternBoard $patternBoard): array
+    {
         $groupItems = PatternGroupItem::where('pattern_board_id', $patternBoard->id)->get();
 
         // A part can have its own group item per shift, so lookups during block
@@ -58,14 +412,6 @@ class AndonController extends Controller
         // Part list for the Kosei stock view — one row per part assigned to this
         // board, independent of which machine(s) or shift run it.
         $koseiParts = $filteredPatterns->pluck('part')->unique('id')->sortBy('part_no')->values();
-
-        // Tick marks drawn directly on each part's Kosei row wherever its stock
-        // dropped between two 5-minute captures, converted to kanban.
-        $stockDecreaseEvents = $this->buildStockDecreaseEvents($koseiParts);
-
-        // Timeline Stok: every part's stock side by side, sharing one time
-        // column, instead of only showing whichever part was last clicked.
-        $stockHistoryRows = $this->buildStockHistoryRows($koseiParts);
 
         // Rest bands are shown for reference at their real clock time, but only the
         // shift-change gap actually pauses production — regular rests no longer
@@ -122,39 +468,21 @@ class AndonController extends Controller
 
         $partColors = $this->assignPartColors($groupItems);
 
-        // Where "now" sits on the chart's own minute scale, so the browser can
-        // auto-scroll each panel to the current time instead of starting at 07:00.
-        [$windowStart] = $this->currentStockWindow();
-        $nowMinute = self::DAY_START + (int) $windowStart->diffInMinutes(now());
+        return [$rows, $timelineEnd, $groupItems, $koseiParts, $partColors, $restIntervals];
+    }
 
-        $viewData = [
-            'patternBoard' => $patternBoard,
-            'patternBoards' => $patternBoards,
-            'rows' => $rows,
-            'koseiParts' => $koseiParts,
-            'restIntervals' => $restIntervals,
-            'dayStart' => self::DAY_START,
-            'timelineEnd' => $timelineEnd,
-            'pxPerMinute' => self::PX_PER_MINUTE,
-            'partColors' => $partColors,
-            'stockDecreaseEvents' => $stockDecreaseEvents,
-            'stockHistoryRows' => $stockHistoryRows,
-            'nowMinute' => $nowMinute,
-        ];
+    /**
+     * The last kanban decrease event at or before $closingTime, or 0 when
+     * there's no decrease recorded by then (either none happened yet, or the
+     * part has no usable Qty Kbn).
+     *
+     * @param  \Illuminate\Support\Collection<int, array{at: Carbon, kanban: int, pcs: int}>  $events
+     */
+    private function kanbanAsOf($events, Carbon $closingTime): int
+    {
+        $applicable = $events->filter(fn ($event) => $event['at']->lte($closingTime));
 
-        if ($request->ajax()) {
-            // Periodic refresh fetches this instead of reloading the page, so
-            // the three panels update in place with no visible tab reload.
-            return response()->json([
-                'timeline' => view('andon._timeline', $viewData)->render(),
-                'kosei' => view('andon._kosei-timeline', $viewData)->render(),
-                'stockTimeline' => view('andon._stock-timeline', $viewData)->render(),
-                'nowMinute' => $nowMinute,
-                'serverTime' => now()->format('H:i:s'),
-            ]);
-        }
-
-        return view('andon.show', $viewData);
+        return $applicable->isEmpty() ? 0 : $applicable->last()['kanban'];
     }
 
     /**
@@ -174,7 +502,13 @@ class AndonController extends Controller
             return [];
         }
 
-        [$windowStart, $windowEnd] = $this->currentStockWindow();
+        // A full 24h here (07:00 to 07:00 the next day), not the 23h
+        // schedule window everything else uses — Timeline Stok is a plain
+        // stock log, not tied to the shift schedule, so the 06:00-07:00 hour
+        // (which sits outside every shift, hence outside the 23h window)
+        // still belongs on it.
+        [$windowStart] = $this->currentStockWindow();
+        $windowEnd = $windowStart->copy()->addHours(24);
         $partIdByPartNo = $koseiParts->pluck('id', 'part_no');
 
         $snapshots = StockSnapshot::whereIn('part_no', $partIdByPartNo->keys())
@@ -214,25 +548,56 @@ class AndonController extends Controller
      * same rule as PatternGroupItem::calculateTotalKanban (so any decrease,
      * even smaller than one full Qty Kbn, still shows at least 1 tick). Only
      * decreases produce a tick; a flat or increasing (restock) reading is
-     * ignored, and a part with no Qty Kbn set produces no tick either.
+     * ignored, and a part with no Qty Kbn set produces no tick either. Thin
+     * wrapper over buildDecreaseEventsInRange() that converts each event's
+     * real timestamp into the chart's minute coordinate for positioning.
      *
      * @return array<int, array<int, array{minute: int, kanban: int, pcs: int, time: string}>>
      */
     private function buildStockDecreaseEvents($koseiParts): array
     {
-        if ($koseiParts->isEmpty()) {
-            return [];
+        [$windowStart, $windowEnd] = $this->currentStockWindow();
+
+        $eventsByPart = $this->buildDecreaseEventsInRange($koseiParts, $windowStart, $windowEnd);
+
+        $events = [];
+
+        foreach ($koseiParts as $part) {
+            $events[$part->id] = $eventsByPart->get($part->id, collect())->map(fn ($event) => [
+                'minute' => self::DAY_START + (int) $windowStart->diffInMinutes($event['at']),
+                'kanban' => $event['kanban'],
+                'pcs' => $event['pcs'],
+                'time' => $event['at']->format('H:i'),
+            ])->all();
         }
 
-        [$windowStart, $windowEnd] = $this->currentStockWindow();
-        $partNumbers = $koseiParts->pluck('part_no')->all();
+        return $events;
+    }
 
-        // One "seed" snapshot per part from just before the window, so the
-        // first in-window reading still has something to compare against.
-        // Fetched in bulk (2 queries total) rather than per part, since this
-        // page reloads on its own every 60 seconds.
+    /**
+     * Core kanban-decrease detection, decoupled from chart positioning: for
+     * each part, every moment its stock (StockSnapshot) dropped between one
+     * capture and the next within [$rangeStart, $rangeEnd], converted from
+     * pcs to kanban via lot÷qty_kbn rounded up (PatternGroupItem::calculateTotalKanban).
+     * A "seed" snapshot from just before $rangeStart is used so the first
+     * in-range reading still has something to compare against. Only
+     * decreases produce an event; flat/increasing readings and parts with no
+     * usable Qty Kbn produce none.
+     *
+     * @return \Illuminate\Support\Collection<int, \Illuminate\Support\Collection<int, array{at: Carbon, kanban: int, pcs: int}>>
+     */
+    private function buildDecreaseEventsInRange($parts, Carbon $rangeStart, Carbon $rangeEnd)
+    {
+        if ($parts->isEmpty()) {
+            return collect();
+        }
+
+        $partNumbers = $parts->pluck('part_no')->all();
+
+        // Fetched in bulk (2 queries total) rather than per part, since these
+        // pages reload themselves every 60 seconds.
         $seedSnapshots = StockSnapshot::whereIn('part_no', $partNumbers)
-            ->where('captured_at', '<', $windowStart)
+            ->where('captured_at', '<', $rangeStart)
             ->orderBy('part_no')
             ->orderByDesc('captured_at')
             ->get()
@@ -240,16 +605,16 @@ class AndonController extends Controller
             ->keyBy('part_no');
 
         $snapshotsByPart = StockSnapshot::whereIn('part_no', $partNumbers)
-            ->whereBetween('captured_at', [$windowStart, $windowEnd])
+            ->whereBetween('captured_at', [$rangeStart, $rangeEnd])
             ->orderBy('captured_at')
             ->get()
             ->groupBy('part_no');
 
-        $events = [];
+        $events = collect();
 
-        foreach ($koseiParts as $part) {
+        foreach ($parts as $part) {
             $previous = $seedSnapshots->get($part->part_no);
-            $partEvents = [];
+            $partEvents = collect();
 
             foreach ($snapshotsByPart->get($part->part_no, collect()) as $snapshot) {
                 $decreasePcs = $previous ? $previous->stock - $snapshot->stock : 0;
@@ -258,12 +623,11 @@ class AndonController extends Controller
                     $kanban = PatternGroupItem::calculateTotalKanban($decreasePcs, $part->qty_kbn);
 
                     if ($kanban > 0) {
-                        $partEvents[] = [
-                            'minute' => self::DAY_START + (int) $windowStart->diffInMinutes($snapshot->captured_at),
+                        $partEvents->push([
+                            'at' => $snapshot->captured_at,
                             'kanban' => $kanban,
                             'pcs' => $decreasePcs,
-                            'time' => $snapshot->captured_at->format('H:i'),
-                        ];
+                        ]);
                     }
                 }
 
@@ -286,7 +650,19 @@ class AndonController extends Controller
     {
         $now = now();
         $cutoff = $now->copy()->setTime(6, 0);
-        $windowStart = $now->lt($cutoff) ? $now->copy()->subDay()->setTime(7, 0) : $now->copy()->setTime(7, 0);
+        $productionDate = $now->lt($cutoff) ? $now->copy()->subDay() : $now->copy();
+
+        return $this->stockWindowForDate($productionDate->toDateString());
+    }
+
+    /**
+     * Same 07:00-anchored 23h production window as currentStockWindow(), but
+     * for an explicitly chosen calendar date instead of "now" — used by the
+     * Planning table, where a planner can browse/edit a different day.
+     */
+    private function stockWindowForDate(string $date): array
+    {
+        $windowStart = Carbon::parse($date)->setTime(7, 0);
         $windowEnd = $windowStart->copy()->addHours(23);
 
         return [$windowStart, $windowEnd];
@@ -344,6 +720,11 @@ class AndonController extends Controller
 
             $label = $pattern->part->part_no.' '.$pattern->proses.'/'.$groupItem->jumlah_proses;
 
+            // Andon Planning's "closing time" (4h before this part starts)
+            // counts from the very start of this instance — its dandori if
+            // it has one, otherwise its loading start.
+            $productionStart = $cursor;
+
             if ($groupItem->dandori > 0) {
                 [$segments, $cursor] = $this->placeSegment($cursor, $groupItem->dandori, $pauseIntervals);
                 foreach ($segments as $i => [$start, $end]) {
@@ -367,6 +748,9 @@ class AndonController extends Controller
                     'kanban' => $groupItem->total_kanban,
                     'showLabel' => $i === 0,
                     'part_id' => $pattern->part_id,
+                    'pattern_id' => $pattern->id,
+                    'production_start' => $productionStart,
+                    'shift' => $pattern->shift,
                 ];
             }
         }

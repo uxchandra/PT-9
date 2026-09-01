@@ -40,6 +40,13 @@
                             </svg>
                             {{ __('Lihat Andon') }}
                         </a>
+                        <a href="{{ route('andon.planning', $selectedBoard) }}" target="_blank"
+                           class="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10H5a2 2 0 01-2-2V9a2 2 0 012-2h4m0 10h6m-6-10h6m0 0h4a2 2 0 012 2v6a2 2 0 01-2 2h-4m0-10v10"/>
+                            </svg>
+                            {{ __('Andon Planning') }}
+                        </a>
                         <a href="{{ route('pattern-boards.edit', $selectedBoard) }}" title="{{ __('Ganti Nama') }}"
                            class="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 hover:text-gray-800 transition">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

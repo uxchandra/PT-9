@@ -36,6 +36,11 @@
                             <span class="font-bold text-slate-700 text-xs truncate">{{ $part->part_no }}</span>
                         </div>
                         <div class="relative shrink-0" style="width: {{ $totalWidth }}px;">
+                            @foreach ($closingTimeMarkers[$part->id] ?? [] as $closingMinute)
+                                <div class="closing-time-marker absolute top-0 bottom-0 z-10"
+                                     style="left: {{ ($closingMinute - $dayStart) * $pxPerMinute }}px;"
+                                     title="{{ __('Closing time') }} {{ sprintf('%02d:%02d', floor($closingMinute / 60) % 24, $closingMinute % 60) }} — {{ __('penentu kanban Planning (H-4 jam dari mulai produksi)') }}"></div>
+                            @endforeach
                             @foreach ($stockDecreaseEvents[$part->id] ?? [] as $event)
                                 <div class="absolute top-1 bottom-0.5 z-10 flex flex-col items-center"
                                      style="left: {{ ($event['minute'] - $dayStart) * $pxPerMinute }}px;"
