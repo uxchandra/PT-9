@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 
@@ -310,10 +311,12 @@ class AndonController extends Controller
      * rule as applyPlanningKanban) falls on the chart's own minute scale, so
      * Kesei can mark it — making it visible exactly which stock-decrease
      * tick feeds the Planning card's kanban for that part. A part scheduled
-     * more than once (different shifts/machines) can have more than one
-     * closing time; ones landing before the visible window's start
-     * (self::DAY_START, i.e. before 07:00 — there's no room to draw them)
-     * are dropped.
+     * more than once (different shifts/machines) only gets one marker: the
+     * earliest closing time that still lands inside the visible window
+     * (self::DAY_START, i.e. 07:00 onward). Closing times before 07:00 have
+     * no room to be drawn and are skipped — so a part whose very first
+     * instance closes before 07:00 still gets a marker from its next one,
+     * rather than none at all.
      *
      * @param  array<int, array<string, mixed>>  $rows
      * @return array<int, array<int, int>>
@@ -334,16 +337,15 @@ class AndonController extends Controller
                     continue;
                 }
 
-                $markers[$block['part_id']][] = $closingMinute;
+                $partId = $block['part_id'];
+
+                if (! isset($markers[$partId]) || $closingMinute < $markers[$partId]) {
+                    $markers[$partId] = $closingMinute;
+                }
             }
         }
 
-        foreach ($markers as &$minutes) {
-            $minutes = array_values(array_unique($minutes));
-        }
-        unset($minutes);
-
-        return $markers;
+        return array_map(fn ($closingMinute) => [$closingMinute], $markers);
     }
 
     /**
@@ -388,7 +390,7 @@ class AndonController extends Controller
      * The machine/part schedule shared by both the Pattern board and Andon
      * Planning: which parts run on which machines and when, for both shifts.
      *
-     * @return array{0: array<int, array<string, mixed>>, 1: int, 2: \Illuminate\Support\Collection, 3: \Illuminate\Support\Collection, 4: array<int, string>, 5: \Illuminate\Support\Collection}
+     * @return array{0: array<int, array<string, mixed>>, 1: int, 2: Collection, 3: Collection, 4: array<int, string>, 5: Collection}
      */
     private function buildScheduleRows(PatternBoard $patternBoard): array
     {
@@ -476,7 +478,7 @@ class AndonController extends Controller
      * there's no decrease recorded by then (either none happened yet, or the
      * part has no usable Qty Kbn).
      *
-     * @param  \Illuminate\Support\Collection<int, array{at: Carbon, kanban: int, pcs: int}>  $events
+     * @param  Collection<int, array{at: Carbon, kanban: int, pcs: int}>  $events
      */
     private function kanbanAsOf($events, Carbon $closingTime): int
     {
@@ -584,7 +586,7 @@ class AndonController extends Controller
      * decreases produce an event; flat/increasing readings and parts with no
      * usable Qty Kbn produce none.
      *
-     * @return \Illuminate\Support\Collection<int, \Illuminate\Support\Collection<int, array{at: Carbon, kanban: int, pcs: int}>>
+     * @return Collection<int, Collection<int, array{at: Carbon, kanban: int, pcs: int}>>
      */
     private function buildDecreaseEventsInRange($parts, Carbon $rangeStart, Carbon $rangeEnd)
     {

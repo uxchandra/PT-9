@@ -171,6 +171,17 @@
                     </a>
                     @endcan
 
+                    @can('manage patterns')
+                    <a href="{{ route('calendar.index') }}"
+                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('calendar.*') ? 'active' : '' }}">
+                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                        <span class="font-semibold text-sm">{{ __('Calendar') }}</span>
+                    </a>
+                    @endcan
+
                     @canany(['manage machines', 'manage parts', 'manage rest'])
                     @php $masterDataActive = request()->routeIs(['machines.*', 'parts.*', 'rests.*']); @endphp
                     <div x-data="{ open: {{ $masterDataActive ? 'true' : 'false' }} }">

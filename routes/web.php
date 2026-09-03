@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AndonController;
+use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\PartController;
 use App\Http\Controllers\PartImportController;
@@ -54,6 +55,10 @@ Route::middleware('auth')->group(function () {
     });
 
     Route::middleware('can:manage patterns')->group(function () {
+        Route::get('calendar', [CalendarController::class, 'index'])->name('calendar.index');
+        Route::post('calendar', [CalendarController::class, 'store'])->name('calendar.store');
+        Route::delete('calendar/{calendarEntry}', [CalendarController::class, 'destroy'])->name('calendar.destroy');
+
         Route::resource('pattern-boards', PatternBoardController::class)->except(['show']);
         Route::resource('pattern-boards.group-items', PatternGroupItemController::class)
             ->parameters(['group-items' => 'patternGroupItem'])
