@@ -119,11 +119,7 @@
                     @endcan
 
                     @can('view andon')
-                    @php
-                        $andonMenuBoard = \App\Models\PatternBoard::where('name', 'A')->first()
-                            ?? \App\Models\PatternBoard::orderBy('name')->first();
-                    @endphp
-                    <a href="{{ $andonMenuBoard ? route('andon.show', $andonMenuBoard) : route('andon.index') }}" target="_blank"
+                    <a href="{{ route('andon.index') }}" target="_blank"
                        class="menu-item flex items-center justify-between px-4 py-2.5 text-gray-300">
                         <div class="flex items-center">
                             <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CalendarEntry;
 use App\Models\Pattern;
 use App\Models\PatternActual;
 use App\Models\PatternBoard;
@@ -20,8 +21,11 @@ class AndonController extends Controller
 {
     private const DAY_START = 7 * 60;
 
-    // 06:00 the following day: shift 1 (07:00-16:00) + gap (16:00-20:00) + shift 2 (20:00-06:00).
-    private const DAY_END = 24 * 60 + 6 * 60;
+    // 07:00 the following day — a full 24h window so nothing (least of all a
+    // closing time, which can sit 4h before a part starts) gets clipped off
+    // the right edge. Shift 1 (07:00-16:00) + gap (16:00-20:00) + shift 2
+    // (20:00-06:00) all fit with an hour to spare.
+    private const DAY_END = 7 * 60 + 24 * 60;
 
     private const SHIFT_GAP_START = 16 * 60;
 
@@ -31,15 +35,79 @@ class AndonController extends Controller
 
     private const PX_PER_MINUTE = 1.8;
 
-    public function index(): View
-    {
-        $patternBoards = PatternBoard::withCount('patterns')->orderBy('name')->get();
+    // The Andon board follows the Calendar: it shows whichever pattern board is
+    // assigned to the current "production day", and that day rolls over at
+    // 06:30 — 30 minutes before shift 1 (07:00) — so the board has already
+    // switched to the new pattern by the time the shift starts.
+    private const BOARD_SWITCH_MINUTE = 6 * 60 + 30;
 
-        return view('andon.index', compact('patternBoards'));
+    /**
+     * The live Andon board. No board in the URL — it auto-resolves to the
+     * pattern the Calendar has assigned to the current production day (see
+     * andonProductionDate()), and the browser re-checks this endpoint every
+     * 60s so the switch is automatic.
+     */
+    public function index(Request $request): View|JsonResponse
+    {
+        $productionDate = $this->andonProductionDate();
+
+        return $this->renderBoard(
+            $request,
+            CalendarEntry::patternBoardForDate($productionDate),
+            true,
+            $productionDate,
+        );
     }
 
+    /**
+     * A specific board, picked from the header buttons. This is only a
+     * temporary override: the 60s refresh always polls index() (the auto
+     * endpoint), so the display returns to the Calendar's board on the next
+     * tick.
+     */
     public function show(Request $request, PatternBoard $patternBoard): View|JsonResponse
     {
+        return $this->renderBoard($request, $patternBoard, false, $this->andonProductionDate());
+    }
+
+    /**
+     * The calendar date whose Calendar-assigned pattern the board should show
+     * right now. Rolls over at BOARD_SWITCH_MINUTE (06:30) rather than
+     * midnight, so between 06:30 and 07:00 the board is already on the new
+     * day's pattern, ready for the shift.
+     */
+    private function andonProductionDate(): string
+    {
+        $now = now();
+        $switch = $now->copy()->startOfDay()->addMinutes(self::BOARD_SWITCH_MINUTE);
+
+        return ($now->lt($switch) ? $now->copy()->subDay() : $now)->toDateString();
+    }
+
+    private function renderBoard(Request $request, ?PatternBoard $patternBoard, bool $auto, string $productionDate): View|JsonResponse
+    {
+        $patternBoards = PatternBoard::orderBy('name')->get();
+        $productionLabel = Carbon::parse($productionDate)->locale('id')->translatedFormat('l, d F Y');
+
+        // No pattern assigned to this production day in the Calendar — show a
+        // clear "set it in Calendar" message instead of a blank board. The
+        // 60s poll returns {reload: true} so the board appears on its own
+        // once a Calendar entry is added.
+        if (! $patternBoard) {
+            if ($request->ajax()) {
+                return response()->json(['reload' => true, 'boardId' => null]);
+            }
+
+            return view('andon.show', [
+                'patternBoard' => null,
+                'patternBoards' => $patternBoards,
+                'rows' => [],
+                'auto' => $auto,
+                'productionLabel' => $productionLabel,
+                'noBoardMessage' => 'Belum ada pattern untuk '.$productionLabel.'. Set dulu lewat menu Calendar.',
+            ]);
+        }
+
         [$rows, $timelineEnd, $groupItems, $koseiParts, $partColors, $restIntervals] = $this->buildScheduleRows($patternBoard);
 
         // Tick marks drawn directly on each part's Kosei row wherever its stock
@@ -65,9 +133,16 @@ class AndonController extends Controller
         [$windowStart] = $this->currentStockWindow();
         $nowMinute = self::DAY_START + (int) $windowStart->diffInMinutes(now());
 
+        // Accumulated kanban (the red Kesei ticks) up to each part's closing
+        // time — shown in the Kesei "CT" column and as a number on the green
+        // closing-time line, with the folded-in red ticks then hidden.
+        $closingKanban = $this->buildClosingTimeKanban($closingTimeMarkers, $koseiParts, $windowStart);
+
         $viewData = [
             'patternBoard' => $patternBoard,
-            'patternBoards' => PatternBoard::orderBy('name')->get(),
+            'patternBoards' => $patternBoards,
+            'auto' => $auto,
+            'productionLabel' => $productionLabel,
             'rows' => $rows,
             'planningRows' => $planningRows,
             'koseiParts' => $koseiParts,
@@ -79,12 +154,15 @@ class AndonController extends Controller
             'stockDecreaseEvents' => $stockDecreaseEvents,
             'stockHistoryRows' => $stockHistoryRows,
             'closingTimeMarkers' => $closingTimeMarkers,
+            'closingKanban' => $closingKanban,
             'nowMinute' => $nowMinute,
         ];
 
         if ($request->ajax()) {
             // Periodic refresh fetches this instead of reloading the page, so
-            // the panels update in place with no visible tab reload.
+            // the panels update in place with no visible tab reload. boardId
+            // lets the browser notice a Calendar rollover (or an override that
+            // should snap back) and do a full reload only then.
             return response()->json([
                 'timeline' => view('andon._timeline', $viewData)->render(),
                 'kosei' => view('andon._kosei-timeline', $viewData)->render(),
@@ -92,6 +170,8 @@ class AndonController extends Controller
                 'planning' => view('andon._timeline', ['rows' => $planningRows, 'isPlanning' => true, 'editable' => false] + $viewData)->render(),
                 'nowMinute' => $nowMinute,
                 'serverTime' => now()->format('H:i:s'),
+                'boardId' => $patternBoard->id,
+                'boardName' => $patternBoard->name,
             ]);
         }
 
@@ -311,19 +391,18 @@ class AndonController extends Controller
      * rule as applyPlanningKanban) falls on the chart's own minute scale, so
      * Kesei can mark it — making it visible exactly which stock-decrease
      * tick feeds the Planning card's kanban for that part. A part scheduled
-     * more than once (different shifts/machines) only gets one marker: the
-     * earliest closing time that still lands inside the visible window
-     * (self::DAY_START, i.e. 07:00 onward). Closing times before 07:00 have
-     * no room to be drawn and are skipped — so a part whose very first
-     * instance closes before 07:00 still gets a marker from its next one,
-     * rather than none at all.
+     * more than once (different shifts/machines) only gets one marker, from
+     * its earliest production start. A closing time that lands before the
+     * timeline's left edge (07:00 — a shift-1 part starting at 07:00 closes at
+     * 03:00) is not dropped: it's pinned to the edge with 'clamped' set, and
+     * the tooltip still shows the true time.
      *
      * @param  array<int, array<string, mixed>>  $rows
-     * @return array<int, array<int, int>>
+     * @return array<int, array<int, array{minute: int, real: int, clamped: bool}>>
      */
     private function buildClosingTimeMarkers(array $rows): array
     {
-        $markers = [];
+        $earliest = [];
 
         foreach ($rows as $row) {
             foreach ($row['blocks'] as $block) {
@@ -332,20 +411,60 @@ class AndonController extends Controller
                 }
 
                 $closingMinute = $block['production_start'] - 4 * 60;
-
-                if ($closingMinute < self::DAY_START) {
-                    continue;
-                }
-
                 $partId = $block['part_id'];
 
-                if (! isset($markers[$partId]) || $closingMinute < $markers[$partId]) {
-                    $markers[$partId] = $closingMinute;
+                if (! isset($earliest[$partId]) || $closingMinute < $earliest[$partId]) {
+                    $earliest[$partId] = $closingMinute;
                 }
             }
         }
 
-        return array_map(fn ($closingMinute) => [$closingMinute], $markers);
+        $markers = [];
+
+        foreach ($earliest as $partId => $real) {
+            $pinned = max($real, self::DAY_START);
+
+            $markers[$partId] = [[
+                'minute' => $pinned,
+                'real' => $real,
+                'clamped' => $pinned !== $real,
+            ]];
+        }
+
+        return $markers;
+    }
+
+    /**
+     * The accumulated kanban for each Kosei part at its closing time: every
+     * stock-decrease (the red Kesei ticks) at or before that part's earliest
+     * closing time, summed. Feeds the Kesei "CT" column and the number drawn
+     * on the green closing-time line — after which those folded-in red ticks
+     * are hidden and accumulation starts over.
+     *
+     * @param  array<int, array<int, array{minute: int, real: int, clamped: bool}>>  $markers
+     * @return array<int, int>
+     */
+    private function buildClosingTimeKanban(array $markers, $koseiParts, Carbon $windowStart): array
+    {
+        if ($koseiParts->isEmpty() || $markers === []) {
+            return [];
+        }
+
+        $events = $this->buildDecreaseEventsInRange(
+            $koseiParts, $windowStart->copy()->subHours(4), $windowStart->copy()->addHours(24)
+        );
+
+        $out = [];
+
+        foreach ($markers as $partId => $list) {
+            $closingTime = $windowStart->copy()->addMinutes($list[0]['real'] - self::DAY_START);
+
+            $out[$partId] = (int) $events->get($partId, collect())
+                ->filter(fn ($event) => $event['at']->lte($closingTime))
+                ->sum('kanban');
+        }
+
+        return $out;
     }
 
     /**
@@ -643,29 +762,26 @@ class AndonController extends Controller
     }
 
     /**
-     * The Timeline Stok's fixed 07:00–06:00(+1) window. "Now" before 06:00
-     * still belongs to the window that started yesterday at 07:00.
+     * The current production day's 07:00 → 07:00(+1) window — same day-rollover
+     * rule as the Andon board itself (andonProductionDate(): before 06:30 still
+     * belongs to yesterday's window).
      *
      * @return array{0: Carbon, 1: Carbon}
      */
     private function currentStockWindow(): array
     {
-        $now = now();
-        $cutoff = $now->copy()->setTime(6, 0);
-        $productionDate = $now->lt($cutoff) ? $now->copy()->subDay() : $now->copy();
-
-        return $this->stockWindowForDate($productionDate->toDateString());
+        return $this->stockWindowForDate($this->andonProductionDate());
     }
 
     /**
-     * Same 07:00-anchored 23h production window as currentStockWindow(), but
+     * Same 07:00-anchored 24h production window as currentStockWindow(), but
      * for an explicitly chosen calendar date instead of "now" — used by the
      * Planning table, where a planner can browse/edit a different day.
      */
     private function stockWindowForDate(string $date): array
     {
         $windowStart = Carbon::parse($date)->setTime(7, 0);
-        $windowEnd = $windowStart->copy()->addHours(23);
+        $windowEnd = $windowStart->copy()->addHours(24);
 
         return [$windowStart, $windowEnd];
     }

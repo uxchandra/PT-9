@@ -30,7 +30,7 @@
             <div class="shrink-0 flex sticky top-0 z-30 bg-slate-50 border-b border-slate-300">
                 <div class="sticky left-0 z-40 bg-slate-50 border-r border-slate-300 shrink-0" style="width: 110px;"></div>
                 <div class="relative shrink-0" style="width: {{ $totalWidth }}px; height: 28px;">
-                    @for ($t = $dayStart; $t <= $timelineEnd; $t += 60)
+                    @for ($t = $dayStart; $t < $timelineEnd; $t += 60)
                         <div class="absolute top-0 h-full border-l border-slate-200 flex items-center text-[10px] text-slate-500 font-semibold pl-1"
                              style="left: {{ ($t - $dayStart) * $pxPerMinute }}px;">
                             {{ sprintf('%02d:00', floor($t / 60) % 24) }}
@@ -41,7 +41,7 @@
 
             {{-- Rows + rest bands + gridlines --}}
             <div class="relative flex-1">
-                @for ($t = $dayStart; $t <= $timelineEnd; $t += 60)
+                @for ($t = $dayStart; $t < $timelineEnd; $t += 60)
                     <div class="grid-line z-0" style="left: {{ 110 + ($t - $dayStart) * $pxPerMinute }}px;"></div>
                 @endfor
 

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Andon {{ $patternBoard->name }} — {{ config('app.name', 'Laravel') }}</title>
+    <title>Andon {{ $patternBoard?->name ?? 'Auto' }} — {{ config('app.name', 'Laravel') }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         body { background: #f1f5f9; }
@@ -38,6 +38,23 @@
             width: 0;
             border-left: 2px dashed #16a34a;
         }
+        /* Closing time that really sits before 07:00 — pinned to the left edge
+           so it's never lost. Solid + a small marker so it reads as "off to
+           the left", not an exact-position tick. */
+        .closing-time-marker--pinned {
+            border-left-style: solid;
+            box-shadow: 3px 0 4px -1px rgba(22, 163, 74, 0.55);
+        }
+        .closing-time-marker--pinned::after {
+            content: '\00AB';
+            position: absolute;
+            left: 2px;
+            top: 2px;
+            font-size: 11px;
+            line-height: 1;
+            font-weight: 700;
+            color: #16a34a;
+        }
         .andon-cards-stack {
             display: flex;
             flex-direction: column;
@@ -56,12 +73,19 @@
                 @foreach ($patternBoards as $board)
                     <a href="{{ route('andon.show', $board) }}"
                        class="px-5 py-2 rounded-lg text-sm font-bold border transition shadow-sm
-                              {{ $board->id === $patternBoard->id
+                              {{ $board->id === $patternBoard?->id
                                     ? 'bg-brand-800 text-white border-brand-800'
                                     : 'bg-white text-slate-600 border-slate-200 hover:border-brand-400 hover:text-brand-800' }}">
                         {{ $board->name }}
                     </a>
                 @endforeach
+
+                @unless ($auto ?? true)
+                    <a href="{{ route('andon.index') }}"
+                       class="px-4 py-2 rounded-lg text-sm font-bold border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 transition shadow-sm">
+                        &#8635; {{ __('Auto') }}
+                    </a>
+                @endunless
 
                 @unless (empty($rows))
                     <span class="w-px h-6 bg-slate-300 mx-1"></span>
@@ -78,7 +102,19 @@
                 @endunless
             </div>
 
-            <h1 class="text-center text-xl sm:text-2xl font-extrabold tracking-wide text-brand-900 whitespace-nowrap">ANDON MONITORING PT 9</h1>
+            <div class="text-center">
+                <h1 class="text-xl sm:text-2xl font-extrabold tracking-wide text-brand-900 whitespace-nowrap">ANDON MONITORING PT 9</h1>
+                <p class="mt-0.5 text-[11px] font-semibold text-slate-500 whitespace-nowrap">
+                    @if ($patternBoard)
+                        Pattern {{ $patternBoard->name }} &middot; {{ $productionLabel ?? '' }}
+                    @else
+                        {{ $productionLabel ?? '' }}
+                    @endif
+                    @unless ($auto ?? true)
+                        <span class="ml-1 inline-block px-1.5 py-px rounded bg-amber-100 text-amber-700 uppercase tracking-wide">{{ __('Manual') }}</span>
+                    @endunless
+                </p>
+            </div>
 
             <div class="flex flex-wrap items-center justify-end gap-4 text-sm">
                 <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm border border-white bg-slate-900"></span><span class="text-slate-500">Dandori</span></div>
@@ -90,8 +126,8 @@
         </div>
 
         @if (empty($rows))
-            <div class="flex-1 min-h-0 flex items-center justify-center rounded-xl border border-slate-200 bg-white text-center text-slate-400 shadow-sm">
-                {{ __('Belum ada pattern yang di-assign ke mesin untuk board ini.') }}
+            <div class="flex-1 min-h-0 flex items-center justify-center rounded-xl border border-slate-200 bg-white text-center text-slate-400 shadow-sm px-6">
+                {{ $noBoardMessage ?? __('Belum ada pattern yang di-assign ke mesin untuk board ini.') }}
             </div>
         @else
             <div class="flex-1 min-h-0 flex flex-col gap-3"
@@ -176,6 +212,14 @@
     </div>
 
     <script>
+        // The auto (Calendar-driven) endpoint every refresh polls, plus the
+        // board this page is currently rendering — so the browser can tell a
+        // Calendar rollover / manual-override from an ordinary tick.
+        window.__ANDON = {
+            refreshUrl: @json(route('andon.index')),
+            boardId: @json($patternBoard?->id),
+        };
+
         // Drag-and-drop card arrangement: 3 cards, up to 2 per row. Order and
         // collapsed state persist per-browser (localStorage) so a rearranged
         // layout survives the page's own periodic refresh/reload.
@@ -264,52 +308,79 @@
         // place, so the browser tab never shows a reload/spinner. A full
         // reload only happens rarely (every 30 min) as a safety net against
         // long-running tab drift — the display normally never visibly reloads.
+        //
+        // The poll always hits the auto (Calendar) endpoint, not this page's
+        // own URL: when the Calendar's board changes (06:30 rollover) — or the
+        // page is a manual override that should snap back — the response's
+        // boardId no longer matches, and only then does it navigate to the
+        // auto URL for a clean full re-resolve.
         (function () {
+            const refreshUrl = window.__ANDON?.refreshUrl;
+            if (!refreshUrl) return;
+
+            const currentBoardId = window.__ANDON.boardId ?? null;
+
             const panels = document.getElementById('andon-panels');
-            if (!panels) return;
+            const hasPanels = !!panels;
 
-            const dayStart = parseFloat(panels.dataset.dayStart);
-            const pxPerMinute = parseFloat(panels.dataset.pxPerMinute);
-            let nowMinute = parseFloat(panels.dataset.nowMinute);
-            let lastTimelineHtml = document.getElementById('andon-panel-timeline').innerHTML;
-            let lastKoseiHtml = document.getElementById('andon-panel-kosei').innerHTML;
-            let lastStockHtml = document.getElementById('andon-panel-stock').innerHTML;
-            let lastPlanningHtml = document.getElementById('andon-panel-planning').innerHTML;
+            const dayStart = hasPanels ? parseFloat(panels.dataset.dayStart) : 0;
+            const pxPerMinute = hasPanels ? parseFloat(panels.dataset.pxPerMinute) : 1;
+            let nowMinute = hasPanels ? parseFloat(panels.dataset.nowMinute) : 0;
+            let lastTimelineHtml = hasPanels ? document.getElementById('andon-panel-timeline').innerHTML : '';
+            let lastKoseiHtml = hasPanels ? document.getElementById('andon-panel-kosei').innerHTML : '';
+            let lastStockHtml = hasPanels ? document.getElementById('andon-panel-stock').innerHTML : '';
+            let lastPlanningHtml = hasPanels ? document.getElementById('andon-panel-planning').innerHTML : '';
 
-            // Auto-follow pauses for a while after a manual scroll/touch/drag,
-            // otherwise the per-second nudge below would fight the user and
-            // snap straight back — it resumes on its own once they stop.
-            const FOLLOW_PAUSE_MS = 15000;
-            let userInteractedAt = 0;
-            const isFollowPaused = () => Date.now() - userInteractedAt < FOLLOW_PAUSE_MS;
+            // Once the operator scrolls a panel by hand, that panel stops
+            // auto-following "now" entirely — it stays exactly where it was
+            // parked. Auto-follow only comes back on the next full page reload
+            // (every 30 min). Our own programmatic scrolls (scrollToNow, the
+            // post-swap restore) are flagged so they don't count as the user
+            // taking control.
+            let followDisabled = false;
+            let programmaticScroll = false;
 
-            ['wheel', 'touchstart', 'pointerdown'].forEach((eventName) => {
-                panels.addEventListener(eventName, () => { userInteractedAt = Date.now(); }, { passive: true });
-            });
+            if (hasPanels) {
+                // Capture phase: a `scroll` event on any nested .andon-scroll
+                // container reaches here even though scroll doesn't bubble, and
+                // survives the innerHTML swaps that replace those containers.
+                panels.addEventListener('scroll', () => {
+                    if (!programmaticScroll) followDisabled = true;
+                }, true);
+                ['wheel', 'touchmove'].forEach((eventName) => {
+                    panels.addEventListener(eventName, () => { followDisabled = true; }, { passive: true });
+                });
+            }
+
+            function withProgrammaticScroll(fn) {
+                programmaticScroll = true;
+                fn();
+                // Scroll events land async — keep the flag up briefly after.
+                setTimeout(() => { programmaticScroll = false; }, 150);
+            }
 
             // Pattern and Planning no longer auto-follow "now" — only Kesei
             // (horizontal) and Timeline Stok (vertical, jumps to the newest
-            // row) still do. Always instant, never animated: an animated
-            // scroll right after swapping innerHTML is what caused a visible
-            // "blink" — the fresh element's scroll position resets to 0, and
-            // animating back to target every 60s looked like the board twitching.
+            // row) still do, and only until the operator scrolls them. Always
+            // instant, never animated: an animated scroll right after swapping
+            // innerHTML is what caused a visible "blink".
             function scrollToNow() {
-                if (isFollowPaused()) return;
+                if (followDisabled) return;
 
-                const koseiScroll = document.querySelector('#andon-panel-kosei .andon-scroll');
-                if (koseiScroll) koseiScroll.scrollLeft = Math.max(0, (nowMinute - dayStart) * pxPerMinute - 500);
+                withProgrammaticScroll(() => {
+                    const koseiScroll = document.querySelector('#andon-panel-kosei .andon-scroll');
+                    if (koseiScroll) koseiScroll.scrollLeft = Math.max(0, (nowMinute - dayStart) * pxPerMinute - 500);
 
-                // Timeline Stok scrolls vertically (rows = time) — the latest
-                // capture is always the newest row, so just jump to the bottom.
-                const stockScroll = document.querySelector('#andon-panel-stock .andon-scroll');
-                if (stockScroll) stockScroll.scrollTop = stockScroll.scrollHeight;
+                    // Timeline Stok scrolls vertically (rows = time) — the latest
+                    // capture is always the newest row, so just jump to the bottom.
+                    const stockScroll = document.querySelector('#andon-panel-stock .andon-scroll');
+                    if (stockScroll) stockScroll.scrollTop = stockScroll.scrollHeight;
+                });
             }
 
             // Swapping innerHTML always resets that element's own scroll to 0
-            // — so its previous position is always captured and restored
-            // right after, regardless of auto-follow, instead of letting the
-            // refresh yank it back to 0 out of nowhere. (Kesei/Stok still get
-            // repositioned afterwards by scrollToNow() when not paused.)
+            // — so its previous position is always captured and restored right
+            // after, so the refresh never yanks a hand-parked panel back to 0.
             function replacePanel(id, html) {
                 const panel = document.getElementById(id);
 
@@ -319,20 +390,32 @@
 
                 panel.innerHTML = html;
 
-                const freshScrollEl = document.querySelector(`#${id} .andon-scroll`);
-                if (freshScrollEl && prevLeft !== null) freshScrollEl.scrollLeft = prevLeft;
-                if (freshScrollEl && prevTop !== null) freshScrollEl.scrollTop = prevTop;
+                withProgrammaticScroll(() => {
+                    const freshScrollEl = document.querySelector(`#${id} .andon-scroll`);
+                    if (freshScrollEl && prevLeft !== null) freshScrollEl.scrollLeft = prevLeft;
+                    if (freshScrollEl && prevTop !== null) freshScrollEl.scrollTop = prevTop;
+                });
 
                 return true;
             }
 
             async function refresh() {
                 try {
-                    const res = await fetch(window.location.href, {
+                    const res = await fetch(refreshUrl, {
                         headers: { 'X-Requested-With': 'XMLHttpRequest' },
                     });
                     if (!res.ok) return;
                     const data = await res.json();
+
+                    // Calendar rollover, override snap-back, or a board just got
+                    // assigned to a previously-empty day — re-resolve the whole
+                    // page from the auto URL, header and all.
+                    if (data.reload || (data.boardId ?? null) !== currentBoardId) {
+                        window.location.assign(refreshUrl);
+                        return;
+                    }
+
+                    if (!hasPanels) return;
 
                     // Only touch the DOM for panels whose content actually
                     // changed — most 60s ticks have nothing new (patterns
@@ -360,17 +443,19 @@
                 }
             }
 
-            scrollToNow();
+            if (hasPanels) scrollToNow();
             setInterval(refresh, 60000);
-            setTimeout(() => window.location.reload(), 30 * 60 * 1000);
+            setTimeout(() => window.location.assign(refreshUrl), 30 * 60 * 1000);
 
             // Nudges the scroll position forward every second between data
             // refreshes, so "now" keeps creeping right in real time instead of
             // only jumping once a minute.
-            setInterval(() => {
-                nowMinute += 1 / 60;
-                scrollToNow();
-            }, 1000);
+            if (hasPanels) {
+                setInterval(() => {
+                    nowMinute += 1 / 60;
+                    scrollToNow();
+                }, 1000);
+            }
         })();
     </script>
 </body>

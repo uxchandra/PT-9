@@ -2,9 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Models\CalendarEntry;
 use App\Models\Machine;
 use App\Models\Part;
 use App\Models\Pattern;
+use App\Models\PatternActual;
 use App\Models\PatternBoard;
 use App\Models\PatternGroupItem;
 use App\Models\Rest;
@@ -12,6 +14,7 @@ use App\Models\StockSnapshot;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class AndonTest extends TestCase
@@ -264,7 +267,7 @@ class AndonTest extends TestCase
         $this->assertStringContainsString('left: '.$expectedLeft.'px', $html);
     }
 
-    /** @return array{0: \Illuminate\Support\Carbon, 1: \Illuminate\Support\Carbon} */
+    /** @return array{0: Carbon, 1: Carbon} */
     private function currentStockWindow(): array
     {
         $now = now();
@@ -432,7 +435,7 @@ class AndonTest extends TestCase
         $response = $this->get("/andon/{$board->id}", ['X-Requested-With' => 'XMLHttpRequest']);
 
         $response->assertOk();
-        $response->assertJsonStructure(['timeline', 'kosei', 'stockTimeline', 'planning', 'nowMinute', 'serverTime']);
+        $response->assertJsonStructure(['timeline', 'kosei', 'stockTimeline', 'planning', 'nowMinute', 'serverTime', 'boardId', 'boardName']);
 
         // The panel fragments must not include the full page shell (no
         // duplicate <html>/board switcher) — just the fragment markup itself.
@@ -890,7 +893,7 @@ class AndonTest extends TestCase
         $response->assertJson(['ok' => true, 'actual_kanban' => 17]);
 
         [$windowStart] = $this->currentStockWindow();
-        $saved = \App\Models\PatternActual::where('pattern_id', $pattern->id)->first();
+        $saved = PatternActual::where('pattern_id', $pattern->id)->first();
         $this->assertNotNull($saved);
         $this->assertSame($windowStart->toDateString(), $saved->produced_on);
         $this->assertSame(17, $saved->actual_kanban);
@@ -901,7 +904,7 @@ class AndonTest extends TestCase
         // Saving again (e.g. correcting the value) updates the same row
         // instead of creating a second one for the same day.
         $this->postJson("/andon-planning/pattern/{$pattern->id}/actual", ['actual_kanban' => 20])->assertOk();
-        $this->assertSame(1, \App\Models\PatternActual::where('pattern_id', $pattern->id)->count());
+        $this->assertSame(1, PatternActual::where('pattern_id', $pattern->id)->count());
         $this->assertDatabaseHas('pattern_actuals', ['pattern_id' => $pattern->id, 'actual_kanban' => 20]);
     }
 
@@ -962,7 +965,7 @@ class AndonTest extends TestCase
         $response->assertOk();
         $response->assertJson(['ok' => true, 'kanban_override' => 25]);
 
-        $saved = \App\Models\PatternActual::where('pattern_id', $pattern->id)->first();
+        $saved = PatternActual::where('pattern_id', $pattern->id)->first();
         $this->assertNotNull($saved);
         $this->assertSame(25, $saved->kanban_override);
 
@@ -996,12 +999,12 @@ class AndonTest extends TestCase
         $this->postJson("/andon-planning/pattern/{$pattern->id}/actual", ['actual_kanban' => 12])->assertOk();
         $this->postJson("/andon-planning/pattern/{$pattern->id}/actual", ['kanban_override' => 30])->assertOk();
 
-        $saved = \App\Models\PatternActual::where('pattern_id', $pattern->id)->first();
+        $saved = PatternActual::where('pattern_id', $pattern->id)->first();
         $this->assertSame(12, $saved->actual_kanban);
         $this->assertSame(30, $saved->kanban_override);
 
         // Still just the one row for the day, not two.
-        $this->assertSame(1, \App\Models\PatternActual::where('pattern_id', $pattern->id)->count());
+        $this->assertSame(1, PatternActual::where('pattern_id', $pattern->id)->count());
     }
 
     public function test_andon_show_planning_card_is_read_only(): void
@@ -1079,14 +1082,15 @@ class AndonTest extends TestCase
         $this->assertStringContainsString('Closing time 16:00', $html);
     }
 
-    public function test_kosei_drops_a_closing_time_marker_that_falls_before_the_visible_window(): void
+    public function test_kosei_pins_a_pre_window_closing_time_marker_to_the_left_edge_instead_of_dropping_it(): void
     {
         $board = PatternBoard::create(['name' => 'TestBoard']);
         $machine = Machine::create(['name' => 'M1']);
         $part = Part::create(['part_no' => 'P1']);
 
-        // Production starts right at day-start (07:00) — closing time would
-        // be 03:00, before the chart even begins, so no marker is drawable.
+        // Production starts right at day-start (07:00) — closing time is 03:00,
+        // before the chart begins. It must still be drawn: pinned to the left
+        // edge, with the true time kept in the tooltip.
         PatternGroupItem::create([
             'pattern_board_id' => $board->id,
             'part_id' => $part->id,
@@ -1106,9 +1110,195 @@ class AndonTest extends TestCase
 
         $html = $this->get("/andon/{$board->id}")->getContent();
 
-        // The CSS rule itself is always in the page's <style> block — check
-        // for an actual marker element, not just the class name existing.
-        $this->assertStringNotContainsString('class="closing-time-marker', $html);
+        $this->assertStringContainsString('closing-time-marker--pinned', $html);
+        // Pinned hard against the left edge.
+        $this->assertMatchesRegularExpression('/closing-time-marker--pinned"\s*style="left: 0px/', $html);
+        // Tooltip still names the real (pre-window) closing time.
+        $this->assertStringContainsString('Closing time 03:00', $html);
+    }
+
+    public function test_kesei_ct_column_shows_the_kanban_as_of_the_closing_time(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]); // 1 pc = 1 kanban
+
+        // Part starts at 07:00 (dandori 30) → closing time = 03:00.
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $part->id,
+            'urutan' => 1,
+            'loading_time' => 60,
+            'jumlah_proses' => 1,
+            'total_kanban' => 1,
+            'dandori' => 30,
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $part->id,
+            'proses' => 1,
+        ]);
+
+        [$windowStart] = $this->currentStockWindow();
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => $windowStart->copy()->subHours(5)]);
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 85, 'std_min' => 0, 'captured_at' => $windowStart->copy()->subHours(4)]);
+
+        $koseiHtml = $this->koseiPanelHtml($board->id);
+
+        // The Kesei panel gained a "CT" (closing-time kanban) column...
+        $this->assertStringContainsString('>CT</span>', $koseiHtml);
+
+        // ...and P1's CT cell shows 15 (100 → 85 by its 03:00 closing time).
+        $this->assertMatchesRegularExpression('/text-green-700">\s*15\s*</', $koseiHtml);
+    }
+
+    public function test_kesei_folds_pre_closing_red_ticks_into_an_accumulated_number_on_the_green_line(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
+
+        // Shift 2 → starts 20:00 → closing time 16:00, well inside the window.
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $part->id,
+            'shift' => 2,
+            'urutan' => 1,
+            'loading_time' => 30,
+            'jumlah_proses' => 1,
+            'total_kanban' => 1,
+            'dandori' => 0,
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $part->id,
+            'shift' => 2,
+            'proses' => 1,
+        ]);
+
+        [$windowStart] = $this->currentStockWindow();
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => $windowStart]);                      // 07:00
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 90, 'std_min' => 0, 'captured_at' => $windowStart->copy()->addHours(3)]); // 10:00  -10
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 85, 'std_min' => 0, 'captured_at' => $windowStart->copy()->addHours(8)]); // 15:00  -5
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 70, 'std_min' => 0, 'captured_at' => $windowStart->copy()->addHours(10)]); // 17:00  -15 (after closing)
+
+        $koseiHtml = $this->koseiPanelHtml($board->id);
+
+        // Drops before the 16:00 closing time are no longer drawn as red ticks...
+        $this->assertStringNotContainsString('stok turun 10 kanban', $koseiHtml);
+        $this->assertStringNotContainsString('stok turun 5 kanban', $koseiHtml);
+        // ...they're folded into the accumulated total (10 + 5 = 15) on the green line.
+        $this->assertStringContainsString('whitespace-nowrap text-green-700"', $koseiHtml);
+        $this->assertMatchesRegularExpression('/whitespace-nowrap text-green-700"[^>]*>15</', $koseiHtml);
+        // The drop after closing still shows its red ticks — fresh accumulation.
+        $this->assertStringContainsString('stok turun 15 kanban (15 pcs)', $koseiHtml);
+    }
+
+    private function koseiPanelHtml(int $boardId): string
+    {
+        $html = $this->get("/andon/{$boardId}")->getContent();
+        $start = strpos($html, 'id="andon-panel-kosei"');
+
+        return substr($html, $start, strpos($html, 'id="andon-panel-stock"') - $start);
+    }
+
+    private function seedBoard(string $boardName, string $partNo): PatternBoard
+    {
+        $board = PatternBoard::create(['name' => $boardName]);
+        $machine = Machine::create(['name' => 'M-'.$partNo]);
+        $part = Part::create(['part_no' => $partNo]);
+
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $part->id,
+            'urutan' => 1,
+            'loading_time' => 30,
+            'jumlah_proses' => 1,
+            'total_kanban' => 1,
+            'dandori' => 0,
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $part->id,
+            'proses' => 1,
+        ]);
+
+        return $board;
+    }
+
+    public function test_andon_auto_shows_the_calendar_board_for_the_current_production_day(): void
+    {
+        $this->seedBoard('BOARD-A', 'PART-A');
+        $boardB = $this->seedBoard('BOARD-B', 'PART-B');
+
+        CalendarEntry::create(['date' => now()->toDateString(), 'pattern_board_id' => $boardB->id]);
+
+        $html = $this->get('/andon')->getContent();
+
+        $this->assertStringContainsString('PART-B 1/1', $html);
+        $this->assertStringNotContainsString('PART-A 1/1', $html);
+    }
+
+    public function test_andon_auto_switches_to_the_next_days_board_30_minutes_before_shift_1(): void
+    {
+        $today = $this->seedBoard('TODAY', 'PART-TODAY');
+        $tomorrow = $this->seedBoard('TOMORROW', 'PART-TOMORROW');
+
+        CalendarEntry::create(['date' => '2026-09-10', 'pattern_board_id' => $today->id]);
+        CalendarEntry::create(['date' => '2026-09-11', 'pattern_board_id' => $tomorrow->id]);
+
+        // 06:29 on the 11th — still the 10th's pattern.
+        Carbon::setTestNow('2026-09-11 06:29:00');
+        $this->assertStringContainsString('PART-TODAY 1/1', $this->get('/andon')->getContent());
+
+        // 06:30 — the board has rolled over, 30 min before the shift.
+        Carbon::setTestNow('2026-09-11 06:30:00');
+        $this->assertStringContainsString('PART-TOMORROW 1/1', $this->get('/andon')->getContent());
+
+        Carbon::setTestNow();
+    }
+
+    public function test_andon_auto_shows_a_set_the_calendar_message_when_the_day_has_no_pattern(): void
+    {
+        $this->seedBoard('SOME-BOARD', 'SOME-PART');
+        // No CalendarEntry for today.
+
+        $this->get('/andon')
+            ->assertOk()
+            ->assertSee('Belum ada pattern untuk', false)
+            ->assertSee('Calendar', false);
+    }
+
+    public function test_andon_auto_ajax_asks_the_browser_to_reload_when_the_day_has_no_pattern(): void
+    {
+        $this->seedBoard('SOME-BOARD', 'SOME-PART');
+
+        $this->get('/andon', ['X-Requested-With' => 'XMLHttpRequest'])
+            ->assertOk()
+            ->assertExactJson(['reload' => true, 'boardId' => null]);
+    }
+
+    public function test_andon_explicit_board_is_a_manual_override_with_a_way_back_to_auto(): void
+    {
+        $this->seedBoard('BOARD-A', 'PART-A');
+        $boardB = $this->seedBoard('BOARD-B', 'PART-B');
+
+        CalendarEntry::create(['date' => now()->toDateString(), 'pattern_board_id' => PatternBoard::where('name', 'BOARD-A')->first()->id]);
+
+        $html = $this->get("/andon/{$boardB->id}")->getContent();
+
+        // Renders the explicitly-asked board, not the Calendar's.
+        $this->assertStringContainsString('PART-B 1/1', $html);
+        // Flagged as a manual override, with an "Auto" link back to the
+        // Calendar-driven endpoint.
+        $this->assertStringContainsString('Manual</span>', $html);
+        $this->assertStringContainsString(route('andon.index'), $html);
     }
 
     public function test_timeline_stok_now_covers_the_full_24_hours_including_06_to_07(): void
@@ -1375,7 +1565,7 @@ class AndonTest extends TestCase
             'produced_on' => $yesterday,
         ])->assertOk();
 
-        $saved = \App\Models\PatternActual::where('pattern_id', $pattern->id)->first();
+        $saved = PatternActual::where('pattern_id', $pattern->id)->first();
         $this->assertNotNull($saved);
         $this->assertSame($yesterday, $saved->produced_on);
         $this->assertSame(9, $saved->actual_kanban);
@@ -1383,7 +1573,7 @@ class AndonTest extends TestCase
         // Not saved under today's date.
         [$windowStart] = $this->currentStockWindow();
         $this->assertNull(
-            \App\Models\PatternActual::where('pattern_id', $pattern->id)
+            PatternActual::where('pattern_id', $pattern->id)
                 ->where('produced_on', $windowStart->toDateString())
                 ->first()
         );
