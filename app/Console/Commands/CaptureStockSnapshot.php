@@ -9,7 +9,7 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 
 #[Signature('stock:capture-snapshot')]
-#[Description('Fetch stock part data from the SOS source system and store an aggregated per-part snapshot for the TD process')]
+#[Description('Fetch stock part data from the SOS source system and store an aggregated per-part TD snapshot, limited to parts used by Pattern or Kesei')]
 class CaptureStockSnapshot extends Command
 {
     /**
@@ -29,10 +29,20 @@ class CaptureStockSnapshot extends Command
             return self::FAILURE;
         }
 
+        $wanted = StockSnapshot::monitoredPartNos();
+
+        if ($wanted->isEmpty()) {
+            $this->warn('No parts are registered in Pattern or Kesei — nothing captured.');
+
+            return self::SUCCESS;
+        }
+
         $capturedAt = now();
 
         $grouped = collect($rows)
-            ->filter(fn (array $row) => filled($row['part_no'] ?? null) && ($row['process'] ?? null) === self::PROCESS)
+            ->filter(fn (array $row) => filled($row['part_no'] ?? null)
+                && ($row['process'] ?? null) === self::PROCESS
+                && $wanted->contains($row['part_no']))
             ->groupBy('part_no');
 
         foreach ($grouped as $partNo => $partRows) {
@@ -44,7 +54,7 @@ class CaptureStockSnapshot extends Command
             ]);
         }
 
-        $this->info("Captured stock snapshot for {$grouped->count()} parts at {$capturedAt->toDateTimeString()}.");
+        $this->info("Captured stock snapshot for {$grouped->count()} parts (of {$wanted->count()} monitored) at {$capturedAt->toDateTimeString()}.");
 
         return self::SUCCESS;
     }

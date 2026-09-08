@@ -1,7 +1,10 @@
 <?php
 
 use App\Http\Controllers\AndonController;
+use App\Http\Controllers\AndonKeseiController;
 use App\Http\Controllers\CalendarController;
+use App\Http\Controllers\KeseiImportController;
+use App\Http\Controllers\KeseiPartController;
 use App\Http\Controllers\LotMakingController;
 use App\Http\Controllers\LotMakingImportController;
 use App\Http\Controllers\MachineController;
@@ -14,6 +17,7 @@ use App\Http\Controllers\PatternImportController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\RestController;
 use App\Http\Controllers\StockPartAllController;
+use App\Http\Controllers\StockSnapshotController;
 use App\Models\PatternBoard;
 use Illuminate\Support\Facades\Route;
 
@@ -22,6 +26,7 @@ Route::get('/', function () {
 });
 
 Route::get('/andon', [AndonController::class, 'index'])->name('andon.index');
+Route::get('/andon-kesei', [AndonKeseiController::class, 'show'])->name('andon-kesei.show');
 Route::get('/andon/{patternBoard}', [AndonController::class, 'show'])->name('andon.show');
 Route::get('/andon-planning/{patternBoard}', [AndonController::class, 'planning'])->name('andon.planning');
 Route::post('/andon-planning/pattern/{pattern}/actual', [AndonController::class, 'updateActual'])->name('andon.planning.actual.update');
@@ -42,6 +47,10 @@ Route::middleware('auth')->group(function () {
         ->middleware('can:view stock part all')
         ->name('stock-part-all.index');
 
+    Route::get('/stock-snapshots', [StockSnapshotController::class, 'index'])
+        ->middleware('can:view stock snapshot')
+        ->name('stock-snapshots.index');
+
     Route::middleware('can:manage planning')->group(function () {
         Route::get('/planning', [AndonController::class, 'planningBoards'])->name('planning.index');
         Route::get('/planning/{patternBoard}', [AndonController::class, 'planningTable'])->name('planning.table');
@@ -54,6 +63,17 @@ Route::middleware('auth')->group(function () {
     Route::middleware('can:manage parts')->group(function () {
         Route::get('parts-import', [PartImportController::class, 'create'])->name('parts.import.create');
         Route::post('parts-import', [PartImportController::class, 'store'])->name('parts.import.store');
+    });
+
+    Route::middleware('can:manage kesei')->group(function () {
+        Route::get('kesei', [KeseiPartController::class, 'index'])->name('kesei.index');
+        Route::post('kesei', [KeseiPartController::class, 'store'])->name('kesei.store');
+        Route::post('kesei/reorder', [KeseiPartController::class, 'reorder'])->name('kesei.reorder');
+        Route::get('kesei/import-template', [KeseiImportController::class, 'template'])->name('kesei.import.template');
+        Route::get('kesei/import', [KeseiImportController::class, 'create'])->name('kesei.import.create');
+        Route::post('kesei/import', [KeseiImportController::class, 'store'])->name('kesei.import.store');
+        Route::patch('kesei/{keseiPart}', [KeseiPartController::class, 'update'])->name('kesei.update');
+        Route::delete('kesei/{keseiPart}', [KeseiPartController::class, 'destroy'])->name('kesei.destroy');
     });
 
     Route::middleware('can:manage lot making')->group(function () {

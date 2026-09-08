@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('stock:capture-snapshot')->everyFiveMinutes();
+Schedule::command('stock:prune-snapshots')->dailyAt('06:00');
