@@ -120,6 +120,24 @@ class KeseiClosingNotifyTest extends TestCase
         $this->assertSame(3, KeseiClosingNotification::count());
     }
 
+    public function test_pattern_before_0700_is_still_the_previous_calendar_day(): void
+    {
+        // Tuesday 04:30 — shift 2 is still running Monday's pattern.
+        Carbon::setTestNow('2026-09-15 04:30:00');
+        $this->fakeGatewayOk();
+
+        $monday = PatternBoard::create(['name' => 'MON']);
+        $tuesday = PatternBoard::create(['name' => 'TUE']);
+        CalendarEntry::create(['date' => '2026-09-14', 'pattern_board_id' => $monday->id]);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $tuesday->id]);
+
+        $this->keseiPart('P1', '04:00');
+
+        $this->notifier()->run();
+
+        Http::assertSent(fn ($request) => str_contains($request->data()['message'], 'Pattern : MON'));
+    }
+
     public function test_does_not_send_before_the_closing_time(): void
     {
         Http::fake();
@@ -155,6 +173,55 @@ class KeseiClosingNotifyTest extends TestCase
         $this->notifier()->run();
 
         Http::assertSent(fn ($request) => str_contains($request->data()['message'], 'Qty Kbn : 4'));
+    }
+
+    public function test_qty_kbn_matches_the_board_and_can_span_several_days_for_an_infrequent_part(): void
+    {
+        // now 10:00 Tuesday; part runs on board D, which ran 09-11 then again 09-15.
+        $this->fakeGatewayOk();
+        $d = PatternBoard::create(['name' => 'D']);
+        $x = PatternBoard::create(['name' => 'X']);
+        CalendarEntry::create(['date' => '2026-09-11', 'pattern_board_id' => $d->id]);
+        CalendarEntry::create(['date' => '2026-09-12', 'pattern_board_id' => $x->id]);
+        CalendarEntry::create(['date' => '2026-09-13', 'pattern_board_id' => $x->id]);
+        CalendarEntry::create(['date' => '2026-09-14', 'pattern_board_id' => $x->id]);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $d->id]);
+
+        $kesei = $this->keseiPart('EVERY4', '08:00', qtyKbn: '1');
+        $kesei->patternBoards()->sync([$d->id]);
+
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-11 09:00')]);
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-12 09:00')]);   // -4
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 90, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 09:00')]);   // -6
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 88, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 09:00')]);   // -2, after closing
+
+        $result = $this->notifier()->run();
+
+        $this->assertSame(1, $result['sent']);
+        Http::assertSent(function ($request) {
+            $msg = $request->data()['message'];
+
+            return str_contains($msg, 'Part    : EVERY4')
+                && str_contains($msg, 'Pattern : D')
+                && str_contains($msg, 'Qty Kbn : 10'); // 4 + 6 across the 4-day cycle
+        });
+    }
+
+    public function test_nothing_is_sent_on_a_day_the_part_does_not_run(): void
+    {
+        Http::fake();
+        $d = PatternBoard::create(['name' => 'D']);
+        $x = PatternBoard::create(['name' => 'X']);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $x->id]); // today runs X, not D
+
+        $kesei = $this->keseiPart('OFFDAY', '08:00', qtyKbn: '1'); // closing already passed at 10:00
+        $kesei->patternBoards()->sync([$d->id]);
+
+        $result = $this->notifier()->run();
+
+        $this->assertSame(['sent' => 0, 'skipped' => 0, 'failed' => 0], $result);
+        Http::assertNothingSent();
+        $this->assertSame(0, KeseiClosingNotification::count());
     }
 
     public function test_a_gateway_failure_is_not_recorded_so_the_next_tick_retries(): void

@@ -3,7 +3,7 @@
         {{ __('Belum ada part di menu Kesei.') }}
     </div>
 @else
-    @php $totalWidth = (max($timelineEnd - $dayStart, 1) + 60) * $pxPerMinute; @endphp
+    @php $totalWidth = max($timelineEnd - $dayStart, 1) * $pxPerMinute + 24; @endphp
     <div class="andon-scroll h-full overflow-auto">
         <div class="h-full flex flex-col" style="width: {{ 110 + $totalWidth }}px;">
 
@@ -11,7 +11,7 @@
             <div class="shrink-0 flex sticky top-0 z-30 bg-slate-50 border-b border-slate-300">
                 <div class="sticky left-0 z-40 bg-slate-50 shrink-0" style="width: 110px;"></div>
                 <div class="relative shrink-0" style="width: {{ $totalWidth }}px; height: 28px;">
-                    @for ($t = $dayStart; $t < $timelineEnd; $t += 60)
+                    @for ($t = $dayStart; $t <= $timelineEnd; $t += 60)
                         <div class="absolute top-0 h-full border-l border-slate-200 flex items-center text-[10px] text-slate-500 font-semibold pl-1"
                              style="left: {{ ($t - $dayStart) * $pxPerMinute }}px;">
                             {{ $windowStart->copy()->addMinutes($t)->format('H') }}:00
@@ -22,14 +22,14 @@
 
             {{-- Part rows --}}
             <div class="relative flex-1">
-                @for ($t = $dayStart; $t < $timelineEnd; $t += 60)
+                @for ($t = $dayStart; $t <= $timelineEnd; $t += 60)
                     <div class="grid-line z-0" style="left: {{ 110 + ($t - $dayStart) * $pxPerMinute }}px;"></div>
                 @endfor
 
                 {{-- Moving "now" line — nudged forward every second by the page script. --}}
                 @if ($nowMinute >= $dayStart && $nowMinute <= $timelineEnd)
                     <div id="kesei-now-line" class="absolute top-0 bottom-0 z-20 pointer-events-none"
-                         data-day-start="{{ $dayStart }}" data-px="{{ $pxPerMinute }}" data-now="{{ $nowMinute }}"
+                         data-day-start="{{ $dayStart }}" data-px="{{ $pxPerMinute }}" data-now="{{ $nowMinute }}" data-total="{{ $timelineEnd }}"
                          style="left: {{ 110 + ($nowMinute - $dayStart) * $pxPerMinute }}px; width: 2px; background: #2563eb;"></div>
                 @endif
 
@@ -61,8 +61,8 @@
                                 </div>
                             @endif
                             @foreach ($stockDecreaseEvents[$row['id']] ?? [] as $event)
-                                {{-- Once the closing time is reached, ticks up to it fold into the number on the green line. Before that, every tick shows. --}}
-                                @continue($closingMinute !== null && $row['closing_reached'] && $event['minute'] <= $closingMinute)
+                                {{-- The controller already drops ticks that folded at the last run-day
+                                     closing; whatever is left here is the live pile and always shows. --}}
                                 <div class="absolute top-1 bottom-0.5 z-10 flex flex-col items-center"
                                      style="left: {{ ($event['minute'] - $dayStart) * $pxPerMinute }}px;"
                                      title="{{ $event['time'] }} — stok turun {{ $event['kanban'] }} kanban ({{ $event['pcs'] }} pcs)">

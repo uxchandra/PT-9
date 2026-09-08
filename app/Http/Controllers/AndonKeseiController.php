@@ -14,9 +14,15 @@ use Illuminate\View\View;
 
 /**
  * Standalone Kesei board — completely separate from the pattern-driven Andon
- * boards. It shows every row added in the Kesei menu with its stock timeline
- * over a SLIDING 24-hour window that always ends a few hours after "now", so
- * checking it any time of day still shows last night's shift-2 activity.
+ * boards. It shows every row added in the Kesei menu on a fixed 07:00 → 07:00
+ * clock face that loops forever: 07:00 on the left, wrapping back to the left
+ * every morning at 07:00. The "now" line marches left → right across it.
+ *
+ * Red decrease ticks for a row are NEVER dropped before that row's closing
+ * time: they accumulate (piling up / overlapping is fine) from the row's most
+ * recent RUN-DAY closing up to now. A run-day is a day whose Calendar pattern
+ * is one of the row's pattern boards. When a run-day closing passes, the pile
+ * folds into an accumulated-kanban number and the next pile starts.
  *
  * A Kesei row's Timeline Stok is the SUM of its "stock_source" part_no(s)'
  * Stock Part All readings (falling back to the row's own part_no), so one
@@ -26,23 +32,26 @@ class AndonKeseiController extends Controller
 {
     private const PX_PER_MINUTE = 1.8;
 
-    /** The window is 24h wide, starting this many hours before "now" (floored
-     *  to the hour), which leaves ~4h of look-ahead space on the right. */
-    private const LOOKBACK_HOURS = 20;
+    /** Minute-of-day the clock face starts at (07:00 = start of shift 1). */
+    private const DAY_ANCHOR_MINUTE = 7 * 60;
 
     private const WINDOW_MINUTES = 24 * 60;
 
     public function show(Request $request): View|JsonResponse
     {
-        [$windowStart, $windowEnd] = $this->window();
         $now = now();
+        // Only the *time* (07:00) matters here — the blade uses it for the hour
+        // axis labels, which wrap 07 → 06 → 07.
+        $anchor = $now->copy()->setTime(7, 0);
+        $historyFloor = $now->copy()->subDays(KeseiPart::FOLD_HISTORY_DAYS);
 
         $keseiRows = KeseiPart::with(['part', 'patternBoards'])
             ->orderBy('urutan')
             ->orderBy('id')
             ->get()
-            ->map(function (KeseiPart $kesei) use ($windowStart, $now) {
-                $closingMinute = $this->closingWindowMinute($kesei->closing_time, $windowStart);
+            ->map(function (KeseiPart $kesei) use ($now) {
+                $closing = $kesei->closing_time;
+                [$foldStart, $cycleStart] = $kesei->foldBoundaries($now);
 
                 return [
                     'id' => $kesei->id,
@@ -50,37 +59,40 @@ class AndonKeseiController extends Controller
                     'qty_kbn' => $kesei->part?->qty_kbn,
                     'sources' => $kesei->sourcePartNos(),
                     'patterns' => $kesei->patternBoards->pluck('name')->all(),
-                    'closing_minute' => $closingMinute,
-                    'closing_label' => $kesei->closing_time?->format('H:i'),
-                    // The accumulated-kanban figure only means something once the
-                    // clock has actually passed the closing time.
-                    'closing_reached' => $closingMinute !== null
-                        && $now->gte($windowStart->copy()->addMinutes($closingMinute)),
+                    'closing_label' => $closing?->format('H:i'),
+                    'closing_minute' => $closing ? $this->clockMinute($closing) : null,
+                    'closing_reached' => $kesei->closingReached($now),
+                    'fold_start' => $foldStart,
+                    'cycle_start' => $cycleStart,
                 ];
             })
             ->filter(fn (array $row) => $row['sources'] !== [])
             ->values();
 
-        [$seedStock, $stockByTime] = $this->loadStock($keseiRows, $windowStart, $windowEnd);
+        $queryStart = $this->queryStart($keseiRows, $now, $historyFloor);
 
-        $stockDecreaseEvents = $this->buildStockDecreaseEvents($keseiRows, $seedStock, $stockByTime, $windowStart);
+        [$seedStock, $stockByTime] = $this->loadStock($keseiRows, $queryStart, $now);
+
+        $allEvents = $this->buildStockDecreaseEvents($keseiRows, $seedStock, $stockByTime);
+        [$stockDecreaseEvents, $closingKanban] = $this->splitEvents($keseiRows, $allEvents);
 
         $viewData = [
             'keseiRows' => $keseiRows,
             'stockDecreaseEvents' => $stockDecreaseEvents,
-            'closingKanban' => $this->buildClosingKanban($keseiRows, $stockDecreaseEvents),
-            'stockHistoryRows' => $this->buildStockHistoryRows($keseiRows, $stockByTime),
-            // Positions are minutes from the (sliding) window start.
+            'closingKanban' => $closingKanban,
+            // The Timeline Stok table stays a rolling 24h — the pile-forever rule
+            // is only about the red ticks.
+            'stockHistoryRows' => $this->buildStockHistoryRows($keseiRows, $stockByTime, $now->copy()->subDay()),
+            // Positions are minutes past 07:00 on the looping clock face.
             'dayStart' => 0,
             'timelineEnd' => self::WINDOW_MINUTES,
             'pxPerMinute' => self::PX_PER_MINUTE,
-            'windowStart' => $windowStart,
-            'productionLabel' => $windowStart->copy()->locale('id')->translatedFormat('d M H:i')
-                .' – '.$windowEnd->copy()->locale('id')->translatedFormat('d M H:i'),
-            // The pattern the Calendar says is running today.
-            'currentPattern' => CalendarEntry::patternBoardForDate($now->toDateString())?->name,
-            // Where "now" sits on the chart's minute scale, for the moving now-line.
-            'nowMinute' => (int) $windowStart->diffInMinutes($now),
+            'windowStart' => $anchor,
+            'productionLabel' => CalendarEntry::productionDayStart($now)->locale('id')->translatedFormat('l, d F Y').' · 07:00 → 07:00',
+            // The pattern the Calendar says is running now (rolls at 07:00).
+            'currentPattern' => CalendarEntry::runningPatternBoard($now)?->name,
+            // Where "now" sits on the clock face, for the moving now-line.
+            'nowMinute' => $this->clockMinute($now),
         ];
 
         if ($request->ajax()) {
@@ -96,64 +108,74 @@ class AndonKeseiController extends Controller
     }
 
     /**
-     * The sliding window: 24h wide, starting LOOKBACK_HOURS before now (floored
-     * to the hour so the axis labels stay on round hours).
-     *
-     * @return array{0: Carbon, 1: Carbon}
+     * A wall-clock time mapped onto the looping 07:00 → 07:00 face, as minutes
+     * past 07:00 (0..1439).
      */
-    private function window(): array
+    private function clockMinute(Carbon $time): int
     {
-        $windowStart = now()->subHours(self::LOOKBACK_HOURS)->startOfHour();
+        $minuteOfDay = $time->hour * 60 + $time->minute;
 
-        return [$windowStart, $windowStart->copy()->addMinutes(self::WINDOW_MINUTES)];
+        return (int) (($minuteOfDay - self::DAY_ANCHOR_MINUTE + self::WINDOW_MINUTES) % self::WINDOW_MINUTES);
     }
 
     /**
-     * A manually-entered closing time (wall clock) mapped to its single
-     * occurrence inside the 24h window, as minutes from the window start.
+     * The earliest instant any row needs stock history from (floored to the
+     * hour, clamped to the history floor), so one query covers every row.
      */
-    private function closingWindowMinute(?Carbon $time, Carbon $windowStart): ?int
+    private function queryStart(Collection $keseiRows, Carbon $now, Carbon $historyFloor): Carbon
     {
-        if ($time === null) {
-            return null;
-        }
+        $earliest = $keseiRows
+            ->map(fn (array $row) => $row['cycle_start']->getTimestamp())
+            ->min();
 
-        $at = $windowStart->copy()->setTime((int) $time->hour, (int) $time->minute);
-        if ($at->lt($windowStart)) {
-            $at->addDay();
-        }
+        $start = $earliest !== null
+            ? $now->copy()->setTimestamp($earliest)->startOfHour()
+            : $now->copy()->subDay()->startOfHour();
 
-        return (int) $windowStart->diffInMinutes($at);
+        return $start->lt($historyFloor) ? $historyFloor->copy()->startOfHour() : $start;
     }
 
     /**
-     * Accumulated kanban up to each row's closing time — the sum of every red
-     * decrease tick at/before that minute. Rows with no closing time are
-     * absent.
+     * Split every decrease event into what the timeline shows (after the row's
+     * foldStart) and what folded into the accumulated number at the last
+     * run-day closing (only when that closing has actually passed).
      *
-     * @param  array<int, array<int, array{minute: int, kanban: int, pcs: int, time: string}>>  $stockDecreaseEvents
-     * @return array<int, int>
+     * @param  array<int, array<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>>  $allEvents
+     * @return array{0: array<int, array<int, array{minute: int, kanban: int, pcs: int, time: string}>>, 1: array<int, int>}
      */
-    private function buildClosingKanban(Collection $keseiRows, array $stockDecreaseEvents): array
+    private function splitEvents(Collection $keseiRows, array $allEvents): array
     {
-        $out = [];
+        $visible = [];
+        $closingKanban = [];
 
         foreach ($keseiRows as $row) {
-            if ($row['closing_minute'] === null) {
-                continue;
-            }
+            $rowEvents = $allEvents[$row['id']] ?? [];
 
-            $out[$row['id']] = collect($stockDecreaseEvents[$row['id']] ?? [])
-                ->filter(fn (array $event) => $event['minute'] <= $row['closing_minute'])
-                ->sum('kanban');
+            $visible[$row['id']] = array_values(array_filter(
+                $rowEvents,
+                fn (array $event) => $event['at']->gt($row['fold_start'])
+            ));
+
+            if ($row['closing_reached']) {
+                $lo = $row['cycle_start'];
+                $hi = $row['fold_start'];
+
+                $closingKanban[$row['id']] = array_sum(array_map(
+                    fn (array $event) => $event['kanban'],
+                    array_filter(
+                        $rowEvents,
+                        fn (array $event) => $event['at']->gt($lo) && $event['at']->lte($hi)
+                    )
+                ));
+            }
         }
 
-        return $out;
+        return [$visible, $closingKanban];
     }
 
     /**
      * One snapshot query for every source part_no across all rows. Returns:
-     *  - seed:      [part_no => stock] at the last capture before the window
+     *  - seed:      [part_no => stock] at the last capture before $windowStart
      *  - byTime:    [ 'Y-m-d H:i:s' => ['stock' => [part_no => int], 'std_min' => [part_no => int]] ]
      *               for captures inside the window, in chronological order.
      *
@@ -220,14 +242,14 @@ class AndonKeseiController extends Controller
     }
 
     /**
-     * Timeline Stok: one row per capture timestamp, each carrying every Kesei
-     * row's summed stock keyed by kesei_part id. A row whose sources had no
-     * reading at that timestamp is simply absent.
+     * Timeline Stok: one row per capture timestamp from $since onward, each
+     * carrying every Kesei row's summed stock keyed by kesei_part id. A row
+     * whose sources had no reading at that timestamp is simply absent.
      *
      * @param  array<string, array{stock: array<string, int>, std_min: array<string, int>}>  $stockByTime
      * @return array<int, array{time: string, values: array<int, array{stock: int, under_min: bool}>}>
      */
-    private function buildStockHistoryRows(Collection $keseiRows, array $stockByTime): array
+    private function buildStockHistoryRows(Collection $keseiRows, array $stockByTime, Carbon $since): array
     {
         if ($keseiRows->isEmpty()) {
             return [];
@@ -236,6 +258,10 @@ class AndonKeseiController extends Controller
         $rows = [];
 
         foreach ($stockByTime as $timestamp => $maps) {
+            if (Carbon::parse($timestamp)->lt($since)) {
+                continue;
+            }
+
             $values = [];
 
             foreach ($keseiRows as $row) {
@@ -258,14 +284,15 @@ class AndonKeseiController extends Controller
 
     /**
      * For each Kesei row, every moment its summed source stock dropped between
-     * two 5-minute captures within the window, converted to kanban (lot ÷
-     * qty_kbn rounded up). Only decreases produce a tick.
+     * two 5-minute captures, converted to kanban (lot ÷ qty_kbn rounded up).
+     * Only decreases produce a tick. Positions are on the looping clock face,
+     * so ticks from different days can share an x position — that's fine.
      *
      * @param  array<string, int>  $seedStock
      * @param  array<string, array{stock: array<string, int>, std_min: array<string, int>}>  $stockByTime
-     * @return array<int, array<int, array{minute: int, kanban: int, pcs: int, time: string}>>
+     * @return array<int, array<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>>
      */
-    private function buildStockDecreaseEvents(Collection $keseiRows, array $seedStock, array $stockByTime, Carbon $windowStart): array
+    private function buildStockDecreaseEvents(Collection $keseiRows, array $seedStock, array $stockByTime): array
     {
         if ($keseiRows->isEmpty()) {
             return [];
@@ -293,10 +320,11 @@ class AndonKeseiController extends Controller
                     if ($kanban > 0) {
                         $at = Carbon::parse($timestamp);
                         $rowEvents[] = [
-                            'minute' => (int) $windowStart->diffInMinutes($at),
+                            'minute' => $this->clockMinute($at),
                             'kanban' => $kanban,
                             'pcs' => $decreasePcs,
                             'time' => $at->format('H:i'),
+                            'at' => $at,
                         ];
                     }
                 }

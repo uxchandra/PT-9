@@ -133,21 +133,30 @@
                 return base.now + (Date.now() - baseAt) / 60000;
             }
 
+            // Offset in px from the axis origin, wrapped onto the 07:00 → 07:00 face.
+            function offsetPx() {
+                const total = base.total || (24 * 60);
+                let m = (currentNow() - base.dayStart) % total;
+                if (m < 0) m += total;
+                return m * base.px;
+            }
+
             function sync(el) {
                 base = {
                     now: parseFloat(el.dataset.now),
                     dayStart: parseFloat(el.dataset.dayStart),
                     px: parseFloat(el.dataset.px),
+                    total: parseFloat(el.dataset.total),
                 };
                 baseAt = Date.now();
                 place(el);
 
                 const scroller = document.querySelector('#andon-panel-timeline .andon-scroll');
-                if (scroller) scroller.scrollLeft = Math.max(0, (currentNow() - base.dayStart) * base.px - 320);
+                if (scroller) scroller.scrollLeft = Math.max(0, offsetPx() - 320);
             }
 
             function place(el) {
-                el.style.left = (110 + (currentNow() - base.dayStart) * base.px) + 'px';
+                el.style.left = (110 + offsetPx()) + 'px';
             }
 
             window.__keseiNowSync = function () {

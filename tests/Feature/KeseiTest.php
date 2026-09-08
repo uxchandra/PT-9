@@ -137,6 +137,8 @@ class KeseiTest extends TestCase
 
     public function test_andon_kesei_closing_time_table_is_plain_and_shows_the_calendar_pattern(): void
     {
+        Carbon::setTestNow('2026-09-15 10:00:00'); // daytime, after the 07:00 calendar rollover
+
         $running = PatternBoard::create(['name' => 'RUN-A']);
         $other = PatternBoard::create(['name' => 'OTHER-B']);
         CalendarEntry::create(['date' => now()->toDateString(), 'pattern_board_id' => $running->id]);
@@ -162,6 +164,8 @@ class KeseiTest extends TestCase
         // Plain text — no coloured badges or pills.
         $this->assertStringNotContainsString('bg-slate-200', $table);
         $this->assertStringNotContainsString('bg-brand-100', $table);
+
+        Carbon::setTestNow();
     }
 
     public function test_closing_table_qty_kbn_is_blank_until_closing_time_then_shows_accumulated_kanban(): void
@@ -361,6 +365,85 @@ class KeseiTest extends TestCase
         $this->assertStringNotContainsString('stok turun 3 kanban', $html);
         // The drop after 09:00 still shows its ticks.
         $this->assertStringContainsString('stok turun 5 kanban (5 pcs)', $html);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_red_ticks_pile_across_non_run_days_and_are_never_lost_before_closing(): void
+    {
+        // Tuesday 06:00 — before today's 08:00 closing. The part only runs on
+        // board D days: it ran on 09-11, then not again until 09-15.
+        Carbon::setTestNow('2026-09-15 06:00:00');
+
+        $d = PatternBoard::create(['name' => 'D']);
+        $x = PatternBoard::create(['name' => 'X']);
+        CalendarEntry::create(['date' => '2026-09-11', 'pattern_board_id' => $d->id]);
+        CalendarEntry::create(['date' => '2026-09-12', 'pattern_board_id' => $x->id]);
+        CalendarEntry::create(['date' => '2026-09-13', 'pattern_board_id' => $x->id]);
+        CalendarEntry::create(['date' => '2026-09-14', 'pattern_board_id' => $x->id]);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $d->id]);
+
+        $part = Part::create(['part_no' => 'EVERY4', 'qty_kbn' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'closing_time' => '08:00', 'urutan' => 1]);
+        $kesei->patternBoards()->sync([$d->id]);
+
+        // Pile starts after the 09-11 08:00 run-day closing, then drops on three
+        // separate days — two of them non-run-days.
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-11 09:00')]);
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-12 09:00')]);  // -4
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 90, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 09:00')]);  // -6
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 87, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 05:00')]);  // -3
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+
+        // Every drop since the last run-day closing is still on the board.
+        $this->assertStringContainsString('stok turun 4 kanban (4 pcs)', $html);
+        $this->assertStringContainsString('stok turun 6 kanban (6 pcs)', $html);
+        $this->assertStringContainsString('stok turun 3 kanban (3 pcs)', $html);
+
+        // Today's 08:00 closing has not passed on this run-day yet → nothing folded.
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+        $this->assertMatchesRegularExpression('/EVERY4.*?>\s*-\s*<\/td>\s*<\/tr>/s', $table);
+
+        // 06:00 maps to minute 1380 on the looping 07:00 → 07:00 face.
+        $this->assertStringContainsString('data-now="1380"', $html);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_pile_folds_only_on_a_run_day_closing_and_can_span_several_days(): void
+    {
+        // Tuesday 10:00 — past today's 08:00 run-day closing.
+        Carbon::setTestNow('2026-09-15 10:00:00');
+
+        $d = PatternBoard::create(['name' => 'D']);
+        $x = PatternBoard::create(['name' => 'X']);
+        CalendarEntry::create(['date' => '2026-09-11', 'pattern_board_id' => $d->id]);
+        CalendarEntry::create(['date' => '2026-09-12', 'pattern_board_id' => $x->id]);
+        CalendarEntry::create(['date' => '2026-09-13', 'pattern_board_id' => $x->id]);
+        CalendarEntry::create(['date' => '2026-09-14', 'pattern_board_id' => $x->id]);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $d->id]);
+
+        $part = Part::create(['part_no' => 'EVERY4', 'qty_kbn' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'closing_time' => '08:00', 'urutan' => 1]);
+        $kesei->patternBoards()->sync([$d->id]);
+
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-11 09:00')]);
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-12 09:00')]);   // -4, folds
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 90, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 09:00')]);   // -6, folds
+        StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 88, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 09:00')]);   // -2, after 08:00 → stays a tick
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+
+        // The 4-day pile up to 09-15 08:00 folds into one number: 4 + 6 = 10.
+        $this->assertMatchesRegularExpression('/text-green-700">10</', $html);
+        $this->assertStringNotContainsString('stok turun 4 kanban', $html);
+        $this->assertStringNotContainsString('stok turun 6 kanban', $html);
+        // The drop after the closing is still a live tick.
+        $this->assertStringContainsString('stok turun 2 kanban (2 pcs)', $html);
+
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+        $this->assertMatchesRegularExpression('/EVERY4.*?>\s*10\s*<\/td>\s*<\/tr>/s', $table);
 
         Carbon::setTestNow();
     }

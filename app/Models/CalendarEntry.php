@@ -33,6 +33,40 @@ class CalendarEntry extends Model
             ->first()?->patternBoard;
     }
 
+    /**
+     * Minute-of-day the running calendar pattern rolls onto the new date.
+     * 07:00 = start of shift 1; between midnight and 07:00 shift 2 is still
+     * running the *previous* calendar day's pattern.
+     */
+    public const RUNNING_SWITCH_MINUTE = 7 * 60;
+
+    /**
+     * 07:00 of the production day that $at (default: now) falls in. Between
+     * midnight and 07:00 that is still the *previous* calendar day's 07:00,
+     * because shift 2 keeps running the previous day's pattern until shift 1.
+     */
+    public static function productionDayStart(?Carbon $at = null): Carbon
+    {
+        $at = $at ? $at->copy() : Carbon::now();
+        $start = $at->copy()->startOfDay()->addMinutes(self::RUNNING_SWITCH_MINUTE);
+
+        if ($start->gt($at)) {
+            $start->subDay();
+        }
+
+        return $start;
+    }
+
+    /**
+     * The pattern board actually running at $at (default: now), honouring the
+     * 07:00 shift-1 rollover — so e.g. Tuesday 04:00 still resolves to Monday's
+     * assignment.
+     */
+    public static function runningPatternBoard(?Carbon $at = null): ?PatternBoard
+    {
+        return self::patternBoardForDate(self::productionDayStart($at)->toDateString());
+    }
+
     public static function patternBoardForToday(): ?PatternBoard
     {
         return self::patternBoardForDate(Carbon::now()->toDateString());

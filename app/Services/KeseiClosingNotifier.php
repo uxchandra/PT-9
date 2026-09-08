@@ -20,10 +20,6 @@ use Illuminate\Support\Facades\Log;
  */
 class KeseiClosingNotifier
 {
-    /** Same sliding-window lookback the Andon Kesei screen uses, so the Qty
-     *  Kbn in the message matches what an operator sees there. */
-    private const LOOKBACK_HOURS = 20;
-
     public function __construct(private FonnteClient $fonnte) {}
 
     /**
@@ -36,14 +32,13 @@ class KeseiClosingNotifier
         $now = now();
         $today = $now->toDateString();
 
+        // Only rows whose closing time has passed on a day they actually run
+        // (their board is the Calendar pattern) — matching when the Andon Kesei
+        // board folds the pile into a number.
         $due = KeseiPart::with(['part', 'patternBoards'])
             ->whereNotNull('closing_time')
             ->get()
-            ->filter(function (KeseiPart $kesei) use ($now) {
-                $at = $now->copy()->setTime((int) $kesei->closing_time->hour, (int) $kesei->closing_time->minute);
-
-                return $now->gte($at);
-            });
+            ->filter(fn (KeseiPart $kesei) => $kesei->closingReached($now));
 
         if ($due->isEmpty()) {
             return $result;
@@ -72,19 +67,24 @@ class KeseiClosingNotifier
             return $result;
         }
 
-        $pattern = CalendarEntry::patternBoardForDate($today)?->name ?? '-';
-
         // Parts that come due together and share the same clock time go out as
         // one WhatsApp, not one per part.
         $groups = $due->groupBy(fn (KeseiPart $kesei) => $kesei->closing_time->format('H:i'));
 
         foreach ($groups as $closing => $members) {
+            $groupClosingAt = $now->copy()->setTime(
+                (int) $members->first()->closing_time->hour,
+                (int) $members->first()->closing_time->minute,
+            );
+            // Pattern running at the closing moment (Calendar rolls over at 07:00).
+            $pattern = CalendarEntry::runningPatternBoard($groupClosingAt)?->name ?? '-';
+
             $lines = $members->map(function (KeseiPart $kesei) use ($now) {
-                $closingAt = $now->copy()->setTime((int) $kesei->closing_time->hour, (int) $kesei->closing_time->minute);
+                [$foldStart, $cycleStart] = $kesei->foldBoundaries($now);
 
                 return [
                     'partNo' => $kesei->part?->part_no ?? '(part terhapus)',
-                    'qtyKbn' => $this->accumulatedKanban($kesei, $closingAt),
+                    'qtyKbn' => $this->accumulatedKanban($kesei, $cycleStart, $foldStart),
                 ];
             })->all();
 
@@ -125,10 +125,13 @@ class KeseiClosingNotifier
 
     /**
      * Sum of every stock decrease (converted to kanban) across the row's
-     * source part_no(s), from the sliding-window start up to the closing time.
-     * Restocks and flat readings are ignored, matching the Andon Kesei chart.
+     * source part_no(s) over one accumulation cycle — from the previous
+     * run-day closing ($from) up to the one that just passed ($to). This is
+     * exactly the span the Andon Kesei board folds into its green-line number,
+     * so the WhatsApp figure matches the screen. Restocks and flat readings
+     * are ignored.
      */
-    private function accumulatedKanban(KeseiPart $kesei, Carbon $closingAt): int
+    private function accumulatedKanban(KeseiPart $kesei, Carbon $from, Carbon $to): int
     {
         $sources = $kesei->sourcePartNos();
 
@@ -136,7 +139,7 @@ class KeseiClosingNotifier
             return 0;
         }
 
-        $windowStart = $closingAt->copy()->subHours(self::LOOKBACK_HOURS)->startOfHour();
+        $windowStart = $from->copy()->startOfHour();
         $columns = ['part_no', 'stock', 'captured_at'];
 
         $seed = StockSnapshot::whereIn('part_no', $sources)
@@ -150,7 +153,7 @@ class KeseiClosingNotifier
 
         $byTime = [];
         StockSnapshot::whereIn('part_no', $sources)
-            ->whereBetween('captured_at', [$windowStart, $closingAt])
+            ->whereBetween('captured_at', [$windowStart, $to])
             ->orderBy('captured_at')
             ->get($columns)
             ->each(function ($row) use (&$byTime) {
@@ -161,9 +164,17 @@ class KeseiClosingNotifier
         $previous = $this->sumPresent($seed, $sources);
         $kanban = 0;
 
-        foreach ($byTime as $map) {
+        foreach ($byTime as $timestamp => $map) {
             $current = $this->sumPresent($map, $sources);
             if ($current === null) {
+                continue;
+            }
+
+            // Readings at or before the previous fold only prime $previous;
+            // drops count from strictly after it.
+            if (Carbon::parse($timestamp)->lte($from)) {
+                $previous = $current;
+
                 continue;
             }
 
