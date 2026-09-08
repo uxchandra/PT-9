@@ -141,13 +141,13 @@ class AndonTest extends TestCase
         $this->assertTrue($posPt91 < $posPt92 && $posPt92 < $posPt99, 'machine rows must render in natural name order PT91, PT92, PT99');
     }
 
-    public function test_andon_show_orders_each_machines_blocks_by_assignment_creation_order_not_group_item_urutan(): void
+    public function test_andon_show_orders_each_machines_blocks_by_kelompok_pattern_urutan(): void
     {
         $board = PatternBoard::create(['name' => 'TestBoard']);
         $machine = Machine::create(['name' => 'M1']);
 
-        $partHigh = Part::create(['part_no' => 'PartHigh']); // urutan=1, listed first in Kelompok Pattern
-        $partLow = Part::create(['part_no' => 'PartLow']);   // urutan=2, listed second
+        $partHigh = Part::create(['part_no' => 'PartHigh']); // urutan=1
+        $partLow = Part::create(['part_no' => 'PartLow']);   // urutan=2
 
         PatternGroupItem::create([
             'pattern_board_id' => $board->id, 'part_id' => $partHigh->id,
@@ -158,8 +158,8 @@ class AndonTest extends TestCase
             'urutan' => 2, 'loading_time' => 10, 'jumlah_proses' => 1, 'total_kanban' => 1, 'dandori' => 0,
         ]);
 
-        // Assignment for the urutan=2 part is created (imported) FIRST for this
-        // machine — the andon board must schedule it first too, ignoring urutan.
+        // Assignment for the urutan=2 part is created FIRST — the board must
+        // still schedule the urutan=1 part first (drag-to-reorder drives this).
         Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $partLow->id, 'proses' => 1]);
         Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $partHigh->id, 'proses' => 1]);
 
@@ -170,7 +170,7 @@ class AndonTest extends TestCase
 
         $this->assertNotFalse($posLow);
         $this->assertNotFalse($posHigh);
-        $this->assertTrue($posLow < $posHigh, 'blocks must follow assignment creation/import order, not Kelompok Pattern urutan');
+        $this->assertTrue($posHigh < $posLow, 'blocks must follow Kelompok Pattern urutan, not assignment creation order');
     }
 
     public function test_andon_show_renders_the_shift_change_gap_between_shift_1_and_shift_2(): void

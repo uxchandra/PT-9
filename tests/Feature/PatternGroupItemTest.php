@@ -109,6 +109,55 @@ class PatternGroupItemTest extends TestCase
         $this->assertSame(6, $groupItem->total_kanban);
     }
 
+    public function test_group_items_can_be_reordered_by_drag_and_drop(): void
+    {
+        $board = PatternBoard::create(['name' => 'A']);
+        $items = collect(['P1', 'P2', 'P3'])->map(fn ($no, $i) => PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => Part::create(['part_no' => $no])->id,
+            'shift' => 1,
+            'urutan' => $i + 1,
+            'lot' => 10,
+            'loading_time' => 10,
+            'jumlah_proses' => 1,
+            'total_kanban' => 1,
+            'dandori' => 0,
+        ]));
+
+        $this->actingAs($this->authorizedUser())
+            ->postJson(route('pattern-boards.group-items.reorder', $board), [
+                'order' => [$items[2]->id, $items[0]->id, $items[1]->id],
+            ])
+            ->assertOk()
+            ->assertJson(['ok' => true]);
+
+        $this->assertSame(1, $items[2]->fresh()->urutan);
+        $this->assertSame(2, $items[0]->fresh()->urutan);
+        $this->assertSame(3, $items[1]->fresh()->urutan);
+    }
+
+    public function test_reorder_ignores_ids_from_other_boards_and_keeps_numbering_gapless(): void
+    {
+        $board = PatternBoard::create(['name' => 'A']);
+        $other = PatternBoard::create(['name' => 'B']);
+
+        $a = PatternGroupItem::create(['pattern_board_id' => $board->id, 'part_id' => Part::create(['part_no' => 'P1'])->id, 'shift' => 1, 'urutan' => 1, 'lot' => 10, 'loading_time' => 10, 'jumlah_proses' => 1, 'total_kanban' => 1, 'dandori' => 0]);
+        $b = PatternGroupItem::create(['pattern_board_id' => $board->id, 'part_id' => Part::create(['part_no' => 'P2'])->id, 'shift' => 1, 'urutan' => 2, 'lot' => 10, 'loading_time' => 10, 'jumlah_proses' => 1, 'total_kanban' => 1, 'dandori' => 0]);
+        $foreign = PatternGroupItem::create(['pattern_board_id' => $other->id, 'part_id' => Part::create(['part_no' => 'P3'])->id, 'shift' => 1, 'urutan' => 1, 'lot' => 10, 'loading_time' => 10, 'jumlah_proses' => 1, 'total_kanban' => 1, 'dandori' => 0]);
+
+        $this->actingAs($this->authorizedUser())
+            ->postJson(route('pattern-boards.group-items.reorder', $board), [
+                'order' => [$foreign->id, $b->id], // only $b is on this board; $a not listed
+            ])
+            ->assertOk();
+
+        // $b goes first (it was the only valid listed id), $a keeps its relative
+        // spot after it — renumbered 1..N with no gaps.
+        $this->assertSame(1, $b->fresh()->urutan);
+        $this->assertSame(2, $a->fresh()->urutan);
+        $this->assertSame(1, $foreign->fresh()->urutan); // untouched
+    }
+
     public function test_total_kanban_falls_back_to_0_when_the_part_has_no_qty_kbn(): void
     {
         $board = PatternBoard::create(['name' => 'A']);

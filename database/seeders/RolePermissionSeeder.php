@@ -21,6 +21,7 @@ class RolePermissionSeeder extends Seeder
             'manage parts',
             'manage rest',
             'manage patterns',
+            'manage lot making',
             'view andon',
             'view stock part all',
             'manage planning',

@@ -82,136 +82,120 @@
                 {{ __('Belum ada pattern board. Klik "+ Board" untuk membuat yang pertama.') }}
             </div>
         @else
-            {{-- Assignment Mesin --}}
-            <div class="bg-white border border-gray-100 shadow-sm rounded-2xl overflow-hidden">
-                <div class="flex items-center justify-between p-6 border-b border-gray-100">
-                    <div>
-                        <h3 class="text-lg font-semibold text-gray-800">{{ __('Assignment Mesin') }}</h3>
-                        <p class="mt-1 text-sm text-gray-500">{{ __('Part apa diproses di mesin mana') }}</p>
-                    </div>
-                    <a href="{{ route('pattern-boards.patterns.create', $selectedBoard) }}"
-                       class="inline-flex items-center justify-center px-4 py-2.5 bg-brand-800 border border-transparent rounded-lg font-semibold text-sm text-white hover:bg-brand-900 transition ease-in-out duration-150 shadow-sm">
-                        {{ __('Tambah Assignment') }}
-                    </a>
+            {{-- Search --}}
+            <div class="bg-white border border-gray-100 shadow-sm rounded-2xl p-4">
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                    <input type="text" id="pattern-search" value="{{ $search }}" autocomplete="off"
+                           placeholder="{{ __('Cari part no atau nama mesin...') }}"
+                           class="flex-1 rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700">
+                    <button type="button" id="pattern-search-reset"
+                            class="text-sm text-gray-500 hover:text-gray-700 {{ $search === '' ? 'hidden' : '' }}">
+                        {{ __('Reset') }}
+                    </button>
                 </div>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
-                        <thead>
-                            <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                                <th class="px-6 py-3">{{ __('Machine') }}</th>
-                                <th class="px-6 py-3">{{ __('Part') }}</th>
-                                <th class="px-6 py-3">{{ __('Shift') }}</th>
-                                <th class="px-6 py-3">{{ __('Proses') }}</th>
-                                <th class="px-6 py-3 w-32 text-right">{{ __('Aksi') }}</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            @forelse ($patterns as $pattern)
-                                @php $groupItem = $groupItemsByPart->get($pattern->part_id.'-'.$pattern->shift); @endphp
-                                <tr class="hover:bg-gray-50">
-                                    <td class="px-6 py-3 text-gray-800 font-medium">{{ $pattern->machine->name }}</td>
-                                    <td class="px-6 py-3 text-gray-600">{{ $pattern->part->part_no }}</td>
-                                    <td class="px-6 py-3 text-gray-600">
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold
-                                                     {{ $pattern->shift === 2 ? 'bg-indigo-50 text-indigo-700' : 'bg-amber-50 text-amber-700' }}">
-                                            {{ __('Shift') }} {{ $pattern->shift }}
-                                        </span>
-                                    </td>
-                                    <td class="px-6 py-3 text-gray-600">{{ $pattern->proses }}/{{ $groupItem?->jumlah_proses ?? '?' }}</td>
-                                    <td class="px-6 py-3 text-right whitespace-nowrap">
-                                        <a href="{{ route('patterns.edit', $pattern) }}" class="text-brand-700 hover:text-brand-900 font-medium">{{ __('Edit') }}</a>
-                                        <form action="{{ route('patterns.destroy', $pattern) }}" method="POST" class="inline" onsubmit="return confirm('{{ __('Hapus assignment ini?') }}');">
-                                            @csrf
-                                            @method('DELETE')
-                                            <button type="submit" class="ml-3 text-red-600 hover:text-red-800 font-medium">{{ __('Hapus') }}</button>
-                                        </form>
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="5" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada assignment mesin.') }}</td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-
-                @if ($patterns->hasPages())
-                    <div class="px-6 py-4 border-t border-gray-100">
-                        {{ $patterns->links() }}
-                    </div>
-                @endif
             </div>
 
-            {{-- Kelompok Pattern --}}
-            <div class="bg-white border border-gray-100 shadow-sm rounded-2xl overflow-hidden">
-                <div class="flex items-center justify-between p-6 border-b border-gray-100">
-                    <div>
-                        <h3 class="text-lg font-semibold text-gray-800">{{ __('Kelompok Pattern') }}</h3>
-                        <p class="mt-1 text-sm text-gray-500">{{ __('Urutan & beban proses per part') }}</p>
-                    </div>
-                    <a href="{{ route('pattern-boards.group-items.create', $selectedBoard) }}"
-                       class="inline-flex items-center justify-center px-4 py-2.5 bg-brand-800 border border-transparent rounded-lg font-semibold text-sm text-white hover:bg-brand-900 transition ease-in-out duration-150 shadow-sm">
-                        {{ __('Tambah Item') }}
-                    </a>
-                </div>
-
-                <div class="overflow-x-auto">
-                    <table class="w-full text-sm">
-                        <thead>
-                            <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                                <th class="px-6 py-3">{{ __('No') }}</th>
-                                <th class="px-6 py-3">{{ __('P/N') }}</th>
-                                <th class="px-6 py-3">{{ __('Shift') }}</th>
-                                <th class="px-6 py-3">{{ __('Lot') }}</th>
-                                <th class="px-6 py-3">{{ __('Loading Time') }}</th>
-                                <th class="px-6 py-3">{{ __('Jumlah Proses') }}</th>
-                                <th class="px-6 py-3">{{ __('Total Kanban') }}</th>
-                                <th class="px-6 py-3">{{ __('Dandori') }}</th>
-                                <th class="px-6 py-3 w-32 text-right">{{ __('Aksi') }}</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100">
-                            @forelse ($groupItems as $item)
-                                <tr class="hover:bg-gray-50">
-                                    <td class="px-6 py-3 text-gray-600">{{ $item->urutan }}</td>
-                                    <td class="px-6 py-3 text-gray-800 font-medium">{{ $item->part->part_no }}</td>
-                                    <td class="px-6 py-3 text-gray-600">
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold
-                                                     {{ $item->shift === 2 ? 'bg-indigo-50 text-indigo-700' : 'bg-amber-50 text-amber-700' }}">
-                                            {{ __('Shift') }} {{ $item->shift }}
-                                        </span>
-                                    </td>
-                                    <td class="px-6 py-3 text-gray-600">{{ $item->lot }}</td>
-                                    <td class="px-6 py-3 text-gray-600">{{ $item->loading_time }} {{ __('menit') }}</td>
-                                    <td class="px-6 py-3 text-gray-600">{{ $item->jumlah_proses }}</td>
-                                    <td class="px-6 py-3 text-gray-600">{{ $item->total_kanban }}</td>
-                                    <td class="px-6 py-3 text-gray-600">{{ $item->dandori }} {{ __('menit') }}</td>
-                                    <td class="px-6 py-3 text-right whitespace-nowrap">
-                                        <a href="{{ route('group-items.edit', $item) }}" class="text-brand-700 hover:text-brand-900 font-medium">{{ __('Edit') }}</a>
-                                        <form action="{{ route('group-items.destroy', $item) }}" method="POST" class="inline" onsubmit="return confirm('{{ __('Hapus item ini?') }}');">
-                                            @csrf
-                                            @method('DELETE')
-                                            <button type="submit" class="ml-3 text-red-600 hover:text-red-800 font-medium">{{ __('Hapus') }}</button>
-                                        </form>
-                                    </td>
-                                </tr>
-                            @empty
-                                <tr>
-                                    <td colspan="9" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada item kelompok pattern.') }}</td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
-
-                @if ($groupItems->hasPages())
-                    <div class="px-6 py-4 border-t border-gray-100">
-                        {{ $groupItems->links() }}
-                    </div>
-                @endif
+            <div id="pattern-results" class="transition-opacity duration-150">
+                @include('pattern-boards._results')
             </div>
         @endif
     </div>
+
+    @if ($selectedBoard)
+        @push('scripts')
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js"></script>
+            <script>
+                (function () {
+                    const boardId = @json($selectedBoard->id);
+                    const baseUrl = @json(route('pattern-boards.index'));
+                    const token = document.querySelector('meta[name="csrf-token"]')?.content;
+                    const results = document.getElementById('pattern-results');
+
+                    // (Re)bind drag-and-drop to the Kelompok Pattern table — called
+                    // on load and again after every AJAX search swap. Disabled
+                    // while a search filter is active (the list is partial).
+                    function initKpSortable() {
+                        const tbody = document.getElementById('kp-sortable');
+                        if (!tbody || !window.Sortable) return;
+                        if (tbody._sortable) { tbody._sortable.destroy(); tbody._sortable = null; }
+                        if (tbody.dataset.locked) return;
+
+                        const url = tbody.dataset.reorderUrl;
+                        const status = document.getElementById('kp-reorder-status');
+                        const setStatus = (text, cls) => {
+                            if (status) { status.textContent = text; status.className = 'ml-1 text-xs font-medium ' + cls; }
+                        };
+                        const renumber = () => {
+                            tbody.querySelectorAll('tr[data-id]').forEach((tr, i) => {
+                                const cell = tr.querySelector('.kp-urutan-cell');
+                                if (cell) cell.textContent = i + 1;
+                            });
+                        };
+
+                        tbody._sortable = Sortable.create(tbody, {
+                            handle: '.kp-drag-handle',
+                            animation: 150,
+                            ghostClass: 'bg-brand-50',
+                            onEnd() {
+                                renumber();
+                                const order = Array.from(tbody.querySelectorAll('tr[data-id]')).map((tr) => Number(tr.dataset.id));
+                                setStatus('{{ __('Menyimpan urutan…') }}', 'text-gray-400');
+                                fetch(url, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': token, 'X-Requested-With': 'XMLHttpRequest' },
+                                    body: JSON.stringify({ order }),
+                                })
+                                    .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+                                    .then(() => setStatus('{{ __('Urutan tersimpan ✓') }}', 'text-green-600'))
+                                    .catch(() => setStatus('{{ __('Gagal menyimpan — muat ulang halaman') }}', 'text-red-600'));
+                            },
+                        });
+                    }
+
+                    // Debounced AJAX search over both tables.
+                    (function () {
+                        const input = document.getElementById('pattern-search');
+                        const reset = document.getElementById('pattern-search-reset');
+                        if (!input || !results) return;
+
+                        let timer = null;
+                        let controller = null;
+
+                        function run(q) {
+                            if (controller) controller.abort();
+                            controller = new AbortController();
+
+                            const url = new URL(baseUrl);
+                            url.searchParams.set('board', boardId);
+                            if (q) url.searchParams.set('q', q);
+
+                            results.classList.add('opacity-50');
+                            fetch(url.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' }, signal: controller.signal })
+                                .then((r) => r.text())
+                                .then((html) => {
+                                    results.innerHTML = html;
+                                    results.classList.remove('opacity-50');
+                                    window.history.replaceState({}, '', url.toString());
+                                    reset.classList.toggle('hidden', q === '');
+                                    initKpSortable();
+                                })
+                                .catch((e) => { if (e.name !== 'AbortError') results.classList.remove('opacity-50'); });
+                        }
+
+                        input.addEventListener('input', () => {
+                            clearTimeout(timer);
+                            const q = input.value.trim();
+                            timer = setTimeout(() => run(q), 350);
+                        });
+                        reset.addEventListener('click', () => { input.value = ''; input.focus(); run(''); });
+                    })();
+
+                    initKpSortable();
+                })();
+            </script>
+        @endpush
+    @endif
 </x-app-layout>

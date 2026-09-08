@@ -14,6 +14,8 @@
         <!-- Scripts -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
 
+        @stack('styles')
+
         <style>
             [x-cloak] { display: none !important; }
 
@@ -178,6 +180,17 @@
                     </a>
                     @endcan
 
+                    @can('manage lot making')
+                    <a href="{{ route('lot-makings.index') }}"
+                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('lot-makings.*') ? 'active' : '' }}">
+                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                        </svg>
+                        <span class="font-semibold text-sm">{{ __('Lot Making') }}</span>
+                    </a>
+                    @endcan
+
                     @canany(['manage machines', 'manage parts', 'manage rest'])
                     @php $masterDataActive = request()->routeIs(['machines.*', 'parts.*', 'rests.*']); @endphp
                     <div x-data="{ open: {{ $masterDataActive ? 'true' : 'false' }} }">
@@ -285,5 +298,7 @@
                 </main>
             </div>
         </div>
+
+        @stack('scripts')
     </body>
 </html>

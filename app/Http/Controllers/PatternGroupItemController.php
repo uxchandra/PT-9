@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Part;
 use App\Models\PatternBoard;
 use App\Models\PatternGroupItem;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
@@ -61,6 +63,34 @@ class PatternGroupItemController extends Controller
 
         return redirect()->route('pattern-boards.index', ['board' => $boardId])
             ->with('status', 'Item kelompok pattern berhasil dihapus.');
+    }
+
+    /**
+     * Persist a drag-and-drop reorder of this board's Kelompok Pattern rows.
+     * `order` is the desired sequence of group-item ids; every row on the
+     * board is renumbered 1..N (ids not in `order` — e.g. from another page —
+     * keep their relative order after the listed ones) so `urutan` never
+     * collides. That `urutan` is what drives each machine's block sequence on
+     * the Andon board.
+     */
+    public function reorder(Request $request, PatternBoard $patternBoard): JsonResponse
+    {
+        $validated = $request->validate([
+            'order' => ['required', 'array'],
+            'order.*' => ['integer'],
+        ]);
+
+        $ownIds = $patternBoard->groupItems()->orderBy('urutan')->pluck('id')->all();
+        $listed = array_values(array_intersect($validated['order'], $ownIds));
+        $final = array_merge($listed, array_values(array_diff($ownIds, $listed)));
+
+        DB::transaction(function () use ($final) {
+            foreach ($final as $index => $id) {
+                PatternGroupItem::whereKey($id)->update(['urutan' => $index + 1]);
+            }
+        });
+
+        return response()->json(['ok' => true, 'count' => count($final)]);
     }
 
     private function validated(Request $request, PatternBoard $patternBoard, ?PatternGroupItem $ignore = null): array

@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\AndonController;
 use App\Http\Controllers\CalendarController;
+use App\Http\Controllers\LotMakingController;
+use App\Http\Controllers\LotMakingImportController;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\PartController;
 use App\Http\Controllers\PartImportController;
@@ -54,12 +56,22 @@ Route::middleware('auth')->group(function () {
         Route::post('parts-import', [PartImportController::class, 'store'])->name('parts.import.store');
     });
 
+    Route::middleware('can:manage lot making')->group(function () {
+        Route::get('lot-makings/import-template', [LotMakingImportController::class, 'template'])->name('lot-makings.import.template');
+        Route::get('lot-makings/import', [LotMakingImportController::class, 'create'])->name('lot-makings.import.create');
+        Route::post('lot-makings/import', [LotMakingImportController::class, 'store'])->name('lot-makings.import.store');
+
+        Route::resource('lot-makings', LotMakingController::class)->except(['show']);
+    });
+
     Route::middleware('can:manage patterns')->group(function () {
         Route::get('calendar', [CalendarController::class, 'index'])->name('calendar.index');
         Route::post('calendar', [CalendarController::class, 'store'])->name('calendar.store');
         Route::delete('calendar/{calendarEntry}', [CalendarController::class, 'destroy'])->name('calendar.destroy');
 
         Route::resource('pattern-boards', PatternBoardController::class)->except(['show']);
+        Route::post('pattern-boards/{patternBoard}/group-items/reorder', [PatternGroupItemController::class, 'reorder'])
+            ->name('pattern-boards.group-items.reorder');
         Route::resource('pattern-boards.group-items', PatternGroupItemController::class)
             ->parameters(['group-items' => 'patternGroupItem'])
             ->except(['index', 'show'])->shallow();
