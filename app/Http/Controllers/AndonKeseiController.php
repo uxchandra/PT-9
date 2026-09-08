@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CalendarEntry;
 use App\Models\KeseiPart;
 use App\Models\PatternGroupItem;
 use App\Models\StockSnapshot;
@@ -33,20 +34,29 @@ class AndonKeseiController extends Controller
     public function show(Request $request): View|JsonResponse
     {
         [$windowStart, $windowEnd] = $this->window();
+        $now = now();
 
         $keseiRows = KeseiPart::with(['part', 'patternBoards'])
             ->orderBy('urutan')
             ->orderBy('id')
             ->get()
-            ->map(fn (KeseiPart $kesei) => [
-                'id' => $kesei->id,
-                'label' => $kesei->part?->part_no ?? '(part terhapus)',
-                'qty_kbn' => $kesei->part?->qty_kbn,
-                'sources' => $kesei->sourcePartNos(),
-                'patterns' => $kesei->patternBoards->pluck('name')->all(),
-                'closing_minute' => $this->closingChartMinute($kesei->closing_time),
-                'closing_label' => $kesei->closing_time?->format('H:i'),
-            ])
+            ->map(function (KeseiPart $kesei) use ($windowStart, $now) {
+                $closingMinute = $this->closingChartMinute($kesei->closing_time);
+
+                return [
+                    'id' => $kesei->id,
+                    'label' => $kesei->part?->part_no ?? '(part terhapus)',
+                    'qty_kbn' => $kesei->part?->qty_kbn,
+                    'sources' => $kesei->sourcePartNos(),
+                    'patterns' => $kesei->patternBoards->pluck('name')->all(),
+                    'closing_minute' => $closingMinute,
+                    'closing_label' => $kesei->closing_time?->format('H:i'),
+                    // The accumulated-kanban figure only means something once the
+                    // clock has actually passed the closing time.
+                    'closing_reached' => $closingMinute !== null
+                        && $now->gte($windowStart->copy()->addMinutes($closingMinute - self::DAY_START)),
+                ];
+            })
             ->filter(fn (array $row) => $row['sources'] !== [])
             ->values();
 
@@ -63,6 +73,10 @@ class AndonKeseiController extends Controller
             'timelineEnd' => self::DAY_END,
             'pxPerMinute' => self::PX_PER_MINUTE,
             'productionLabel' => $windowStart->copy()->locale('id')->translatedFormat('l, d F Y'),
+            // The pattern the Calendar says is running for this production day.
+            'currentPattern' => CalendarEntry::patternBoardForDate($windowStart->toDateString())?->name,
+            // Where "now" sits on the chart's minute scale, for the moving now-line.
+            'nowMinute' => self::DAY_START + (int) $windowStart->diffInMinutes($now),
         ];
 
         if ($request->ajax()) {

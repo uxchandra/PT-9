@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\CalendarEntry;
 use App\Models\KeseiPart;
 use App\Models\Part;
 use App\Models\PatternBoard;
@@ -137,30 +138,63 @@ class KeseiTest extends TestCase
             ->assertJsonStructure(['timeline', 'closingTable', 'stockTimeline', 'serverTime']);
     }
 
-    public function test_andon_kesei_has_a_closing_time_table_with_part_pattern_and_qty_kbn(): void
+    public function test_andon_kesei_closing_time_table_is_plain_and_shows_the_calendar_pattern(): void
     {
-        $a = PatternBoard::create(['name' => 'A']);
-        $b = PatternBoard::create(['name' => 'B']);
-        $part = Part::create(['part_no' => 'KP-1', 'qty_kbn' => '24']);
-        $entry = KeseiPart::create(['part_id' => $part->id, 'closing_time' => '15:45', 'urutan' => 1]);
-        $entry->patternBoards()->sync([$a->id, $b->id]);
+        $running = PatternBoard::create(['name' => 'RUN-A']);
+        $other = PatternBoard::create(['name' => 'OTHER-B']);
+        CalendarEntry::create(['date' => $this->windowStart()->toDateString(), 'pattern_board_id' => $running->id]);
+
+        // The Kesei row is attached to OTHER-B, but the table shows the pattern
+        // the Calendar says is running for the production day.
+        $entry = KeseiPart::create(['part_id' => Part::create(['part_no' => 'KP-1'])->id, 'closing_time' => '15:45', 'urutan' => 1]);
+        $entry->patternBoards()->sync([$other->id]);
 
         $html = $this->get(route('andon-kesei.show'))->getContent();
 
-        // The CLOSING TIME table sits before the Timeline Stok table.
         $closingPos = strpos($html, 'CLOSING TIME');
         $stockPos = strpos($html, 'TIMELINE STOK');
-        $this->assertNotFalse($closingPos);
         $this->assertLessThan($stockPos, $closingPos);
 
         $table = substr($html, $closingPos, $stockPos - $closingPos);
+        $this->assertLessThan(strpos($table, 'No Part'), strpos($table, 'Close'));
         $this->assertStringContainsString('KP-1', $table);
-        $this->assertStringContainsString('A, B', $table);
-        $this->assertStringContainsString('24', $table);
         $this->assertStringContainsString('15:45', $table);
+        $this->assertStringContainsString('RUN-A', $table);
+        $this->assertStringNotContainsString('OTHER-B', $table);
 
-        // The pattern badge no longer shows under the part name in the timeline.
-        $this->assertStringNotContainsString('inline-block px-1 rounded bg-slate-200', $html);
+        // Plain text — no coloured badges or pills.
+        $this->assertStringNotContainsString('bg-slate-200', $table);
+        $this->assertStringNotContainsString('bg-brand-100', $table);
+    }
+
+    public function test_closing_table_qty_kbn_is_blank_until_closing_time_then_shows_accumulated_kanban(): void
+    {
+        $reached = Part::create(['part_no' => 'REACHED', 'qty_kbn' => 1]);
+        $future = Part::create(['part_no' => 'FUTURE', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $reached->id, 'closing_time' => '07:15', 'urutan' => 1]); // already past (window starts 07:00)
+        KeseiPart::create(['part_id' => $future->id, 'closing_time' => '23:59', 'urutan' => 2]);  // not reached yet
+
+        $windowStart = $this->windowStart();
+        StockSnapshot::create(['part_no' => 'REACHED', 'stock' => 20, 'std_min' => 0, 'captured_at' => $windowStart]);
+        StockSnapshot::create(['part_no' => 'REACHED', 'stock' => 16, 'std_min' => 0, 'captured_at' => $windowStart->copy()->addMinutes(10)]); // -4, before 07:15
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+
+        // REACHED row's Qty Kbn cell (last <td> of the row) = 4.
+        $this->assertMatchesRegularExpression('/REACHED.*?>\s*4\s*<\/td>\s*<\/tr>/s', $table);
+        // FUTURE row's closing time not reached — Qty Kbn cell shows "-".
+        $this->assertMatchesRegularExpression('/FUTURE.*?>\s*-\s*<\/td>\s*<\/tr>/s', $table);
+    }
+
+    public function test_andon_kesei_timeline_has_a_moving_now_line(): void
+    {
+        KeseiPart::create(['part_id' => Part::create(['part_no' => 'P1'])->id, 'urutan' => 1]);
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+
+        $this->assertMatchesRegularExpression('/id="kesei-now-line"[^>]*data-now="\d+/', $html);
+        $this->assertStringContainsString('__keseiNowSync', $html);
     }
 
     public function test_import_adds_parts_creates_missing_ones_and_skips_duplicates(): void

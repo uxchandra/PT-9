@@ -26,6 +26,13 @@
                     <div class="grid-line z-0" style="left: {{ 110 + ($t - $dayStart) * $pxPerMinute }}px;"></div>
                 @endfor
 
+                {{-- Moving "now" line — nudged forward every second by the page script. --}}
+                @if ($nowMinute >= $dayStart && $nowMinute <= $timelineEnd)
+                    <div id="kesei-now-line" class="absolute top-0 bottom-0 z-20 pointer-events-none"
+                         data-day-start="{{ $dayStart }}" data-px="{{ $pxPerMinute }}" data-now="{{ $nowMinute }}"
+                         style="left: {{ 110 + ($nowMinute - $dayStart) * $pxPerMinute }}px; width: 2px; background: #2563eb;"></div>
+                @endif
+
                 @foreach ($keseiRows as $row)
                     <div class="flex border-b border-slate-200 transition-colors {{ $loop->even ? 'bg-slate-50/60' : 'bg-white' }}"
                          style="height: 48px;">

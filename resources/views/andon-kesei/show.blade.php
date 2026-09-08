@@ -33,6 +33,10 @@
                     <span class="w-0 h-3 border-l-2 border-dashed" style="border-color:#16a34a;"></span>
                     <span class="text-slate-500">Closing Time</span>
                 </div>
+                <div class="flex items-center gap-1.5">
+                    <span class="w-0 h-3 border-l-2" style="border-color:#2563eb;"></span>
+                    <span class="text-slate-500">Now</span>
+                </div>
                 <div id="andon-clock" class="font-mono text-brand-800 text-base font-semibold tabular-nums" data-server-time="{{ now()->format('H:i:s') }}"></div>
             </div>
         </div>
@@ -45,8 +49,8 @@
                 <div id="andon-panel-timeline" class="h-full min-w-0" style="flex: 3 1 0%;">
                     @include('andon-kesei._timeline')
                 </div>
-                <div class="h-full min-w-0 flex flex-col gap-3" style="flex: 1 1 0%;">
-                    <div id="andon-panel-closing" class="min-h-0 shrink-0 rounded-lg border border-slate-300 overflow-hidden" style="max-height: 45%;">
+                <div class="h-full min-w-0 flex flex-col gap-2" style="flex: 1 1 0%;">
+                    <div id="andon-panel-closing" class="min-h-0 shrink-0 overflow-hidden border-b border-slate-200 pb-2" style="max-height: 45%;">
                         @include('andon-kesei._closing-table')
                     </div>
                     <div id="andon-panel-stock" class="flex-1 min-h-0 rounded-lg border border-slate-300 overflow-hidden">
@@ -99,7 +103,11 @@
                     const res = await fetch(window.location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
                     if (!res.ok) return;
                     const data = await res.json();
-                    if (data.timeline !== lastTimeline) { replacePanel('andon-panel-timeline', data.timeline); lastTimeline = data.timeline; }
+                    if (data.timeline !== lastTimeline) {
+                        replacePanel('andon-panel-timeline', data.timeline);
+                        lastTimeline = data.timeline;
+                        if (window.__keseiNowSync) window.__keseiNowSync();
+                    }
                     if (data.closingTable !== lastClosing) { replacePanel('andon-panel-closing', data.closingTable); lastClosing = data.closingTable; }
                     if (data.stockTimeline !== lastStock) { replacePanel('andon-panel-stock', data.stockTimeline); lastStock = data.stockTimeline; }
                 } catch (e) {
@@ -113,6 +121,49 @@
             // Auto-scroll the stock table to the newest (bottom) row on load.
             const stockScroll = document.querySelector('#andon-panel-stock .andon-scroll');
             if (stockScroll) stockScroll.scrollTop = stockScroll.scrollHeight;
+        })();
+
+        // Vertical "now" line on the Kesei timeline — nudged forward every
+        // second so it tracks the real clock between the 60s panel refreshes.
+        (function () {
+            let base = null;
+            let baseAt = 0;
+
+            function currentNow() {
+                return base.now + (Date.now() - baseAt) / 60000;
+            }
+
+            function sync(el) {
+                base = {
+                    now: parseFloat(el.dataset.now),
+                    dayStart: parseFloat(el.dataset.dayStart),
+                    px: parseFloat(el.dataset.px),
+                };
+                baseAt = Date.now();
+                place(el);
+
+                const scroller = document.querySelector('#andon-panel-timeline .andon-scroll');
+                if (scroller) scroller.scrollLeft = Math.max(0, (currentNow() - base.dayStart) * base.px - 320);
+            }
+
+            function place(el) {
+                el.style.left = (110 + (currentNow() - base.dayStart) * base.px) + 'px';
+            }
+
+            window.__keseiNowSync = function () {
+                const el = document.getElementById('kesei-now-line');
+                if (el) sync(el);
+            };
+
+            window.__keseiNowSync();
+
+            setInterval(function () {
+                const el = document.getElementById('kesei-now-line');
+                if (!el) { base = null; return; }
+                // A fresh 60s render bumps data-now — re-sync to the server value.
+                if (!base || parseFloat(el.dataset.now) !== base.now) { sync(el); return; }
+                place(el);
+            }, 1000);
         })();
     </script>
 </body>
