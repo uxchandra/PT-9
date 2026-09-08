@@ -15,7 +15,8 @@ use Illuminate\View\View;
 /**
  * Standalone Kesei board — completely separate from the pattern-driven Andon
  * boards. It shows every row added in the Kesei menu with its stock timeline
- * for the current production day (07:00 → 07:00, rolling over at 06:30).
+ * over a SLIDING 24-hour window that always ends a few hours after "now", so
+ * checking it any time of day still shows last night's shift-2 activity.
  *
  * A Kesei row's Timeline Stok is the SUM of its "stock_source" part_no(s)'
  * Stock Part All readings (falling back to the row's own part_no), so one
@@ -23,13 +24,13 @@ use Illuminate\View\View;
  */
 class AndonKeseiController extends Controller
 {
-    private const DAY_START = 7 * 60;
-
-    private const DAY_END = 7 * 60 + 24 * 60;
-
     private const PX_PER_MINUTE = 1.8;
 
-    private const BOARD_SWITCH_MINUTE = 6 * 60 + 30;
+    /** The window is 24h wide, starting this many hours before "now" (floored
+     *  to the hour), which leaves ~4h of look-ahead space on the right. */
+    private const LOOKBACK_HOURS = 20;
+
+    private const WINDOW_MINUTES = 24 * 60;
 
     public function show(Request $request): View|JsonResponse
     {
@@ -41,7 +42,7 @@ class AndonKeseiController extends Controller
             ->orderBy('id')
             ->get()
             ->map(function (KeseiPart $kesei) use ($windowStart, $now) {
-                $closingMinute = $this->closingChartMinute($kesei->closing_time);
+                $closingMinute = $this->closingWindowMinute($kesei->closing_time, $windowStart);
 
                 return [
                     'id' => $kesei->id,
@@ -54,7 +55,7 @@ class AndonKeseiController extends Controller
                     // The accumulated-kanban figure only means something once the
                     // clock has actually passed the closing time.
                     'closing_reached' => $closingMinute !== null
-                        && $now->gte($windowStart->copy()->addMinutes($closingMinute - self::DAY_START)),
+                        && $now->gte($windowStart->copy()->addMinutes($closingMinute)),
                 ];
             })
             ->filter(fn (array $row) => $row['sources'] !== [])
@@ -69,14 +70,17 @@ class AndonKeseiController extends Controller
             'stockDecreaseEvents' => $stockDecreaseEvents,
             'closingKanban' => $this->buildClosingKanban($keseiRows, $stockDecreaseEvents),
             'stockHistoryRows' => $this->buildStockHistoryRows($keseiRows, $stockByTime),
-            'dayStart' => self::DAY_START,
-            'timelineEnd' => self::DAY_END,
+            // Positions are minutes from the (sliding) window start.
+            'dayStart' => 0,
+            'timelineEnd' => self::WINDOW_MINUTES,
             'pxPerMinute' => self::PX_PER_MINUTE,
-            'productionLabel' => $windowStart->copy()->locale('id')->translatedFormat('l, d F Y'),
-            // The pattern the Calendar says is running for this production day.
-            'currentPattern' => CalendarEntry::patternBoardForDate($windowStart->toDateString())?->name,
+            'windowStart' => $windowStart,
+            'productionLabel' => $windowStart->copy()->locale('id')->translatedFormat('d M H:i')
+                .' – '.$windowEnd->copy()->locale('id')->translatedFormat('d M H:i'),
+            // The pattern the Calendar says is running today.
+            'currentPattern' => CalendarEntry::patternBoardForDate($now->toDateString())?->name,
             // Where "now" sits on the chart's minute scale, for the moving now-line.
-            'nowMinute' => self::DAY_START + (int) $windowStart->diffInMinutes($now),
+            'nowMinute' => (int) $windowStart->diffInMinutes($now),
         ];
 
         if ($request->ajax()) {
@@ -92,38 +96,34 @@ class AndonKeseiController extends Controller
     }
 
     /**
-     * Current production day's 07:00 → 07:00(+1) window. Before 06:30 still
-     * belongs to yesterday's window (same rule as the Andon board).
+     * The sliding window: 24h wide, starting LOOKBACK_HOURS before now (floored
+     * to the hour so the axis labels stay on round hours).
      *
      * @return array{0: Carbon, 1: Carbon}
      */
     private function window(): array
     {
-        $now = now();
-        $switch = $now->copy()->startOfDay()->addMinutes(self::BOARD_SWITCH_MINUTE);
-        $date = ($now->lt($switch) ? $now->copy()->subDay() : $now)->toDateString();
+        $windowStart = now()->subHours(self::LOOKBACK_HOURS)->startOfHour();
 
-        $windowStart = Carbon::parse($date)->setTime(7, 0);
-
-        return [$windowStart, $windowStart->copy()->addHours(24)];
+        return [$windowStart, $windowStart->copy()->addMinutes(self::WINDOW_MINUTES)];
     }
 
     /**
-     * A manually-entered closing time (wall clock) mapped onto the chart's
-     * minute scale (07:00 = DAY_START ... 07:00 next day = DAY_END). A time
-     * before 07:00 belongs to the tail of the window, so it's shifted a day
-     * forward.
+     * A manually-entered closing time (wall clock) mapped to its single
+     * occurrence inside the 24h window, as minutes from the window start.
      */
-    private function closingChartMinute(?Carbon $time): ?int
+    private function closingWindowMinute(?Carbon $time, Carbon $windowStart): ?int
     {
         if ($time === null) {
             return null;
         }
 
-        $minuteOfDay = $time->hour * 60 + $time->minute;
-        $chart = $minuteOfDay >= self::DAY_START ? $minuteOfDay : $minuteOfDay + 1440;
+        $at = $windowStart->copy()->setTime((int) $time->hour, (int) $time->minute);
+        if ($at->lt($windowStart)) {
+            $at->addDay();
+        }
 
-        return min($chart, self::DAY_END);
+        return (int) $windowStart->diffInMinutes($at);
     }
 
     /**
@@ -293,7 +293,7 @@ class AndonKeseiController extends Controller
                     if ($kanban > 0) {
                         $at = Carbon::parse($timestamp);
                         $rowEvents[] = [
-                            'minute' => self::DAY_START + (int) $windowStart->diffInMinutes($at),
+                            'minute' => (int) $windowStart->diffInMinutes($at),
                             'kanban' => $kanban,
                             'pcs' => $decreasePcs,
                             'time' => $at->format('H:i'),

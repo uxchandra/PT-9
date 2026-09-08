@@ -35,4 +35,15 @@ return [
         ],
     ],
 
+    'fonnte' => [
+        'token' => env('FONNTE_TOKEN'),
+        'url' => env('FONNTE_URL', 'https://api.fonnte.com/send'),
+    ],
+
+    'kesei_closing' => [
+        // Comma-separated WhatsApp numbers (e.g. 62812xxxx,62813xxxx) that get
+        // a message when a Kesei part reaches its closing time.
+        'recipients' => env('KESEI_CLOSING_WA_RECIPIENTS'),
+    ],
+
 ];

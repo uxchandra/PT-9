@@ -3,10 +3,12 @@
 namespace App\Console\Commands;
 
 use App\Models\StockSnapshot;
+use App\Services\KeseiClosingNotifier;
 use App\Services\StockPartApi;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 #[Signature('stock:capture-snapshot')]
 #[Description('Fetch stock part data from the SOS source system and store an aggregated per-part TD snapshot, limited to parts used by Pattern or Kesei')]
@@ -19,8 +21,20 @@ class CaptureStockSnapshot extends Command
      */
     private const PROCESS = 'TD';
 
-    public function handle(StockPartApi $api): int
+    public function handle(StockPartApi $api, KeseiClosingNotifier $keseiNotifier): int
     {
+        // Piggybacks on this 5-minute tick: a WhatsApp goes out when a Kesei
+        // part reaches its closing time. Wrapped so a notifier hiccup never
+        // blocks the actual stock capture.
+        try {
+            $notify = $keseiNotifier->run();
+            if ($notify['sent'] > 0 || $notify['failed'] > 0) {
+                $this->info("Kesei closing WhatsApp: {$notify['sent']} sent, {$notify['failed']} failed.");
+            }
+        } catch (\Throwable $e) {
+            Log::warning('KeseiClosingNotifier failed during stock:capture-snapshot', ['error' => $e->getMessage()]);
+        }
+
         $rows = $api->fetchRows();
 
         if ($rows === null) {

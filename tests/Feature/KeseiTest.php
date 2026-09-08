@@ -28,14 +28,11 @@ class KeseiTest extends TestCase
         return $user;
     }
 
-    /** Same rule as AndonKeseiController::window() — 07:00, rolling at 06:30. */
+    /** Same rule as AndonKeseiController::window() — sliding 24h, starting 20h
+     *  before now (floored to the hour). */
     private function windowStart(): Carbon
     {
-        $now = now();
-        $switch = $now->copy()->startOfDay()->addMinutes(6 * 60 + 30);
-        $date = ($now->lt($switch) ? $now->copy()->subDay() : $now)->toDateString();
-
-        return Carbon::parse($date)->setTime(7, 0);
+        return now()->subHours(20)->startOfHour();
     }
 
     public function test_kesei_menu_requires_the_manage_kesei_permission(): void
@@ -142,7 +139,7 @@ class KeseiTest extends TestCase
     {
         $running = PatternBoard::create(['name' => 'RUN-A']);
         $other = PatternBoard::create(['name' => 'OTHER-B']);
-        CalendarEntry::create(['date' => $this->windowStart()->toDateString(), 'pattern_board_id' => $running->id]);
+        CalendarEntry::create(['date' => now()->toDateString(), 'pattern_board_id' => $running->id]);
 
         // The Kesei row is attached to OTHER-B, but the table shows the pattern
         // the Calendar says is running for the production day.
@@ -169,14 +166,16 @@ class KeseiTest extends TestCase
 
     public function test_closing_table_qty_kbn_is_blank_until_closing_time_then_shows_accumulated_kanban(): void
     {
+        Carbon::setTestNow('2026-09-15 10:00:00'); // window: 2026-09-14 14:00 → 2026-09-15 14:00
+
         $reached = Part::create(['part_no' => 'REACHED', 'qty_kbn' => 1]);
         $future = Part::create(['part_no' => 'FUTURE', 'qty_kbn' => 1]);
-        KeseiPart::create(['part_id' => $reached->id, 'closing_time' => '07:15', 'urutan' => 1]); // already past (window starts 07:00)
-        KeseiPart::create(['part_id' => $future->id, 'closing_time' => '23:59', 'urutan' => 2]);  // not reached yet
+        KeseiPart::create(['part_id' => $reached->id, 'closing_time' => '09:00', 'urutan' => 1]); // 09-15 09:00 — passed
+        KeseiPart::create(['part_id' => $future->id, 'closing_time' => '13:00', 'urutan' => 2]);  // 09-15 13:00 — not yet
 
-        $windowStart = $this->windowStart();
-        StockSnapshot::create(['part_no' => 'REACHED', 'stock' => 20, 'std_min' => 0, 'captured_at' => $windowStart]);
-        StockSnapshot::create(['part_no' => 'REACHED', 'stock' => 16, 'std_min' => 0, 'captured_at' => $windowStart->copy()->addMinutes(10)]); // -4, before 07:15
+        // Stock drops before REACHED's 09:00 closing.
+        StockSnapshot::create(['part_no' => 'REACHED', 'stock' => 20, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'REACHED', 'stock' => 16, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]); // -4
 
         $html = $this->get(route('andon-kesei.show'))->getContent();
         $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
@@ -185,6 +184,8 @@ class KeseiTest extends TestCase
         $this->assertMatchesRegularExpression('/REACHED.*?>\s*4\s*<\/td>\s*<\/tr>/s', $table);
         // FUTURE row's closing time not reached — Qty Kbn cell shows "-".
         $this->assertMatchesRegularExpression('/FUTURE.*?>\s*-\s*<\/td>\s*<\/tr>/s', $table);
+
+        Carbon::setTestNow();
     }
 
     public function test_andon_kesei_timeline_has_a_moving_now_line(): void
@@ -340,15 +341,15 @@ class KeseiTest extends TestCase
 
     public function test_andon_kesei_draws_a_closing_marker_and_folds_earlier_ticks_into_an_accumulated_number(): void
     {
+        Carbon::setTestNow('2026-09-15 12:00:00'); // window 09-14 16:00 → 09-15 16:00; closing 09:00 = 09-15 09:00 (passed)
+
         $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
-        // Closing time 09:00 -> chart minute 540 (07:00 = 420).
         KeseiPart::create(['part_id' => $part->id, 'closing_time' => '09:00', 'urutan' => 1]);
 
-        $windowStart = $this->windowStart();
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => $windowStart]);
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 96, 'std_min' => 0, 'captured_at' => $windowStart->copy()->addHour()]);          // 08:00, -4  (before closing)
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 93, 'std_min' => 0, 'captured_at' => $windowStart->copy()->addMinutes(90)]);     // 08:30, -3  (before closing)
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 88, 'std_min' => 0, 'captured_at' => $windowStart->copy()->addHours(3)]);        // 10:00, -5  (after closing)
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:00')]);
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);  // -4, before closing
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 93, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]);  // -3, before closing
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 88, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 10:00')]);  // -5, after closing
 
         $html = $this->get(route('andon-kesei.show'))->getContent();
 
@@ -360,6 +361,8 @@ class KeseiTest extends TestCase
         $this->assertStringNotContainsString('stok turun 3 kanban', $html);
         // The drop after 09:00 still shows its ticks.
         $this->assertStringContainsString('stok turun 5 kanban (5 pcs)', $html);
+
+        Carbon::setTestNow();
     }
 
     public function test_import_sets_closing_time_and_resolves_multiple_patterns_by_name(): void

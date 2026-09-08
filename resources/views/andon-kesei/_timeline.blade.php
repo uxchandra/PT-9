@@ -14,7 +14,7 @@
                     @for ($t = $dayStart; $t < $timelineEnd; $t += 60)
                         <div class="absolute top-0 h-full border-l border-slate-200 flex items-center text-[10px] text-slate-500 font-semibold pl-1"
                              style="left: {{ ($t - $dayStart) * $pxPerMinute }}px;">
-                            {{ sprintf('%02d:00', floor($t / 60) % 24) }}
+                            {{ $windowStart->copy()->addMinutes($t)->format('H') }}:00
                         </div>
                     @endfor
                 </div>
@@ -54,13 +54,15 @@
                                 @php $ck = $closingKanban[$row['id']] ?? 0; @endphp
                                 <div class="closing-time-marker absolute top-0 bottom-0 z-10"
                                      style="left: {{ max(0, ($closingMinute - $dayStart) * $pxPerMinute) }}px;"
-                                     title="{{ __('Closing time') }} {{ $row['closing_label'] }} — {{ __('akumulasi') }} {{ $ck }} kanban">
-                                    <span class="absolute bottom-0.5 left-1 text-[9px] font-bold leading-none whitespace-nowrap {{ $ck > 0 ? 'text-green-700' : 'text-slate-400' }}">{{ $ck }}</span>
+                                     title="{{ __('Closing time') }} {{ $row['closing_label'] }}{{ $row['closing_reached'] ? ' — '.__('akumulasi').' '.$ck.' kanban' : '' }}">
+                                    @if ($row['closing_reached'])
+                                        <span class="absolute bottom-0.5 left-1 text-[9px] font-bold leading-none whitespace-nowrap {{ $ck > 0 ? 'text-green-700' : 'text-slate-400' }}">{{ $ck }}</span>
+                                    @endif
                                 </div>
                             @endif
                             @foreach ($stockDecreaseEvents[$row['id']] ?? [] as $event)
-                                {{-- Ticks up to the closing time are folded into the number on the green line. --}}
-                                @continue($closingMinute !== null && $event['minute'] <= $closingMinute)
+                                {{-- Once the closing time is reached, ticks up to it fold into the number on the green line. Before that, every tick shows. --}}
+                                @continue($closingMinute !== null && $row['closing_reached'] && $event['minute'] <= $closingMinute)
                                 <div class="absolute top-1 bottom-0.5 z-10 flex flex-col items-center"
                                      style="left: {{ ($event['minute'] - $dayStart) * $pxPerMinute }}px;"
                                      title="{{ $event['time'] }} — stok turun {{ $event['kanban'] }} kanban ({{ $event['pcs'] }} pcs)">
