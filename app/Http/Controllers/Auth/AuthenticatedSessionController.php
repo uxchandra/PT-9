@@ -28,15 +28,7 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        // Scanner operators get their own handheld dashboard — they have no
-        // access to the normal one. Key off capability, not the role name, so a
-        // user set up with just the "use scanner" permission still lands right.
-        $user = $request->user();
-        $home = (! $user->can('view dashboard') && $user->can('use scanner'))
-            ? route('scanner.dashboard', absolute: false)
-            : route('dashboard', absolute: false);
-
-        return redirect()->intended($home);
+        return redirect()->intended(route('dashboard', absolute: false));
     }
 
     /**

@@ -33,11 +33,21 @@ Route::get('/andon-planning/{patternBoard}', [AndonController::class, 'planning'
 Route::post('/andon-planning/pattern/{pattern}/actual', [AndonController::class, 'updateActual'])->name('andon.planning.actual.update');
 
 Route::get('/dashboard', function () {
+    $user = auth()->user();
+
+    // Scanner operators have no dashboard access — send them to their own
+    // screen instead of a dead-end 403 (login always aims here first).
+    if (! $user->can('view dashboard')) {
+        abort_unless($user->can('use scanner'), 403);
+
+        return redirect()->route('scanner.dashboard');
+    }
+
     $andonPreviewBoard = PatternBoard::where('name', 'A')->first()
         ?? PatternBoard::orderBy('name')->first();
 
     return view('dashboard', compact('andonPreviewBoard'));
-})->middleware(['auth', 'can:view dashboard'])->name('dashboard');
+})->middleware('auth')->name('dashboard');
 
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');

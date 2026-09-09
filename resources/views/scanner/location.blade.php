@@ -38,8 +38,7 @@
 @push('scripts')
 <script>
     (function () {
-        var slug = @json($slug);
-        var key = 'scanner:' + slug;
+        var key = 'scanner:' + @json($slug);
         var input = document.getElementById('scan-input');
         var form = document.getElementById('scan-form');
         var list = document.getElementById('scan-list');
@@ -48,10 +47,10 @@
         function load() {
             try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { return []; }
         }
-        function save(rows) {
+        function save() {
             try { localStorage.setItem(key, JSON.stringify(rows)); } catch (e) {}
         }
-        function render(rows) {
+        function render() {
             count.textContent = rows.length;
             list.innerHTML = rows.map(function (r) {
                 return '<li class="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2.5">' +
@@ -61,25 +60,21 @@
         }
 
         var rows = load();
-        render(rows);
+        render();
 
-        function add(raw) {
-            var code = (raw || '').trim();
-            if (!code) return;
-            rows.unshift({ code: code, at: new Date().toTimeString().slice(0, 8) });
-            save(rows);
-            render(rows);
-        }
-
-        // Hardware scanner acts as a keyboard wedge: it types the code then Enter.
+        // Hardware scanner is a keyboard wedge: it types the code then Enter.
         form.addEventListener('submit', function (e) {
             e.preventDefault();
-            add(input.value);
+            var code = input.value.trim();
             input.value = '';
             input.focus();
+            if (!code) return;
+            rows.unshift({ code: code, at: new Date().toTimeString().slice(0, 8) });
+            save();
+            render();
         });
 
-        // Keep focus on the input so every scan is captured.
+        // Keep focus so every scan is captured.
         input.addEventListener('blur', function () {
             setTimeout(function () { input.focus(); }, 50);
         });
@@ -87,8 +82,8 @@
         document.getElementById('scan-clear').addEventListener('click', function () {
             if (!rows.length || !confirm(@json(__('Hapus semua hasil scan?')))) return;
             rows = [];
-            save(rows);
-            render(rows);
+            save();
+            render();
             input.focus();
         });
     })();

@@ -5,8 +5,8 @@ namespace App\Http\Controllers;
 use Illuminate\View\View;
 
 /**
- * Handheld barcode-scanner UI (SEUIC AutoID Q9). Deliberately tiny and
- * touch-first — one dashboard, two location cards.
+ * Handheld barcode-scanner UI (SEUIC AutoID Q9). One dashboard, two location
+ * screens — deliberately tiny and touch-first.
  */
 class ScannerController extends Controller
 {
@@ -18,9 +18,7 @@ class ScannerController extends Controller
 
     public function dashboard(): View
     {
-        return view('scanner.dashboard', [
-            'locations' => self::LOCATIONS,
-        ]);
+        return view('scanner.dashboard', ['locations' => self::LOCATIONS]);
     }
 
     public function location(string $location): View

@@ -21,14 +21,12 @@ class ScannerTest extends TestCase
         return $user;
     }
 
-    public function test_a_scanner_user_lands_on_the_scanner_dashboard_after_login(): void
+    public function test_a_scanner_user_hitting_the_dashboard_is_bounced_to_the_scanner(): void
     {
-        $user = $this->scannerUser();
-
-        $this->post('/login', ['username' => $user->username, 'password' => 'password'])
-            ->assertRedirect(route('scanner.dashboard', absolute: false));
-
-        $this->assertAuthenticated();
+        // Login always aims for /dashboard; a scanner user must not dead-end there.
+        $this->actingAs($this->scannerUser())
+            ->get(route('dashboard'))
+            ->assertRedirect(route('scanner.dashboard'));
     }
 
     public function test_scanner_dashboard_shows_the_title_and_both_location_cards(): void
@@ -41,13 +39,22 @@ class ScannerTest extends TestCase
             ->assertSee('Store 3');
     }
 
-    public function test_a_non_scanner_user_cannot_open_the_scanner(): void
+    public function test_a_non_scanner_user_without_dashboard_access_still_gets_403(): void
+    {
+        (new RolePermissionSeeder)->run();
+        $user = User::factory()->create(); // no roles at all
+
+        $this->actingAs($user)->get(route('dashboard'))->assertForbidden();
+        $this->actingAs($user)->get(route('scanner.dashboard'))->assertForbidden();
+    }
+
+    public function test_staff_still_sees_the_normal_dashboard(): void
     {
         (new RolePermissionSeeder)->run();
         $staff = User::factory()->create();
         $staff->assignRole('staff');
 
-        $this->actingAs($staff)->get(route('scanner.dashboard'))->assertForbidden();
+        $this->actingAs($staff)->get(route('dashboard'))->assertOk();
     }
 
     public function test_a_guest_is_redirected_to_login(): void
@@ -55,7 +62,7 @@ class ScannerTest extends TestCase
         $this->get(route('scanner.dashboard'))->assertRedirect(route('login'));
     }
 
-    public function test_a_location_page_shows_the_location_name_and_a_scan_input(): void
+    public function test_a_location_page_shows_the_location_and_a_scan_input(): void
     {
         $this->actingAs($this->scannerUser())
             ->get(route('scanner.location', 'finish-goods'))

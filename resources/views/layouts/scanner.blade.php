@@ -2,17 +2,15 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
 <head>
     <meta charset="utf-8">
-    {{-- Locked zoom + full device width: this runs on a rugged handheld
-         (SEUIC AutoID Q9), not a phone the operator pinch-zooms. --}}
+    {{-- Rugged handheld (SEUIC AutoID Q9): full device width, no pinch-zoom. --}}
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="#0f172a">
-    <title>@yield('title', 'KESEI KANBAN') — Scanner</title>
+    <title>@yield('title', 'KESEI KANBAN')</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         html { -webkit-text-size-adjust: 100%; }
         body { overscroll-behavior: none; }
-        /* Big, obvious touch feedback for gloved hands. */
         .tap { transition: transform .06s ease, filter .06s ease; }
         .tap:active { transform: scale(.97); filter: brightness(.92); }
     </style>

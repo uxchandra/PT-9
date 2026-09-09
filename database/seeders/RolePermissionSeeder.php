@@ -45,8 +45,8 @@ class RolePermissionSeeder extends Seeder
         $staff = Role::firstOrCreate(['name' => 'staff']);
         $staff->syncPermissions(['view dashboard', 'view andon', 'view stock part all', 'view stock snapshot']);
 
-        // Handheld barcode-scanner operators (SEUIC AutoID Q9) — only the
-        // dedicated scanner dashboard, nothing else.
+        // Handheld barcode-scanner operators (SEUIC AutoID Q9). Only the
+        // scanner screens — deliberately NOT "view dashboard".
         $scanner = Role::firstOrCreate(['name' => 'scanner']);
         $scanner->syncPermissions(['use scanner']);
     }
