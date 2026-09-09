@@ -34,11 +34,20 @@
                 @endif
 
                 @foreach ($keseiRows as $row)
-                    <div class="flex border-b border-slate-200 transition-colors {{ $loop->even ? 'bg-slate-50/60' : 'bg-white' }} {{ $row['runs_today'] ? '' : 'opacity-40' }}"
+                    @php
+                        // Active rows alternate light/dark yellow so a run of them stays readable.
+                        $rowBg = $row['runs_today']
+                            ? ($loop->even ? 'bg-amber-50' : 'bg-amber-100')
+                            : (($loop->even ? 'bg-slate-50/60' : 'bg-white').' opacity-40');
+                        $labelBg = $row['runs_today']
+                            ? ($loop->even ? '#fef3c7' : '#fde68a')
+                            : ($loop->even ? '#f8fafc' : '#ffffff');
+                    @endphp
+                    <div class="flex border-b border-slate-200 transition-colors {{ $rowBg }}"
                          style="height: 48px;"
                          @unless ($row['runs_today']) title="{{ __('Part ini tidak jalan di pattern yang sedang berjalan') }}" @endunless>
                         <div class="sticky left-0 z-20 flex flex-col justify-center px-3 shrink-0"
-                             style="width: 110px; background-color: {{ $loop->even ? '#f8fafc' : '#ffffff' }};">
+                             style="width: 110px; background-color: {{ $labelBg }};">
                             <span class="font-bold text-slate-700 text-xs truncate">{{ $row['label'] }}</span>
                             @if (count($row['sources']) > 1 || ($row['sources'][0] ?? null) !== $row['label'])
                                 <span class="text-[9px] text-slate-400 truncate" title="{{ implode(', ', $row['sources']) }}">&sum; {{ implode(', ', $row['sources']) }}</span>
