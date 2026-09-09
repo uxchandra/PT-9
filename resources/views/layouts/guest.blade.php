@@ -41,15 +41,6 @@
             <!-- Form panel -->
             <div class="flex flex-1 flex-col justify-center items-center px-6 py-12">
                 <div class="w-full max-w-sm">
-
-                    <!-- Mobile-only brand mark -->
-                    <div class="flex lg:hidden flex-col items-center gap-2 mb-8">
-                        <div class="w-14 h-14 rounded-xl border border-brand-800/20 bg-brand-800/5 flex items-center justify-center p-2.5">
-                            <x-application-logo class="w-full h-full fill-current text-brand-800" />
-                        </div>
-                        <p class="font-bold text-brand-900">{{ config('app.name', 'Laravel') }}</p>
-                    </div>
-
                     <div class="bg-white lg:bg-transparent shadow-sm lg:shadow-none border border-gray-100 lg:border-0 rounded-2xl p-6 sm:p-8 lg:p-0">
                         {{ $slot }}
                     </div>

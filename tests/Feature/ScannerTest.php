@@ -2,9 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\KeseiPart;
+use App\Models\KeseiScan;
+use App\Models\Part;
+use App\Models\StockSnapshot;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class ScannerTest extends TestCase
@@ -76,5 +81,115 @@ class ScannerTest extends TestCase
         $this->actingAs($this->scannerUser())
             ->get(route('scanner.location', 'warehouse-x'))
             ->assertNotFound();
+    }
+
+    /** A Kesei part at FINISH GOODS level with a 4-kanban stock decrease. */
+    private function pullablePart(string $partNo = '57183-BZ010'): KeseiPart
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+
+        $part = Part::create(['part_no' => $partNo, 'qty_kbn' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+
+        StockSnapshot::create(['part_no' => $partNo, 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => $partNo, 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]); // -4
+
+        return $kesei;
+    }
+
+    public function test_finish_goods_pull_list_shows_the_part_and_its_needed_kanban(): void
+    {
+        $this->pullablePart();
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'finish-goods'))
+            ->assertOk()
+            ->assertSee('57183-BZ010')
+            ->assertSee('/ 4');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_valid_scan_is_recorded_and_returns_progress(): void
+    {
+        $this->pullablePart();
+
+        $this->actingAs($this->scannerUser())
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'S9 09 I 26 A_8_57183-BZ010_1'])
+            ->assertOk()
+            ->assertJson(['ok' => true, 'part_no' => '57183-BZ010', 'scanned' => 1, 'needed' => 4, 'remaining' => 3]);
+
+        $this->assertDatabaseHas('kesei_scans', [
+            'part_no' => '57183-BZ010',
+            'location' => 'finish-goods',
+            'raw' => 'S9 09 I 26 A_8_57183-BZ010_1',
+        ]);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_part_not_on_the_pull_list_is_rejected(): void
+    {
+        $this->pullablePart();
+
+        $this->actingAs($this->scannerUser())
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'S9 09 I 26 A_8_99999-ZZ999_1'])
+            ->assertStatus(422)
+            ->assertJson(['ok' => false]);
+
+        $this->assertDatabaseCount('kesei_scans', 0);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_scanning_beyond_the_needed_qty_is_rejected(): void
+    {
+        $this->pullablePart();
+
+        for ($i = 0; $i < 4; $i++) {
+            KeseiScan::create(['part_no' => '57183-BZ010', 'location' => 'finish-goods', 'raw' => 'x', 'scanned_at' => now()]);
+        }
+
+        $this->actingAs($this->scannerUser())
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'S9 09 I 26 A_8_57183-BZ010_1'])
+            ->assertStatus(422)
+            ->assertJson(['ok' => false]);
+
+        $this->assertDatabaseCount('kesei_scans', 4);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_an_unparseable_qr_is_rejected(): void
+    {
+        $this->pullablePart();
+
+        $this->actingAs($this->scannerUser())
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'garbage'])
+            ->assertStatus(422)
+            ->assertJson(['ok' => false]);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_scan_becomes_a_red_tick_on_the_scan_andon_board(): void
+    {
+        $this->pullablePart();
+        KeseiScan::create([
+            'part_no' => '57183-BZ010', 'location' => 'finish-goods', 'raw' => 'x',
+            'scanned_at' => Carbon::parse('2026-09-15 09:30'),
+        ]);
+
+        $html = $this->get(route('andon-kesei.scan'))->getContent();
+
+        $this->assertStringContainsString('KESEI SCAN LINE 9', $html);
+        $this->assertStringContainsString('stok turun 1 kanban (1 pcs)', $html);
+
+        // The API-stock board must NOT show that tick.
+        $stockHtml = $this->get(route('andon-kesei.show'))->getContent();
+        $this->assertStringContainsString('stok turun 4 kanban (4 pcs)', $stockHtml); // the stock decrease
+        $this->assertStringNotContainsString('stok turun 1 kanban (1 pcs)', $stockHtml);
+
+        Carbon::setTestNow();
     }
 }

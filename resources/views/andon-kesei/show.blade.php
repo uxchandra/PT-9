@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>Andon Kesei — {{ config('app.name', 'Laravel') }}</title>
+    <title>{{ $boardTitle ?? "KESEI KANBAN LINE 9" }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         body { background: #f1f5f9; }
@@ -25,7 +25,7 @@
                     <span class="text-lg font-extrabold uppercase text-brand-700">{{ $currentPattern ?? '—' }}</span>
                 </div>
             </div>
-            <h1 class="text-xl sm:text-2xl font-extrabold tracking-wide text-brand-900 whitespace-nowrap">KESEI KANBAN LINE 9</h1>
+            <h1 class="text-xl sm:text-2xl font-extrabold tracking-wide text-brand-900 whitespace-nowrap">{{ $boardTitle ?? "KESEI KANBAN LINE 9" }}</h1>
             <div class="flex items-center gap-4 text-sm">
                 <div class="flex items-center gap-1.5">
                     <span class="flex items-center gap-px h-3">

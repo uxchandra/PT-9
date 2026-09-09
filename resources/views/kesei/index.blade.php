@@ -22,6 +22,13 @@
                     </svg>
                     {{ __('Lihat Andon Kesei') }}
                 </a>
+                <a href="{{ route('andon-kesei.scan') }}" target="_blank"
+                   class="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-700 rounded-lg font-semibold text-sm text-white hover:bg-brand-800 transition">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m0 14v1m8-8h-1M5 12H4m3.05-4.95.7.7m8.5-.7-.7.7m0 8.5.7.7m-8.5-.7-.7.7M4 8V4h4m8 0h4v4m0 8v4h-4m-8 0H4v-4"/>
+                    </svg>
+                    {{ __('Andon Kesei Scan') }}
+                </a>
             </div>
         </div>
 

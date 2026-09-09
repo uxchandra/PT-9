@@ -28,6 +28,7 @@ Route::get('/', function () {
 
 Route::get('/andon', [AndonController::class, 'index'])->name('andon.index');
 Route::get('/andon-kesei', [AndonKeseiController::class, 'show'])->name('andon-kesei.show');
+Route::get('/andon-kesei-scan', [AndonKeseiController::class, 'showScan'])->name('andon-kesei.scan');
 Route::get('/andon/{patternBoard}', [AndonController::class, 'show'])->name('andon.show');
 Route::get('/andon-planning/{patternBoard}', [AndonController::class, 'planning'])->name('andon.planning');
 Route::post('/andon-planning/pattern/{pattern}/actual', [AndonController::class, 'updateActual'])->name('andon.planning.actual.update');
@@ -66,6 +67,7 @@ Route::middleware('auth')->group(function () {
     Route::middleware('can:use scanner')->prefix('scanner')->name('scanner.')->group(function () {
         Route::get('/', [ScannerController::class, 'dashboard'])->name('dashboard');
         Route::get('/{location}', [ScannerController::class, 'location'])->name('location');
+        Route::post('/{location}/scan', [ScannerController::class, 'scan'])->name('scan');
     });
 
     Route::middleware('can:manage planning')->group(function () {

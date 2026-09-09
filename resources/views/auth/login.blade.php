@@ -1,7 +1,6 @@
 <x-guest-layout>
     <div class="mb-8">
-        <h1 class="text-2xl font-bold text-gray-900">Masuk ke Akun Anda</h1>
-        <p class="mt-1.5 text-sm text-gray-500">Silakan masukkan kredensial Anda untuk melanjutkan.</p>
+        <h1 class="text-2xl font-bold text-gray-900">KESEI</h1>
     </div>
 
     <!-- Session Status -->

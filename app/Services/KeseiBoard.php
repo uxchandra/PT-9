@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\CalendarEntry;
 use App\Models\KeseiPart;
+use App\Models\KeseiScan;
 use App\Models\PatternGroupItem;
 use App\Models\StockSnapshot;
 use Illuminate\Support\Carbon;
@@ -32,9 +33,12 @@ class KeseiBoard
     /**
      * The full view-data array for the board partials.
      *
+     * @param  'stock'|'scan'  $tickSource  Where the red ticks come from —
+     *                                      'stock' = decreases in the Stock Part All API feed (the original
+     *                                      board); 'scan' = scanned SOS labels (kesei_scans).
      * @return array<string, mixed>
      */
-    public function data(): array
+    public function data(string $tickSource = 'stock'): array
     {
         $now = now();
         // Only the *time* (07:00) matters here — the blade uses it for the hour
@@ -53,6 +57,7 @@ class KeseiBoard
                 return [
                     'id' => $kesei->id,
                     'label' => $kesei->part?->part_no ?? '(part terhapus)',
+                    'level' => $kesei->level,
                     'qty_kbn' => $kesei->part?->qty_kbn,
                     'sources' => $kesei->sourcePartNos(),
                     'patterns' => $kesei->patternBoards->pluck('name')->all(),
@@ -77,9 +82,12 @@ class KeseiBoard
 
         $queryStart = $this->queryStart($keseiRows, $now, $historyFloor);
 
+        // The Timeline Stok table is always the API stock feed, on both boards.
         [$seedStock, $stockByTime] = $this->loadStock($keseiRows, $queryStart, $now);
 
-        $allEvents = $this->buildStockDecreaseEvents($keseiRows, $seedStock, $stockByTime);
+        $allEvents = $tickSource === 'scan'
+            ? $this->buildScanEvents($keseiRows, $queryStart, $now)
+            : $this->buildStockDecreaseEvents($keseiRows, $seedStock, $stockByTime);
         [$stockDecreaseEvents, $closingKanban] = $this->splitEvents($keseiRows, $allEvents);
 
         return [
@@ -334,6 +342,51 @@ class KeseiBoard
 
             $events[$row['id']] = $rowEvents;
         }
+
+        return $events;
+    }
+
+    /**
+     * Scan-driven ticks: one event per scanned SOS label (1 kanban each),
+     * positioned on the clock face by when it was scanned. A scan is matched
+     * to the Kesei row whose own part_no or a source part_no equals it.
+     *
+     * @return array<int, array<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>>
+     */
+    private function buildScanEvents(Collection $keseiRows, Carbon $from, Carbon $to): array
+    {
+        if ($keseiRows->isEmpty()) {
+            return [];
+        }
+
+        // part_no => kesei_part id (own label and every source point to the row).
+        $rowByPartNo = [];
+        foreach ($keseiRows as $row) {
+            foreach (array_merge([$row['label']], $row['sources']) as $partNo) {
+                $rowByPartNo[$partNo] = $row['id'];
+            }
+        }
+
+        $events = array_fill_keys($keseiRows->pluck('id')->all(), []);
+
+        KeseiScan::whereIn('part_no', array_keys($rowByPartNo))
+            ->whereBetween('scanned_at', [$from, $to])
+            ->orderBy('scanned_at')
+            ->get(['part_no', 'scanned_at'])
+            ->each(function (KeseiScan $scan) use (&$events, $rowByPartNo) {
+                $rowId = $rowByPartNo[$scan->part_no] ?? null;
+                if ($rowId === null) {
+                    return;
+                }
+
+                $events[$rowId][] = [
+                    'minute' => $this->clockMinute($scan->scanned_at),
+                    'kanban' => 1,
+                    'pcs' => 1,
+                    'time' => $scan->scanned_at->format('H:i'),
+                    'at' => $scan->scanned_at,
+                ];
+            });
 
         return $events;
     }
