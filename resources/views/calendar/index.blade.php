@@ -68,11 +68,22 @@
 
                 <div class="grid grid-cols-7">
                     @foreach ($days as $day)
+                        @php
+                            if ($day['is_today']) {
+                                $cellBg = 'bg-green-200';
+                            } elseif ($day['is_weekend']) {
+                                $cellBg = 'bg-red-100';
+                            } else {
+                                $cellBg = $day['day'] % 2 === 0 ? 'bg-amber-50' : 'bg-amber-100';
+                            }
+                            if (! $day['in_month']) {
+                                $cellBg .= ' opacity-40';
+                            }
+                        @endphp
                         <div @click="openDay(@js($day))"
-                             class="flex flex-col min-h-[110px] p-2 cursor-pointer transition hover:bg-brand-50/60 border-gray-700
+                             class="flex flex-col min-h-[110px] p-2 cursor-pointer transition hover:brightness-95 border-gray-700 {{ $cellBg }}
                                     {{ $loop->iteration % 7 !== 0 ? 'border-r' : '' }}
-                                    {{ $loop->iteration <= count($days) - 7 ? 'border-b' : '' }}
-                                    {{ $day['in_month'] ? '' : 'bg-gray-50/60' }}">
+                                    {{ $loop->iteration <= count($days) - 7 ? 'border-b' : '' }}">
                             <div class="flex justify-start">
                                 <span class="inline-flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full
                                     {{ $day['is_today'] ? 'bg-brand-800 text-white' : ($day['in_month'] ? ($day['is_weekend'] ? 'text-red-500' : 'text-gray-700') : 'text-gray-300') }}">
