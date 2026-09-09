@@ -102,7 +102,7 @@ class KeseiTest extends TestCase
 
         $this->get(route('andon-kesei.show'))
             ->assertOk()
-            ->assertSee('ANDON KESEI PT 9')
+            ->assertSee('KESEI KANBAN LINE 9')
             ->assertSee('KESEI-PART-A');
     }
 
@@ -168,26 +168,27 @@ class KeseiTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_closing_table_qty_kbn_is_blank_until_closing_time_then_shows_accumulated_kanban(): void
+    public function test_closing_table_shows_the_current_plans_accumulated_kanban(): void
     {
-        Carbon::setTestNow('2026-09-15 10:00:00'); // window: 2026-09-14 14:00 → 2026-09-15 14:00
+        Carbon::setTestNow('2026-09-15 10:00:00');
 
-        $reached = Part::create(['part_no' => 'REACHED', 'qty_kbn' => 1]);
-        $future = Part::create(['part_no' => 'FUTURE', 'qty_kbn' => 1]);
-        KeseiPart::create(['part_id' => $reached->id, 'closing_time' => '09:00', 'urutan' => 1]); // 09-15 09:00 — passed
-        KeseiPart::create(['part_id' => $future->id, 'closing_time' => '13:00', 'urutan' => 2]);  // 09-15 13:00 — not yet
+        $planned = Part::create(['part_no' => 'PLANNED', 'qty_kbn' => 1]);
+        $noClose = Part::create(['part_no' => 'NOCLOSE', 'qty_kbn' => 1]);
+        // pre_run (default): the plan for the 09-15 07:00 run was fixed at 09-15 03:00.
+        KeseiPart::create(['part_id' => $planned->id, 'closing_time' => '03:00', 'urutan' => 1]);
+        KeseiPart::create(['part_id' => $noClose->id, 'urutan' => 2]);
 
-        // Stock drops before REACHED's 09:00 closing.
-        StockSnapshot::create(['part_no' => 'REACHED', 'stock' => 20, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
-        StockSnapshot::create(['part_no' => 'REACHED', 'stock' => 16, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]); // -4
+        // A 4-pc drop lands before the 03:00 cutoff; a later drop is the next plan.
+        StockSnapshot::create(['part_no' => 'PLANNED', 'stock' => 20, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 01:00')]);
+        StockSnapshot::create(['part_no' => 'PLANNED', 'stock' => 16, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 02:30')]); // -4
+        StockSnapshot::create(['part_no' => 'PLANNED', 'stock' => 9, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 09:30')]);
 
         $html = $this->get(route('andon-kesei.show'))->getContent();
         $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
 
-        // REACHED row's Qty Kbn cell (last <td> of the row) = 4.
-        $this->assertMatchesRegularExpression('/REACHED.*?>\s*4\s*<\/td>\s*<\/tr>/s', $table);
-        // FUTURE row's closing time not reached — Qty Kbn cell shows "-".
-        $this->assertMatchesRegularExpression('/FUTURE.*?>\s*-\s*<\/td>\s*<\/tr>/s', $table);
+        $this->assertMatchesRegularExpression('/PLANNED.*?>\s*4\s*<\/td>\s*<\/tr>/s', $table);
+        // No closing time → nothing to plan → dash.
+        $this->assertMatchesRegularExpression('/NOCLOSE.*?>\s*-\s*<\/td>\s*<\/tr>/s', $table);
 
         Carbon::setTestNow();
     }
@@ -384,7 +385,7 @@ class KeseiTest extends TestCase
         CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $d->id]);
 
         $part = Part::create(['part_no' => 'EVERY4', 'qty_kbn' => 1]);
-        $kesei = KeseiPart::create(['part_id' => $part->id, 'closing_time' => '08:00', 'urutan' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'closing_time' => '08:00', 'closing_mode' => 'end_of_day', 'urutan' => 1]);
         $kesei->patternBoards()->sync([$d->id]);
 
         // Pile starts after the 09-11 08:00 run-day closing, then drops on three
@@ -401,9 +402,9 @@ class KeseiTest extends TestCase
         $this->assertStringContainsString('stok turun 6 kanban (6 pcs)', $html);
         $this->assertStringContainsString('stok turun 3 kanban (3 pcs)', $html);
 
-        // Today's 08:00 closing has not passed on this run-day yet → nothing folded.
+        // The last run-day closing (09-11 08:00) had no drops before it → plan 0.
         $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
-        $this->assertMatchesRegularExpression('/EVERY4.*?>\s*-\s*<\/td>\s*<\/tr>/s', $table);
+        $this->assertMatchesRegularExpression('/EVERY4.*?>\s*0\s*<\/td>\s*<\/tr>/s', $table);
 
         // 06:00 maps to minute 1380 on the looping 07:00 → 07:00 face.
         $this->assertStringContainsString('data-now="1380"', $html);
@@ -425,7 +426,7 @@ class KeseiTest extends TestCase
         CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $d->id]);
 
         $part = Part::create(['part_no' => 'EVERY4', 'qty_kbn' => 1]);
-        $kesei = KeseiPart::create(['part_id' => $part->id, 'closing_time' => '08:00', 'urutan' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'closing_time' => '08:00', 'closing_mode' => 'end_of_day', 'urutan' => 1]);
         $kesei->patternBoards()->sync([$d->id]);
 
         StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-11 09:00')]);

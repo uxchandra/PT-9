@@ -21,6 +21,9 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
  * - stock_source: comma-separated part_no list whose Stock Part All stock is
  *   summed for Timeline Stok. Blank = the row's own part_no.
  * - closing_time: HH:MM. Ignored if not a valid time.
+ * - closing_mode: "pre_run" (default) or "end_of_day" — whether closing_time is
+ *   a planning cutoff before the 07:00 run or the close of the run's own day.
+ *   Blank/unknown leaves it untouched.
  * - pattern: one or more Pattern Board names, comma-separated (e.g. "A, B").
  *   Names with no matching board are ignored.
  * - Rows with an empty part_no are skipped.
@@ -68,6 +71,7 @@ class KeseiImport implements ToCollection, WithHeadingRow
             $attrs = [
                 'stock_source' => $this->cleanStockSource($row['stock_source'] ?? null),
                 'closing_time' => $this->parseTime($row['closing_time'] ?? null),
+                'closing_mode' => $this->parseClosingMode($row['closing_mode'] ?? null),
             ];
             $boardIds = $this->resolveBoards($row['pattern'] ?? null);
             $hasAttr = collect($attrs)->contains(fn ($value) => $value !== null) || $boardIds !== [];
@@ -94,7 +98,7 @@ class KeseiImport implements ToCollection, WithHeadingRow
                 continue;
             }
 
-            $kesei = KeseiPart::create($attrs + [
+            $kesei = KeseiPart::create(array_filter($attrs, fn ($value) => $value !== null) + [
                 'part_id' => $part->id,
                 'urutan' => $this->nextUrutan++,
             ]);
@@ -128,6 +132,19 @@ class KeseiImport implements ToCollection, WithHeadingRow
         } catch (\Throwable) {
             return null;
         }
+    }
+
+    /**
+     * 'pre_run' / 'end_of_day' (or the Indonesian labels). Blank or unknown
+     * leaves the row's mode untouched — new rows fall back to the DB default.
+     */
+    private function parseClosingMode(mixed $raw): ?string
+    {
+        return match (mb_strtolower(trim((string) $raw))) {
+            'pre_run', 'sebelum', 'sebelum run', 'before' => KeseiPart::CLOSING_PRE_RUN,
+            'end_of_day', 'akhir', 'akhir produksi', 'after' => KeseiPart::CLOSING_END_OF_DAY,
+            default => null,
+        };
     }
 
     /**

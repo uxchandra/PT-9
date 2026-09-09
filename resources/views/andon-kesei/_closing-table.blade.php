@@ -24,7 +24,7 @@
                     <tr class="border-b border-slate-100">
                         <td class="py-1 pr-2 whitespace-nowrap">{{ $row['closing_label'] ?? '-' }}</td>
                         <td class="py-1 pr-2 truncate" title="{{ $row['label'] }}">{{ $row['label'] }}</td>
-                        <td class="py-1 text-center truncate">{{ $currentPattern ?? '-' }}</td>
+                        <td class="py-1 text-center truncate">{{ $row['planned_pattern'] ?? $currentPattern ?? '-' }}</td>
                         <td class="py-1 text-center whitespace-nowrap">
                             {{ $row['closing_reached'] ? ($closingKanban[$row['id']] ?? 0) : '-' }}
                         </td>

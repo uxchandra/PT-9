@@ -20,7 +20,7 @@
 
         <div class="shrink-0 flex items-center justify-between gap-4 mb-5">
             <div class="text-sm text-slate-500 font-medium">{{ $productionLabel }}</div>
-            <h1 class="text-xl sm:text-2xl font-extrabold tracking-wide text-brand-900 whitespace-nowrap">ANDON KESEI PT 9</h1>
+            <h1 class="text-xl sm:text-2xl font-extrabold tracking-wide text-brand-900 whitespace-nowrap">KESEI KANBAN LINE 9</h1>
             <div class="flex items-center gap-4 text-sm">
                 <div class="flex items-center gap-1.5">
                     <span class="flex items-center gap-px h-3">

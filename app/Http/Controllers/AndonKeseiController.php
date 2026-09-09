@@ -49,7 +49,7 @@ class AndonKeseiController extends Controller
             ->orderBy('urutan')
             ->orderBy('id')
             ->get()
-            ->map(function (KeseiPart $kesei) use ($now) {
+            ->map(function (KeseiPart $kesei) use ($now, $historyFloor) {
                 $closing = $kesei->closing_time;
                 [$foldStart, $cycleStart] = $kesei->foldBoundaries($now);
 
@@ -59,10 +59,14 @@ class AndonKeseiController extends Controller
                     'qty_kbn' => $kesei->part?->qty_kbn,
                     'sources' => $kesei->sourcePartNos(),
                     'patterns' => $kesei->patternBoards->pluck('name')->all(),
+                    // The pattern of the run this closing is for.
+                    'planned_pattern' => $kesei->plannedPatternName($now),
                     'closing_label' => $closing?->format('H:i'),
                     'closing_minute' => $closing ? $this->clockMinute($closing) : null,
-                    'closing_reached' => $kesei->closingReached($now),
-                    'fold_start' => $foldStart,
+                    'closing_reached' => $foldStart !== null,
+                    // Visible pile starts after the last closing; when none has
+                    // passed, show everything within the history window.
+                    'fold_start' => $foldStart ?? $historyFloor,
                     'cycle_start' => $cycleStart,
                 ];
             })

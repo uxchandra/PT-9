@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class KeseiPartController extends Controller
@@ -32,6 +33,7 @@ class KeseiPartController extends Controller
             'part_id' => ['required', 'exists:parts,id', 'unique:kesei_parts,part_id'],
             'stock_source' => ['nullable', 'string', 'max:255'],
             'closing_time' => ['nullable', 'date_format:H:i'],
+            'closing_mode' => ['nullable', Rule::in(KeseiPart::CLOSING_MODES)],
             'pattern_board_ids' => ['nullable', 'array'],
             'pattern_board_ids.*' => ['integer', 'exists:pattern_boards,id'],
         ], [], ['part_id' => 'part']);
@@ -40,6 +42,7 @@ class KeseiPartController extends Controller
             'part_id' => $validated['part_id'],
             'stock_source' => $this->cleanStockSource($validated['stock_source'] ?? null),
             'closing_time' => $validated['closing_time'] ?? null,
+            'closing_mode' => $validated['closing_mode'] ?? KeseiPart::CLOSING_PRE_RUN,
             'urutan' => (int) KeseiPart::max('urutan') + 1,
         ]);
 
@@ -53,6 +56,7 @@ class KeseiPartController extends Controller
         $validated = $request->validate([
             'stock_source' => ['sometimes', 'nullable', 'string', 'max:255'],
             'closing_time' => ['sometimes', 'nullable', 'date_format:H:i'],
+            'closing_mode' => ['sometimes', Rule::in(KeseiPart::CLOSING_MODES)],
             'pattern_board_ids' => ['sometimes', 'nullable', 'array'],
             'pattern_board_ids.*' => ['integer', 'exists:pattern_boards,id'],
         ]);
@@ -65,6 +69,9 @@ class KeseiPartController extends Controller
         }
         if (array_key_exists('closing_time', $validated)) {
             $updates['closing_time'] = $validated['closing_time'] ?: null;
+        }
+        if (array_key_exists('closing_mode', $validated)) {
+            $updates['closing_mode'] = $validated['closing_mode'];
         }
         if ($updates !== []) {
             $keseiPart->update($updates);
@@ -79,6 +86,7 @@ class KeseiPartController extends Controller
                 'ok' => true,
                 'stock_source' => $keseiPart->stock_source,
                 'closing_time' => $keseiPart->closing_time?->format('H:i'),
+                'closing_mode' => $keseiPart->closing_mode,
                 'pattern_board_ids' => $keseiPart->patternBoards()->pluck('pattern_boards.id'),
             ]);
         }

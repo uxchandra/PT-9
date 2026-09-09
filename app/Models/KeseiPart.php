@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
-#[Fillable(['part_id', 'stock_source', 'closing_time', 'urutan'])]
+#[Fillable(['part_id', 'stock_source', 'closing_time', 'closing_mode', 'urutan'])]
 class KeseiPart extends Model
 {
     /**
@@ -18,11 +18,26 @@ class KeseiPart extends Model
      */
     public const FOLD_HISTORY_DAYS = 8;
 
+    /** closing_time is a planning cutoff in the 24h BEFORE the 07:00 run —
+     *  the demand piled up by then becomes that run's production plan. */
+    public const CLOSING_PRE_RUN = 'pre_run';
+
+    /** closing_time closes the run's own production day (07:00 → 07:00). */
+    public const CLOSING_END_OF_DAY = 'end_of_day';
+
+    public const CLOSING_MODES = [self::CLOSING_PRE_RUN, self::CLOSING_END_OF_DAY];
+
     protected function casts(): array
     {
         return [
             'closing_time' => 'datetime:H:i',
         ];
+    }
+
+    public function isPreRunClosing(): bool
+    {
+        // Anything but an explicit end_of_day counts as pre-run (the default).
+        return $this->closing_mode !== self::CLOSING_END_OF_DAY;
     }
 
     public function part(): BelongsTo
@@ -65,20 +80,29 @@ class KeseiPart extends Model
     }
 
     /**
-     * The moment this row's closing time falls on for the production day that
-     * starts at $prodDayStart (07:00). Times before 07:00 belong to the tail of
-     * that production day, i.e. the following calendar morning. Null when the
-     * row has no closing time.
+     * The wall-clock instant this row's closing time falls on for the 07:00
+     * production run that starts at $runDayStart. Null when the row has no
+     * closing time.
+     *
+     *  - pre_run    : the closing sits in the 24h BEFORE the run. A time < 07:00
+     *                 lands the same morning; a time >= 07:00 the evening before.
+     *  - end_of_day : the closing sits inside the run's own 07:00 → 07:00 day.
+     *                 A time >= 07:00 lands that day; a time < 07:00 the next
+     *                 calendar morning.
      */
-    public function closingAtFor(Carbon $prodDayStart): ?Carbon
+    public function closingInstantForRunDay(Carbon $runDayStart): ?Carbon
     {
         if ($this->closing_time === null) {
             return null;
         }
 
-        $at = $prodDayStart->copy()->setTime((int) $this->closing_time->hour, (int) $this->closing_time->minute);
+        $at = $runDayStart->copy()->setTime((int) $this->closing_time->hour, (int) $this->closing_time->minute);
 
-        if ($at->lt($prodDayStart)) {
+        if ($this->isPreRunClosing()) {
+            if ($at->gte($runDayStart)) {
+                $at->subDay();
+            }
+        } elseif ($at->lt($runDayStart)) {
             $at->addDay();
         }
 
@@ -86,12 +110,12 @@ class KeseiPart extends Model
     }
 
     /**
-     * Is the production day starting at $prodDayStart a run-day for this row —
-     * i.e. is the Calendar's pattern that day one of this row's boards? A row
-     * with no boards runs every day (so its pile folds daily, not forever).
-     * Requires the `patternBoards` relation to be loaded.
+     * Is the day whose production run starts at $runDayStart (07:00) a run-day
+     * for this row — i.e. is the Calendar's pattern that day one of this row's
+     * boards? A row with no boards runs every day (so its pile folds regularly,
+     * not forever). Requires the `patternBoards` relation to be loaded.
      */
-    public function isRunDay(Carbon $prodDayStart): bool
+    public function isRunDay(Carbon $runDayStart): bool
     {
         $boardIds = $this->patternBoards->pluck('id')->all();
 
@@ -99,69 +123,114 @@ class KeseiPart extends Model
             return true;
         }
 
-        $boardId = CalendarEntry::patternBoardForDate($prodDayStart->toDateString())?->id;
+        $boardId = CalendarEntry::patternBoardForDate($runDayStart->toDateString())?->id;
 
         return $boardId !== null && in_array($boardId, $boardIds, true);
     }
 
     /**
-     * Has this row's closing time already passed on the current run-day? False
-     * on non-run-days and for rows with no closing time.
+     * Run-day starts (07:00), newest first, from the NEXT one down to
+     * FOLD_HISTORY_DAYS back. The next run-day is included because a pre_run
+     * closing for it can already be in the past.
+     *
+     * @return array<int, Carbon>
+     */
+    private function recentRunDayStarts(Carbon $now): array
+    {
+        $anchor = CalendarEntry::productionDayStart($now);
+        $starts = [];
+
+        for ($k = -1; $k <= self::FOLD_HISTORY_DAYS + 1; $k++) {
+            $start = $anchor->copy()->subDays($k);
+
+            if ($this->isRunDay($start)) {
+                $starts[] = $start;
+            }
+        }
+
+        return $starts;
+    }
+
+    /**
+     * The run-day (07:00 start) whose closing is the most recent one at/before
+     * $now — i.e. the run this row is currently planning for / has just closed.
+     * Null when no closing has passed within FOLD_HISTORY_DAYS.
+     */
+    public function plannedRunDayStart(Carbon $now): ?Carbon
+    {
+        if ($this->closing_time === null) {
+            return null;
+        }
+
+        foreach ($this->recentRunDayStarts($now) as $runDayStart) {
+            if ($this->closingInstantForRunDay($runDayStart)->lte($now)) {
+                return $runDayStart;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The Calendar pattern name of the run this closing is for (pre_run: the
+     * upcoming run; end_of_day: the run whose day just closed). Falls back to
+     * the pattern running right now, then '-'.
+     */
+    public function plannedPatternName(Carbon $now): string
+    {
+        $runDayStart = $this->plannedRunDayStart($now);
+
+        $board = $runDayStart !== null
+            ? CalendarEntry::patternBoardForDate($runDayStart->toDateString())
+            : CalendarEntry::runningPatternBoard($now);
+
+        return $board?->name ?? '-';
+    }
+
+    /**
+     * Has a closing for this row already passed within FOLD_HISTORY_DAYS? False
+     * for rows with no closing time.
      */
     public function closingReached(Carbon $now): bool
     {
-        if ($this->closing_time === null) {
-            return false;
-        }
-
-        $prodDayStart = CalendarEntry::productionDayStart($now);
-
-        return $this->isRunDay($prodDayStart) && $now->gte($this->closingAtFor($prodDayStart));
+        return $this->foldBoundaries($now)[0] !== null;
     }
 
     /**
      * [foldStart, cycleStart] for this row at $now:
-     *  - foldStart  — the most recent run-day closing at/before $now. Red ticks
-     *                 after it are the live pile; ticks before it have folded.
-     *  - cycleStart — the run-day closing before that (or the history floor when
-     *                 there is none). The span (cycleStart, foldStart] is what
-     *                 folded into the accumulated-kanban number.
-     * Rows with no closing time get [historyFloor, historyFloor].
+     *  - foldStart  — the most recent closing at/before $now, or null when none
+     *                 has passed. Red ticks after it are the live pile; ticks
+     *                 before it have folded.
+     *  - cycleStart — the closing before that (or the history floor when there is
+     *                 none). The span (cycleStart, foldStart] is what folded into
+     *                 the accumulated-kanban number.
      *
-     * @return array{0: Carbon, 1: Carbon}
+     * @return array{0: ?Carbon, 1: Carbon}
      */
     public function foldBoundaries(Carbon $now): array
     {
         $historyFloor = $now->copy()->subDays(self::FOLD_HISTORY_DAYS);
 
         if ($this->closing_time === null) {
-            return [$historyFloor, $historyFloor];
+            return [null, $historyFloor];
         }
 
-        $prodDayStart = CalendarEntry::productionDayStart($now);
         $found = [];
 
-        for ($k = 0; $k <= self::FOLD_HISTORY_DAYS + 1; $k++) {
-            $dayStart = $prodDayStart->copy()->subDays($k);
-            $closingAt = $this->closingAtFor($dayStart);
+        foreach ($this->recentRunDayStarts($now) as $runDayStart) {
+            $closingAt = $this->closingInstantForRunDay($runDayStart);
 
             if ($closingAt->gt($now)) {
                 continue;
             }
 
-            if ($this->isRunDay($dayStart)) {
-                $found[] = $closingAt;
+            $found[] = $closingAt;
 
-                if (count($found) === 2) {
-                    break;
-                }
+            if (count($found) === 2) {
+                break;
             }
         }
 
-        if ($found === []) {
-            return [$historyFloor, $historyFloor];
-        }
-
-        return [$found[0], $found[1] ?? $historyFloor];
+        return [$found[0] ?? null, $found[1] ?? $historyFloor];
     }
 }

@@ -61,6 +61,17 @@
                     <x-input-error :messages="$errors->get('closing_time')" class="mt-1" />
                 </div>
                 <div>
+                    <label class="inline-flex items-center gap-1.5 text-sm text-gray-700 pt-1.5">
+                        <input type="hidden" name="closing_mode" value="end_of_day">
+                        <input type="checkbox" name="closing_mode" value="pre_run"
+                               @checked(old('closing_mode', 'pre_run') === 'pre_run')
+                               class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                        {{ __('Pre-run') }}
+                    </label>
+                    <p class="mt-1 text-xs text-gray-400">{{ __('Closing sebelum run') }}</p>
+                    <x-input-error :messages="$errors->get('closing_mode')" class="mt-1" />
+                </div>
+                <div>
                     <div class="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1.5">
                         @forelse ($patternBoards as $board)
                             <label class="inline-flex items-center gap-1 text-sm text-gray-700">
@@ -94,11 +105,12 @@
                         <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
                             <th class="px-3 py-3 w-8"></th>
                             <th class="px-6 py-3">{{ __('No') }}</th>
-                            <th class="px-6 py-3">{{ __('Part No') }}</th>
+                            <th class="px-4 py-3 w-44 whitespace-nowrap">{{ __('Part No') }}</th>
                             <th class="px-6 py-3">{{ __('Source') }}</th>
                             <th class="px-6 py-3">{{ __('Closing Time') }}</th>
-                            <th class="px-6 py-3">{{ __('Pattern') }}</th>
-                            <th class="px-6 py-3 w-24 text-right">{{ __('Aksi') }}</th>
+                            <th class="px-4 py-3 w-24 text-center whitespace-nowrap">{{ __('Pre-run') }}</th>
+                            <th class="px-6 py-3 w-px whitespace-nowrap">{{ __('Pattern') }}</th>
+                            <th class="px-3 py-3 w-12 text-center">{{ __('Aksi') }}</th>
                         </tr>
                     </thead>
                     <tbody id="kesei-sortable" class="divide-y divide-gray-100"
@@ -108,7 +120,7 @@
                                 <td class="kesei-drag-handle px-3 py-3 text-center text-gray-300 hover:text-gray-500 cursor-grab select-none"
                                     title="{{ __('Geser untuk mengatur urutan') }}">⠿</td>
                                 <td class="kesei-urutan-cell px-6 py-3 text-gray-600">{{ $loop->iteration }}</td>
-                                <td class="px-6 py-3 text-gray-800 font-medium">{{ $item->part?->part_no ?? '-' }}</td>
+                                <td class="px-4 py-3 w-44 whitespace-nowrap text-gray-800 font-medium">{{ $item->part?->part_no ?? '-' }}</td>
                                 <td class="px-6 py-3">
                                     <input type="text"
                                            class="kesei-inline w-full max-w-xs rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
@@ -126,8 +138,18 @@
                                            value="{{ $item->closing_time?->format('H:i') }}">
                                     <span class="kesei-status ml-1 text-xs"></span>
                                 </td>
-                                <td class="px-6 py-3">
-                                    <div class="kesei-pattern-checks flex flex-wrap items-center gap-x-3 gap-y-1"
+                                <td class="px-4 py-3 w-24 text-center" title="{{ __('Checklist = closing sebelum run. Kosong = closing di akhir produksi.') }}">
+                                    <input type="checkbox"
+                                           class="kesei-inline rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                                           data-field="closing_mode"
+                                           data-checked-value="pre_run"
+                                           data-unchecked-value="end_of_day"
+                                           data-url="{{ route('kesei.update', $item) }}"
+                                           @checked($item->isPreRunClosing())>
+                                    <span class="kesei-status ml-1 text-xs"></span>
+                                </td>
+                                <td class="px-6 py-3 w-px whitespace-nowrap">
+                                    <div class="kesei-pattern-checks flex flex-nowrap items-center gap-x-3"
                                          data-url="{{ route('kesei.update', $item) }}">
                                         @foreach ($patternBoards as $board)
                                             <label class="inline-flex items-center gap-1 text-xs text-gray-700">
@@ -140,17 +162,21 @@
                                         <span class="kesei-status ml-1 text-xs"></span>
                                     </div>
                                 </td>
-                                <td class="px-6 py-3 text-right whitespace-nowrap">
+                                <td class="px-3 py-3 text-center">
                                     <form action="{{ route('kesei.destroy', $item) }}" method="POST" class="inline" onsubmit="return confirm('{{ __('Hapus part ini dari Kesei?') }}');">
                                         @csrf
                                         @method('DELETE')
-                                        <button type="submit" class="text-red-600 hover:text-red-800 font-medium">{{ __('Hapus') }}</button>
+                                        <button type="submit" class="inline-flex text-gray-400 hover:text-red-600 transition" title="{{ __('Hapus') }}" aria-label="{{ __('Hapus') }}">
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                            </svg>
+                                        </button>
                                     </form>
                                 </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="7" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada part di Kesei.') }}</td>
+                                <td colspan="8" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada part di Kesei.') }}</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -197,14 +223,19 @@
                         .catch(function () { set('✕', 'text-red-600'); });
                 }
 
-                // Inline auto-save of Source / Closing Time.
+                // Inline auto-save of Source / Closing Time / Mode.
                 document.querySelectorAll('.kesei-inline').forEach(function (field) {
+                    const badge = field.closest('td').querySelector('.kesei-status');
                     field.addEventListener('change', function () {
-                        save(field.dataset.url, { [field.dataset.field]: field.value }, field.parentElement.querySelector('.kesei-status'))
+                        const value = field.type === 'checkbox'
+                            ? (field.checked ? field.dataset.checkedValue : field.dataset.uncheckedValue)
+                            : field.value;
+                        save(field.dataset.url, { [field.dataset.field]: value }, badge)
                             .then(function (d) {
                                 if (!d) return;
                                 if (field.dataset.field === 'stock_source') field.value = d.stock_source ?? '';
                                 if (field.dataset.field === 'closing_time') field.value = d.closing_time ?? '';
+                                if (field.dataset.field === 'closing_mode' && field.type === 'checkbox') field.checked = (d.closing_mode ?? 'pre_run') === 'pre_run';
                             });
                     });
                 });

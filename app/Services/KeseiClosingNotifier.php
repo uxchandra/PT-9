@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\CalendarEntry;
 use App\Models\KeseiClosingNotification;
 use App\Models\KeseiPart;
 use App\Models\PatternGroupItem;
@@ -11,12 +10,12 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
 /**
- * When a Kesei part's closing time is reached, WhatsApp a one-line summary
- * (part no, running pattern, accumulated Qty Kbn) to the configured numbers.
+ * When a Kesei part's closing is reached, WhatsApp a one-line summary (part no,
+ * planned pattern, accumulated Qty Kbn) to the configured numbers.
  *
- * Runs off the same 5-minute tick as stock:capture-snapshot, so a message
- * lands within ~5 minutes of the closing time. A per-part-per-day record
- * stops it from ever sending twice.
+ * Runs off the same 5-minute tick as stock:capture-snapshot, so a message lands
+ * within ~5 minutes of the closing. A per-part-per-closing record (keyed by the
+ * closing's date) stops it from ever sending twice.
  */
 class KeseiClosingNotifier
 {
@@ -30,27 +29,38 @@ class KeseiClosingNotifier
         $result = ['sent' => 0, 'skipped' => 0, 'failed' => 0];
 
         $now = now();
-        $today = $now->toDateString();
 
-        // Only rows whose closing time has passed on a day they actually run
-        // (their board is the Calendar pattern) — matching when the Andon Kesei
-        // board folds the pile into a number.
+        // Rows whose closing for the current run has passed — the same moment
+        // the Andon Kesei board folds its pile into a number. For a pre_run
+        // closing this can be hours before the run actually starts.
         $due = KeseiPart::with(['part', 'patternBoards'])
             ->whereNotNull('closing_time')
             ->get()
-            ->filter(fn (KeseiPart $kesei) => $kesei->closingReached($now));
+            ->map(function (KeseiPart $kesei) use ($now) {
+                [$foldStart, $cycleStart] = $kesei->foldBoundaries($now);
+
+                return ['kesei' => $kesei, 'foldStart' => $foldStart, 'cycleStart' => $cycleStart];
+            })
+            ->filter(fn (array $row) => $row['foldStart'] !== null)
+            ->values();
 
         if ($due->isEmpty()) {
             return $result;
         }
 
-        $alreadyNotified = KeseiClosingNotification::where('notified_on', $today)
-            ->whereIn('kesei_part_id', $due->pluck('id'))
-            ->pluck('kesei_part_id')
+        // One WhatsApp per part per closing event, keyed by the closing's date.
+        $keseiIds = $due->pluck('kesei.id');
+        $floorDate = $now->copy()->subDays(KeseiPart::FOLD_HISTORY_DAYS)->toDateString();
+        $notified = KeseiClosingNotification::whereIn('kesei_part_id', $keseiIds)
+            ->where('notified_on', '>=', $floorDate)
+            ->get(['kesei_part_id', 'notified_on'])
+            ->map(fn ($row) => $row->kesei_part_id.'|'.Carbon::parse($row->notified_on)->toDateString())
             ->all();
 
-        $due = $due->reject(fn (KeseiPart $kesei) => in_array($kesei->id, $alreadyNotified, true));
-        $result['skipped'] = count($alreadyNotified);
+        $due = $due->reject(
+            fn (array $row) => in_array($row['kesei']->id.'|'.$row['foldStart']->toDateString(), $notified, true)
+        );
+        $result['skipped'] = $keseiIds->count() - $due->count();
 
         if ($due->isEmpty()) {
             return $result;
@@ -67,26 +77,21 @@ class KeseiClosingNotifier
             return $result;
         }
 
-        // Parts that come due together and share the same clock time go out as
-        // one WhatsApp, not one per part.
-        $groups = $due->groupBy(fn (KeseiPart $kesei) => $kesei->closing_time->format('H:i'));
+        // Parts that come due together with the same closing time AND the same
+        // planned pattern go out as one WhatsApp.
+        $groups = $due->groupBy(
+            fn (array $row) => $row['kesei']->closing_time->format('H:i').'|'.$row['kesei']->plannedPatternName($now)
+        );
 
-        foreach ($groups as $closing => $members) {
-            $groupClosingAt = $now->copy()->setTime(
-                (int) $members->first()->closing_time->hour,
-                (int) $members->first()->closing_time->minute,
-            );
-            // Pattern running at the closing moment (Calendar rolls over at 07:00).
-            $pattern = CalendarEntry::runningPatternBoard($groupClosingAt)?->name ?? '-';
+        foreach ($groups as $members) {
+            $first = $members->first()['kesei'];
+            $closing = $first->closing_time->format('H:i');
+            $pattern = $first->plannedPatternName($now);
 
-            $lines = $members->map(function (KeseiPart $kesei) use ($now) {
-                [$foldStart, $cycleStart] = $kesei->foldBoundaries($now);
-
-                return [
-                    'partNo' => $kesei->part?->part_no ?? '(part terhapus)',
-                    'qtyKbn' => $this->accumulatedKanban($kesei, $cycleStart, $foldStart),
-                ];
-            })->all();
+            $lines = $members->map(fn (array $row) => [
+                'partNo' => $row['kesei']->part?->part_no ?? '(part terhapus)',
+                'qtyKbn' => $this->accumulatedKanban($row['kesei'], $row['cycleStart'], $row['foldStart']),
+            ])->all();
 
             $message = $this->message($closing, $pattern, $lines);
 
@@ -96,8 +101,11 @@ class KeseiClosingNotifier
             }
 
             if ($sentOk) {
-                foreach ($members as $kesei) {
-                    KeseiClosingNotification::create(['kesei_part_id' => $kesei->id, 'notified_on' => $today]);
+                foreach ($members as $row) {
+                    KeseiClosingNotification::create([
+                        'kesei_part_id' => $row['kesei']->id,
+                        'notified_on' => $row['foldStart']->toDateString(),
+                    ]);
                 }
                 $result['sent'] += $members->count();
             } else {
