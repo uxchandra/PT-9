@@ -34,30 +34,28 @@
                 @endif
 
                 @foreach ($keseiRows as $row)
-                    <div class="flex border-b border-slate-200 transition-colors {{ $loop->even ? 'bg-slate-50/60' : 'bg-white' }}"
-                         style="height: 48px;">
+                    <div class="flex border-b border-slate-200 transition-colors {{ $loop->even ? 'bg-slate-50/60' : 'bg-white' }} {{ $row['runs_today'] ? '' : 'opacity-40' }}"
+                         style="height: 48px;"
+                         @unless ($row['runs_today']) title="{{ __('Part ini tidak jalan di pattern yang sedang berjalan') }}" @endunless>
                         <div class="sticky left-0 z-20 flex flex-col justify-center px-3 shrink-0"
                              style="width: 110px; background-color: {{ $loop->even ? '#f8fafc' : '#ffffff' }};">
                             <span class="font-bold text-slate-700 text-xs truncate">{{ $row['label'] }}</span>
-                            <span class="flex items-center gap-1 text-[9px] text-slate-400 truncate">
-                                @if ($row['closing_label'])
-                                    <span class="text-green-600 font-semibold">CT {{ $row['closing_label'] }}</span>
-                                @endif
-                                @if (count($row['sources']) > 1 || ($row['sources'][0] ?? null) !== $row['label'])
-                                    <span title="{{ implode(', ', $row['sources']) }}">&sum; {{ implode(', ', $row['sources']) }}</span>
-                                @endif
-                            </span>
+                            @if (count($row['sources']) > 1 || ($row['sources'][0] ?? null) !== $row['label'])
+                                <span class="text-[9px] text-slate-400 truncate" title="{{ implode(', ', $row['sources']) }}">&sum; {{ implode(', ', $row['sources']) }}</span>
+                            @endif
                         </div>
                         <div class="relative shrink-0" style="width: {{ $totalWidth }}px;">
-                            @php $closingMinute = $row['closing_minute']; @endphp
+                            @php
+                                $closingMinute = $row['closing_minute'];
+                                // Live count of the red ticks currently on this row — resets to
+                                // 0 the moment the closing folds them away.
+                                $ck = collect($stockDecreaseEvents[$row['id']] ?? [])->sum('kanban');
+                            @endphp
                             @if ($closingMinute !== null)
-                                @php $ck = $closingKanban[$row['id']] ?? 0; @endphp
                                 <div class="closing-time-marker absolute top-0 bottom-0 z-10"
                                      style="left: {{ max(0, ($closingMinute - $dayStart) * $pxPerMinute) }}px;"
-                                     title="{{ __('Closing time') }} {{ $row['closing_label'] }}{{ $row['closing_reached'] ? ' — '.__('akumulasi').' '.$ck.' kanban' : '' }}">
-                                    @if ($row['closing_reached'])
-                                        <span class="absolute bottom-0.5 left-1 text-[9px] font-bold leading-none whitespace-nowrap {{ $ck > 0 ? 'text-green-700' : 'text-slate-400' }}">{{ $ck }}</span>
-                                    @endif
+                                     title="{{ __('Closing time') }} {{ $row['closing_label'] }} — {{ $ck }} kanban berjalan">
+                                    <span class="absolute bottom-0.5 left-1 text-[9px] font-bold leading-none whitespace-nowrap {{ $ck > 0 ? 'text-green-700' : 'text-slate-400' }}">{{ $ck }}</span>
                                 </div>
                             @endif
                             @foreach ($stockDecreaseEvents[$row['id']] ?? [] as $event)

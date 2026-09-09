@@ -19,7 +19,12 @@
     <div class="h-screen flex flex-col px-4 sm:px-6 py-5">
 
         <div class="shrink-0 flex items-center justify-between gap-4 mb-5">
-            <div class="text-sm text-slate-500 font-medium">{{ $productionLabel }}</div>
+            <div class="flex items-center gap-3 text-sm text-slate-500 font-medium">
+                <div class="inline-flex items-baseline gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 shadow-sm">
+                    <span class="text-lg font-extrabold uppercase tracking-wide text-brand-500">{{ __('Pattern') }}</span>
+                    <span class="text-lg font-extrabold uppercase text-brand-700">{{ $currentPattern ?? '—' }}</span>
+                </div>
+            </div>
             <h1 class="text-xl sm:text-2xl font-extrabold tracking-wide text-brand-900 whitespace-nowrap">KESEI KANBAN LINE 9</h1>
             <div class="flex items-center gap-4 text-sm">
                 <div class="flex items-center gap-1.5">

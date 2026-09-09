@@ -1,5 +1,5 @@
 <div class="h-full flex flex-col">
-    <div class="shrink-0 px-3 py-1.5">
+    <div class="shrink-0 flex items-center gap-2 px-3 py-1.5">
         <span class="text-xs font-bold text-slate-600 tracking-wide">{{ __('CLOSING TIME') }}</span>
     </div>
 
@@ -20,18 +20,16 @@
                 </tr>
             </thead>
             <tbody class="text-slate-600">
-                @forelse ($keseiRows as $row)
+                @forelse ($closingRows as $row)
                     <tr class="border-b border-slate-100">
                         <td class="py-1 pr-2 whitespace-nowrap">{{ $row['closing_label'] ?? '-' }}</td>
                         <td class="py-1 pr-2 truncate" title="{{ $row['label'] }}">{{ $row['label'] }}</td>
                         <td class="py-1 text-center truncate">{{ $row['planned_pattern'] ?? $currentPattern ?? '-' }}</td>
-                        <td class="py-1 text-center whitespace-nowrap">
-                            {{ $row['closing_reached'] ? ($closingKanban[$row['id']] ?? 0) : '-' }}
-                        </td>
+                        <td class="py-1 text-center whitespace-nowrap font-semibold text-slate-700">{{ $closingKanban[$row['id']] ?? 0 }}</td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="4" class="py-4 text-center text-slate-400">{{ __('Belum ada part di menu Kesei.') }}</td>
+                        <td colspan="4" class="py-6 text-center text-slate-400">{{ __('Belum ada part yang closing.') }}</td>
                     </tr>
                 @endforelse
             </tbody>

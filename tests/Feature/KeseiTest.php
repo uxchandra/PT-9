@@ -135,31 +135,38 @@ class KeseiTest extends TestCase
             ->assertJsonStructure(['timeline', 'closingTable', 'stockTimeline', 'serverTime']);
     }
 
-    public function test_andon_kesei_closing_time_table_is_plain_and_shows_the_calendar_pattern(): void
+    public function test_closing_table_fills_only_when_a_running_part_reaches_its_closing(): void
     {
-        Carbon::setTestNow('2026-09-15 10:00:00'); // daytime, after the 07:00 calendar rollover
+        Carbon::setTestNow('2026-09-15 10:00:00');
 
-        $running = PatternBoard::create(['name' => 'RUN-A']);
-        $other = PatternBoard::create(['name' => 'OTHER-B']);
-        CalendarEntry::create(['date' => now()->toDateString(), 'pattern_board_id' => $running->id]);
+        $a = PatternBoard::create(['name' => 'A']);
+        $b = PatternBoard::create(['name' => 'B']);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $a->id]);
 
-        // The Kesei row is attached to OTHER-B, but the table shows the pattern
-        // the Calendar says is running for the production day.
-        $entry = KeseiPart::create(['part_id' => Part::create(['part_no' => 'KP-1'])->id, 'closing_time' => '15:45', 'urutan' => 1]);
-        $entry->patternBoards()->sync([$other->id]);
+        // Running pattern, closing already passed → shows.
+        $done = KeseiPart::create(['part_id' => Part::create(['part_no' => 'DONE', 'qty_kbn' => 1])->id, 'closing_time' => '09:00', 'closing_mode' => 'end_of_day', 'urutan' => 1]);
+        $done->patternBoards()->sync([$a->id]);
+        // Running pattern, closing not reached yet → hidden.
+        $waiting = KeseiPart::create(['part_id' => Part::create(['part_no' => 'WAITING'])->id, 'closing_time' => '17:00', 'closing_mode' => 'end_of_day', 'urutan' => 2]);
+        $waiting->patternBoards()->sync([$a->id]);
+        // Different pattern → hidden.
+        $offRun = KeseiPart::create(['part_id' => Part::create(['part_no' => 'OFFRUN'])->id, 'closing_time' => '09:00', 'closing_mode' => 'end_of_day', 'urutan' => 3]);
+        $offRun->patternBoards()->sync([$b->id]);
+
+        StockSnapshot::create(['part_no' => 'DONE', 'stock' => 20, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'DONE', 'stock' => 17, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:40')]); // -3
 
         $html = $this->get(route('andon-kesei.show'))->getContent();
 
         $closingPos = strpos($html, 'CLOSING TIME');
         $stockPos = strpos($html, 'TIMELINE STOK');
-        $this->assertLessThan($stockPos, $closingPos);
-
         $table = substr($html, $closingPos, $stockPos - $closingPos);
+
         $this->assertLessThan(strpos($table, 'No Part'), strpos($table, 'Close'));
-        $this->assertStringContainsString('KP-1', $table);
-        $this->assertStringContainsString('15:45', $table);
-        $this->assertStringContainsString('RUN-A', $table);
-        $this->assertStringNotContainsString('OTHER-B', $table);
+        // DONE row: Pattern A, Qty Kbn 3.
+        $this->assertMatchesRegularExpression('/DONE.*?>\s*A\s*<\/td>.*?>\s*3\s*<\/td>\s*<\/tr>/s', $table);
+        $this->assertStringNotContainsString('WAITING', $table);
+        $this->assertStringNotContainsString('OFFRUN', $table);
 
         // Plain text — no coloured badges or pills.
         $this->assertStringNotContainsString('bg-slate-200', $table);
@@ -172,11 +179,14 @@ class KeseiTest extends TestCase
     {
         Carbon::setTestNow('2026-09-15 10:00:00');
 
+        $a = PatternBoard::create(['name' => 'A']);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $a->id]);
+
         $planned = Part::create(['part_no' => 'PLANNED', 'qty_kbn' => 1]);
         $noClose = Part::create(['part_no' => 'NOCLOSE', 'qty_kbn' => 1]);
         // pre_run (default): the plan for the 09-15 07:00 run was fixed at 09-15 03:00.
-        KeseiPart::create(['part_id' => $planned->id, 'closing_time' => '03:00', 'urutan' => 1]);
-        KeseiPart::create(['part_id' => $noClose->id, 'urutan' => 2]);
+        KeseiPart::create(['part_id' => $planned->id, 'closing_time' => '03:00', 'urutan' => 1])->patternBoards()->sync([$a->id]);
+        KeseiPart::create(['part_id' => $noClose->id, 'urutan' => 2])->patternBoards()->sync([$a->id]);
 
         // A 4-pc drop lands before the 03:00 cutoff; a later drop is the next plan.
         StockSnapshot::create(['part_no' => 'PLANNED', 'stock' => 20, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 01:00')]);
@@ -187,8 +197,8 @@ class KeseiTest extends TestCase
         $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
 
         $this->assertMatchesRegularExpression('/PLANNED.*?>\s*4\s*<\/td>\s*<\/tr>/s', $table);
-        // No closing time → nothing to plan → dash.
-        $this->assertMatchesRegularExpression('/NOCLOSE.*?>\s*-\s*<\/td>\s*<\/tr>/s', $table);
+        // No closing time → never enters the closing table.
+        $this->assertStringNotContainsString('NOCLOSE', $table);
 
         Carbon::setTestNow();
     }
@@ -348,8 +358,10 @@ class KeseiTest extends TestCase
     {
         Carbon::setTestNow('2026-09-15 12:00:00'); // window 09-14 16:00 → 09-15 16:00; closing 09:00 = 09-15 09:00 (passed)
 
+        $a = PatternBoard::create(['name' => 'A']);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $a->id]);
         $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
-        KeseiPart::create(['part_id' => $part->id, 'closing_time' => '09:00', 'urutan' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'closing_time' => '09:00', 'closing_mode' => 'end_of_day', 'urutan' => 1])->patternBoards()->sync([$a->id]);
 
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:00')]);
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);  // -4, before closing
@@ -360,12 +372,15 @@ class KeseiTest extends TestCase
 
         // The green closing marker is drawn.
         $this->assertStringContainsString('closing-time-marker', $html);
-        // Drops before 09:00 (4 + 3 = 7) are folded into the accumulated number.
-        $this->assertMatchesRegularExpression('/text-green-700">7</', $html);
+        // Drops before 09:00 are folded away — the green number now counts only
+        // the live pile (the 5-kanban drop after 09:00).
+        $this->assertMatchesRegularExpression('/text-green-700">5</', $html);
         $this->assertStringNotContainsString('stok turun 4 kanban', $html);
         $this->assertStringNotContainsString('stok turun 3 kanban', $html);
-        // The drop after 09:00 still shows its ticks.
         $this->assertStringContainsString('stok turun 5 kanban (5 pcs)', $html);
+        // The folded 4 + 3 = 7 lands in the Closing Time table.
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+        $this->assertMatchesRegularExpression('/P1.*?>\s*7\s*<\/td>\s*<\/tr>/s', $table);
 
         Carbon::setTestNow();
     }
@@ -402,9 +417,9 @@ class KeseiTest extends TestCase
         $this->assertStringContainsString('stok turun 6 kanban (6 pcs)', $html);
         $this->assertStringContainsString('stok turun 3 kanban (3 pcs)', $html);
 
-        // The last run-day closing (09-11 08:00) had no drops before it → plan 0.
+        // Pattern X is running right now, not D → EVERY4 is not in the closing table.
         $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
-        $this->assertMatchesRegularExpression('/EVERY4.*?>\s*0\s*<\/td>\s*<\/tr>/s', $table);
+        $this->assertStringNotContainsString('EVERY4', $table);
 
         // 06:00 maps to minute 1380 on the looping 07:00 → 07:00 face.
         $this->assertStringContainsString('data-now="1380"', $html);
@@ -436,13 +451,12 @@ class KeseiTest extends TestCase
 
         $html = $this->get(route('andon-kesei.show'))->getContent();
 
-        // The 4-day pile up to 09-15 08:00 folds into one number: 4 + 6 = 10.
-        $this->assertMatchesRegularExpression('/text-green-700">10</', $html);
+        // 4 + 6 folded away — green line now counts only the live pile (the 2).
+        $this->assertMatchesRegularExpression('/text-green-700">2</', $html);
         $this->assertStringNotContainsString('stok turun 4 kanban', $html);
         $this->assertStringNotContainsString('stok turun 6 kanban', $html);
-        // The drop after the closing is still a live tick.
         $this->assertStringContainsString('stok turun 2 kanban (2 pcs)', $html);
-
+        // The folded 4 + 6 = 10 lands in the Closing Time table.
         $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
         $this->assertMatchesRegularExpression('/EVERY4.*?>\s*10\s*<\/td>\s*<\/tr>/s', $table);
 

@@ -61,6 +61,11 @@ class AndonKeseiController extends Controller
                     'patterns' => $kesei->patternBoards->pluck('name')->all(),
                     // The pattern of the run this closing is for.
                     'planned_pattern' => $kesei->plannedPatternName($now),
+                    // Is this part actively running under today's Calendar pattern?
+                    'runs_today' => $kesei->isRunningNow($now),
+                    // Has it passed its closing for the current run? Only then
+                    // does it appear in the Closing Time table.
+                    'closed_now' => $kesei->closedForCurrentRun($now),
                     'closing_label' => $closing?->format('H:i'),
                     'closing_minute' => $closing ? $this->clockMinute($closing) : null,
                     'closing_reached' => $foldStart !== null,
@@ -82,6 +87,9 @@ class AndonKeseiController extends Controller
 
         $viewData = [
             'keseiRows' => $keseiRows,
+            // The Closing Time table starts empty and only lists a part once it
+            // has passed its closing for the current run.
+            'closingRows' => $keseiRows->where('closed_now', true)->values(),
             'stockDecreaseEvents' => $stockDecreaseEvents,
             'closingKanban' => $closingKanban,
             // The Timeline Stok table stays a rolling 24h — the pile-forever rule

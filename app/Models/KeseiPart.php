@@ -197,6 +197,33 @@ class KeseiPart extends Model
     }
 
     /**
+     * Is this row actively running right now — it has at least one pattern board
+     * AND that board is the Calendar's pattern for the current production day.
+     * A row with no board is NOT "running" (it belongs to no pattern), even
+     * though its pile still folds daily.
+     */
+    public function isRunningNow(Carbon $now): bool
+    {
+        return $this->patternBoards->isNotEmpty()
+            && $this->isRunDay(CalendarEntry::productionDayStart($now));
+    }
+
+    /**
+     * Has the closing for the CURRENT production-day cycle already passed for
+     * this row? True only when the row is running now and its closing instant
+     * for that run is in the past. This is what puts a row into the Andon
+     * Closing Time table — the table is empty until a part reaches its closing.
+     */
+    public function closedForCurrentRun(Carbon $now): bool
+    {
+        if ($this->closing_time === null || ! $this->isRunningNow($now)) {
+            return false;
+        }
+
+        return $now->gte($this->closingInstantForRunDay(CalendarEntry::productionDayStart($now)));
+    }
+
+    /**
      * [foldStart, cycleStart] for this row at $now:
      *  - foldStart  — the most recent closing at/before $now, or null when none
      *                 has passed. Red ticks after it are the live pile; ticks
