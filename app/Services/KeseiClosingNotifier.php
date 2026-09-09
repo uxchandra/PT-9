@@ -84,16 +84,17 @@ class KeseiClosingNotifier
         );
 
         foreach ($groups as $members) {
-            $first = $members->first()['kesei'];
-            $closing = $first->closing_time->format('H:i');
-            $pattern = $first->plannedPatternName($now);
+            $first = $members->first();
+            $closing = $first['kesei']->closing_time->format('H:i');
+            $pattern = $first['kesei']->plannedPatternName($now);
+            $date = $first['foldStart']->translatedFormat('d M Y');
 
             $lines = $members->map(fn (array $row) => [
                 'partNo' => $row['kesei']->part?->part_no ?? '(part terhapus)',
                 'qtyKbn' => $this->accumulatedKanban($row['kesei'], $row['cycleStart'], $row['foldStart']),
             ])->all();
 
-            $message = $this->message($closing, $pattern, $lines);
+            $message = $this->message($closing, $pattern, $date, $lines);
 
             $sentOk = false;
             foreach ($recipients as $to) {
@@ -120,15 +121,20 @@ class KeseiClosingNotifier
     /**
      * @param  array<int, array{partNo: string, qtyKbn: int}>  $lines
      */
-    private function message(string $closing, string $pattern, array $lines): string
+    private function message(string $closing, string $pattern, string $date, array $lines): string
     {
-        $body = collect($lines)
-            ->map(fn (array $line) => "Part    : {$line['partNo']}\nQty Kbn : {$line['qtyKbn']}")
-            ->implode("\n\n");
+        $header = "[Line 9]  {$date}\nClosing {$closing}";
 
-        return "[PT-9] Closing {$closing}\n"
-            ."Pattern : {$pattern}\n\n"
-            .$body;
+        $blocks = collect($lines)
+            ->map(fn (array $line) => "Part    : {$line['partNo']}\nQty Kbn : {$line['qtyKbn']}");
+
+        // One part: Pattern sits with the part block. Several parts: Pattern sits
+        // with the header, and each part block is spaced out.
+        if ($blocks->count() === 1) {
+            return "{$header}\n\nPattern : {$pattern}\n{$blocks->first()}";
+        }
+
+        return "{$header}\nPattern : {$pattern}\n\n".$blocks->implode("\n\n");
     }
 
     /**

@@ -81,7 +81,7 @@
                             </div>
                             @if ($day['entry'])
                                 <div class="flex-1 flex items-center justify-center">
-                                    <span class="text-lg font-semibold text-brand-800">
+                                    <span class="text-3xl sm:text-4xl font-extrabold text-brand-800">
                                         {{ $day['entry']['board_name'] ?? '—' }}
                                     </span>
                                 </div>

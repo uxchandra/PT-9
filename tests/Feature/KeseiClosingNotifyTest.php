@@ -85,6 +85,44 @@ class KeseiClosingNotifyTest extends TestCase
         ]);
     }
 
+    public function test_message_format_for_a_single_part(): void
+    {
+        $this->fakeGatewayOk();
+        $this->keseiPart('GA241-06050', '03:00', qtyKbn: '1');
+
+        $this->notifier()->run();
+
+        Http::assertSent(fn ($request) => $request->data()['message'] === implode("\n", [
+            '[Line 9]  15 Sep 2026',
+            'Closing 03:00',
+            '',
+            'Pattern : -',
+            'Part    : GA241-06050',
+            'Qty Kbn : 0',
+        ]));
+    }
+
+    public function test_message_format_for_several_parts(): void
+    {
+        $this->fakeGatewayOk();
+        $this->keseiPart('GA241-06050', '03:00', qtyKbn: '1');
+        $this->keseiPart('GA241-06051', '03:00', qtyKbn: '1');
+
+        $this->notifier()->run();
+
+        Http::assertSent(fn ($request) => $request->data()['message'] === implode("\n", [
+            '[Line 9]  15 Sep 2026',
+            'Closing 03:00',
+            'Pattern : -',
+            '',
+            'Part    : GA241-06050',
+            'Qty Kbn : 0',
+            '',
+            'Part    : GA241-06051',
+            'Qty Kbn : 0',
+        ]));
+    }
+
     public function test_does_not_send_twice_for_the_same_part_on_the_same_day(): void
     {
         $this->fakeGatewayOk();
