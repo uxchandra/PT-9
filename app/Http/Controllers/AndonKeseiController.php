@@ -88,8 +88,10 @@ class AndonKeseiController extends Controller
         $viewData = [
             'keseiRows' => $keseiRows,
             // The Closing Time table starts empty and only lists a part once it
-            // has passed its closing for the current run.
-            'closingRows' => $keseiRows->where('closed_now', true)->values(),
+            // has passed its closing for the current run — newest closing on top.
+            'closingRows' => $keseiRows->where('closed_now', true)
+                ->sortByDesc(fn (array $row) => $row['fold_start']->getTimestamp())
+                ->values(),
             'stockDecreaseEvents' => $stockDecreaseEvents,
             'closingKanban' => $closingKanban,
             // The Timeline Stok table stays a rolling 24h — the pile-forever rule

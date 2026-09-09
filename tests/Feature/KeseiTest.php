@@ -175,6 +175,27 @@ class KeseiTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_closing_table_puts_the_newest_closing_on_top(): void
+    {
+        Carbon::setTestNow('2026-09-15 14:00:00');
+
+        $a = PatternBoard::create(['name' => 'A']);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $a->id]);
+
+        $early = KeseiPart::create(['part_id' => Part::create(['part_no' => 'EARLY'])->id, 'closing_time' => '09:00', 'closing_mode' => 'end_of_day', 'urutan' => 1]);
+        $early->patternBoards()->sync([$a->id]);
+        $late = KeseiPart::create(['part_id' => Part::create(['part_no' => 'LATE'])->id, 'closing_time' => '13:00', 'closing_mode' => 'end_of_day', 'urutan' => 2]);
+        $late->patternBoards()->sync([$a->id]);
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+
+        // LATE closed at 13:00, EARLY at 09:00 → LATE is listed first.
+        $this->assertLessThan(strpos($table, 'EARLY'), strpos($table, 'LATE'));
+
+        Carbon::setTestNow();
+    }
+
     public function test_closing_table_shows_the_current_plans_accumulated_kanban(): void
     {
         Carbon::setTestNow('2026-09-15 10:00:00');
