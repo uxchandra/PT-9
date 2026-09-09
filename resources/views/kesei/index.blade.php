@@ -49,7 +49,7 @@
                 </div>
                 <div class="min-w-[220px]">
                     <input type="text" name="stock_source" value="{{ old('stock_source') }}"
-                           placeholder="{{ __('Source (opsional)') }}"
+                           placeholder="{{ __('SOS Code (opsional)') }}"
                            class="block w-full rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm">
                     <p class="mt-1 text-xs text-gray-400">{{ __('part no, pisah koma. Kosong = pakai part no sendiri') }}</p>
                     <x-input-error :messages="$errors->get('stock_source')" class="mt-1" />
@@ -106,7 +106,7 @@
                             <th class="px-3 py-3 w-8"></th>
                             <th class="px-6 py-3">{{ __('No') }}</th>
                             <th class="px-4 py-3 w-44 whitespace-nowrap">{{ __('Part No') }}</th>
-                            <th class="px-6 py-3">{{ __('Source') }}</th>
+                            <th class="px-6 py-3">{{ __('SOS Code') }}</th>
                             <th class="px-6 py-3">{{ __('Closing Time') }}</th>
                             <th class="px-4 py-3 w-24 text-center whitespace-nowrap">{{ __('Pre-run') }}</th>
                             <th class="px-6 py-3 w-px whitespace-nowrap">{{ __('Pattern') }}</th>
@@ -126,8 +126,7 @@
                                            class="kesei-inline w-full max-w-xs rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
                                            data-field="stock_source"
                                            data-url="{{ route('kesei.update', $item) }}"
-                                           value="{{ $item->stock_source }}"
-                                           placeholder="{{ __('pakai part no sendiri') }}">
+                                           value="{{ $item->stock_source }}">
                                     <span class="kesei-status ml-1 text-xs"></span>
                                 </td>
                                 <td class="px-6 py-3">

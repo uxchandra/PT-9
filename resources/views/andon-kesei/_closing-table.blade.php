@@ -1,5 +1,5 @@
 <div class="h-full flex flex-col">
-    <div class="shrink-0 flex items-center gap-2 px-3 py-1.5">
+    <div class="shrink-0 px-3 py-1.5 border-b border-slate-300 bg-slate-50">
         <span class="text-xs font-bold text-slate-600 tracking-wide">{{ __('CLOSING TIME') }}</span>
     </div>
 

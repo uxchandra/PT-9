@@ -55,7 +55,7 @@
                     @include('andon-kesei._timeline')
                 </div>
                 <div class="h-full min-w-0 flex flex-col gap-2" style="flex: 1 1 0%;">
-                    <div id="andon-panel-closing" class="min-h-0 shrink-0 overflow-hidden border-b border-slate-200 pb-2" style="max-height: 45%;">
+                    <div id="andon-panel-closing" class="min-h-0 shrink-0 rounded-lg border border-slate-300 overflow-hidden" style="max-height: 45%;">
                         @include('andon-kesei._closing-table')
                     </div>
                     <div id="andon-panel-stock" class="flex-1 min-h-0 rounded-lg border border-slate-300 overflow-hidden">
