@@ -28,7 +28,13 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        // Scanner operators get their own handheld dashboard — they have no
+        // access to the normal one.
+        $home = $request->user()->hasRole('scanner')
+            ? route('scanner.dashboard', absolute: false)
+            : route('dashboard', absolute: false);
+
+        return redirect()->intended($home);
     }
 
     /**

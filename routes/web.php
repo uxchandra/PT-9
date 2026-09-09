@@ -16,6 +16,7 @@ use App\Http\Controllers\PatternGroupItemController;
 use App\Http\Controllers\PatternImportController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\RestController;
+use App\Http\Controllers\ScannerController;
 use App\Http\Controllers\StockPartAllController;
 use App\Http\Controllers\StockSnapshotController;
 use App\Models\PatternBoard;
@@ -50,6 +51,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/stock-snapshots', [StockSnapshotController::class, 'index'])
         ->middleware('can:view stock snapshot')
         ->name('stock-snapshots.index');
+
+    // Handheld barcode-scanner UI (SEUIC AutoID Q9).
+    Route::middleware('can:use scanner')->prefix('scanner')->name('scanner.')->group(function () {
+        Route::get('/', [ScannerController::class, 'dashboard'])->name('dashboard');
+        Route::get('/{location}', [ScannerController::class, 'location'])->name('location');
+    });
 
     Route::middleware('can:manage planning')->group(function () {
         Route::get('/planning', [AndonController::class, 'planningBoards'])->name('planning.index');
