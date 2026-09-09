@@ -55,6 +55,12 @@
                     <x-input-error :messages="$errors->get('stock_source')" class="mt-1" />
                 </div>
                 <div>
+                    <input type="text" name="level" value="{{ old('level') }}" placeholder="{{ __('Level') }}"
+                           class="block w-24 rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm">
+                    <p class="mt-1 text-xs text-gray-400">{{ __('Level (opsional)') }}</p>
+                    <x-input-error :messages="$errors->get('level')" class="mt-1" />
+                </div>
+                <div>
                     <input type="time" name="closing_time" value="{{ old('closing_time') }}"
                            class="block rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm">
                     <p class="mt-1 text-xs text-gray-400">{{ __('Closing time') }}</p>
@@ -105,11 +111,12 @@
                         <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
                             <th class="px-3 py-3 w-8"></th>
                             <th class="px-6 py-3">{{ __('No') }}</th>
-                            <th class="px-4 py-3 w-44 whitespace-nowrap">{{ __('Part No') }}</th>
+                            <th class="px-3 py-3 w-28 whitespace-nowrap">{{ __('Part No') }}</th>
+                            <th class="px-3 py-3 w-20 whitespace-nowrap">{{ __('Level') }}</th>
                             <th class="px-6 py-3">{{ __('SOS Code') }}</th>
                             <th class="px-6 py-3">{{ __('Closing Time') }}</th>
                             <th class="px-4 py-3 w-24 text-center whitespace-nowrap">{{ __('Pre-run') }}</th>
-                            <th class="px-6 py-3 w-px whitespace-nowrap">{{ __('Pattern') }}</th>
+                            <th class="px-4 py-3 w-40">{{ __('Pattern') }}</th>
                             <th class="px-3 py-3 w-12 text-center">{{ __('Aksi') }}</th>
                         </tr>
                     </thead>
@@ -120,7 +127,16 @@
                                 <td class="kesei-drag-handle px-3 py-3 text-center text-gray-300 hover:text-gray-500 cursor-grab select-none"
                                     title="{{ __('Geser untuk mengatur urutan') }}">⠿</td>
                                 <td class="kesei-urutan-cell px-6 py-3 text-gray-600">{{ $loop->iteration }}</td>
-                                <td class="px-4 py-3 w-44 whitespace-nowrap text-gray-800 font-medium">{{ $item->part?->part_no ?? '-' }}</td>
+                                <td class="px-3 py-3 w-28 whitespace-nowrap text-gray-800 font-medium">{{ $item->part?->part_no ?? '-' }}</td>
+                                <td class="px-3 py-3 w-20">
+                                    <input type="text"
+                                           class="kesei-inline w-16 rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
+                                           data-field="level"
+                                           data-url="{{ route('kesei.update', $item) }}"
+                                           value="{{ $item->level }}"
+                                           placeholder="—">
+                                    <span class="kesei-status ml-1 text-xs"></span>
+                                </td>
                                 <td class="px-6 py-3">
                                     <input type="text"
                                            class="kesei-inline w-full max-w-xs rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
@@ -147,18 +163,26 @@
                                            @checked($item->isPreRunClosing())>
                                     <span class="kesei-status ml-1 text-xs"></span>
                                 </td>
-                                <td class="px-6 py-3 w-px whitespace-nowrap">
-                                    <div class="kesei-pattern-checks flex flex-nowrap items-center gap-x-3"
-                                         data-url="{{ route('kesei.update', $item) }}">
-                                        @foreach ($patternBoards as $board)
-                                            <label class="inline-flex items-center gap-1 text-xs text-gray-700">
-                                                <input type="checkbox" value="{{ $board->id }}"
-                                                       @checked($item->patternBoards->contains('id', $board->id))
-                                                       class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                                {{ $board->name }}
-                                            </label>
-                                        @endforeach
-                                        <span class="kesei-status ml-1 text-xs"></span>
+                                <td class="px-4 py-3 w-40">
+                                    <div class="flex items-center gap-1">
+                                        <details class="kesei-pattern relative" data-url="{{ route('kesei.update', $item) }}">
+                                            <summary class="list-none cursor-pointer text-xs text-gray-700 hover:text-brand-600 [&::-webkit-details-marker]:hidden">
+                                                <span class="kesei-pattern-text">{{ $item->patternBoards->pluck('name')->implode(', ') ?: '—' }}</span>
+                                            </summary>
+                                            <div class="absolute z-20 mt-1 min-w-[9rem] rounded-md border border-gray-200 bg-white shadow-lg p-2 flex flex-col gap-1">
+                                                @forelse ($patternBoards as $board)
+                                                    <label class="inline-flex items-center gap-1.5 text-xs text-gray-700">
+                                                        <input type="checkbox" value="{{ $board->id }}"
+                                                               @checked($item->patternBoards->contains('id', $board->id))
+                                                               class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
+                                                        {{ $board->name }}
+                                                    </label>
+                                                @empty
+                                                    <span class="text-xs text-gray-400">{{ __('Belum ada pattern board') }}</span>
+                                                @endforelse
+                                            </div>
+                                        </details>
+                                        <span class="kesei-status text-xs"></span>
                                     </div>
                                 </td>
                                 <td class="px-3 py-3 text-center">
@@ -175,7 +199,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="8" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada part di Kesei.') }}</td>
+                                <td colspan="9" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada part di Kesei.') }}</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -233,17 +257,26 @@
                             .then(function (d) {
                                 if (!d) return;
                                 if (field.dataset.field === 'stock_source') field.value = d.stock_source ?? '';
+                                if (field.dataset.field === 'level') field.value = d.level ?? '';
                                 if (field.dataset.field === 'closing_time') field.value = d.closing_time ?? '';
                                 if (field.dataset.field === 'closing_mode' && field.type === 'checkbox') field.checked = (d.closing_mode ?? 'pre_run') === 'pre_run';
                             });
                     });
                 });
 
-                // Inline auto-save of Pattern (multi checkbox).
-                document.querySelectorAll('.kesei-pattern-checks').forEach(function (group) {
-                    group.addEventListener('change', function () {
-                        const ids = Array.from(group.querySelectorAll('input[type="checkbox"]:checked')).map(function (c) { return Number(c.value); });
-                        save(group.dataset.url, { pattern_board_ids: ids }, group.querySelector('.kesei-status'));
+                // Pattern: a compact "A, B, C" text that opens a checkbox
+                // dropdown. Auto-saves on change and refreshes the text.
+                document.querySelectorAll('.kesei-pattern').forEach(function (cell) {
+                    const text = cell.querySelector('.kesei-pattern-text');
+                    const badge = cell.parentElement.querySelector('.kesei-status');
+                    cell.addEventListener('change', function () {
+                        const checked = Array.from(cell.querySelectorAll('input[type="checkbox"]:checked'));
+                        text.textContent = checked.map(function (c) { return c.parentElement.textContent.trim(); }).join(', ') || '—';
+                        save(cell.dataset.url, { pattern_board_ids: checked.map(function (c) { return Number(c.value); }) }, badge);
+                    });
+                    // Click anywhere outside closes the dropdown.
+                    document.addEventListener('click', function (e) {
+                        if (cell.open && !cell.contains(e.target)) cell.open = false;
                     });
                 });
 

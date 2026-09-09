@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
-#[Fillable(['part_id', 'stock_source', 'closing_time', 'closing_mode', 'urutan'])]
+#[Fillable(['part_id', 'stock_source', 'level', 'closing_time', 'closing_mode', 'urutan'])]
 class KeseiPart extends Model
 {
     /**

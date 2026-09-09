@@ -9,6 +9,7 @@ use App\Models\PatternBoard;
 use App\Models\PatternGroupItem;
 use App\Models\Rest;
 use App\Models\StockSnapshot;
+use App\Services\KeseiBoard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -149,6 +150,11 @@ class AndonController extends Controller
         // closing-time line, with the folded-in red ticks then hidden.
         $closingKanban = $this->buildClosingTimeKanban($closingTimeMarkers, $windowStart, $decreaseEvents);
 
+        // The KESEI card renders the same standalone Kesei board component,
+        // pre-rendered to HTML so its own view data can't collide with the
+        // pattern board's ($timelineEnd, $stockDecreaseEvents, …).
+        $keseiBoardHtml = view('andon-kesei._board', app(KeseiBoard::class)->data())->render();
+
         $viewData = [
             'patternBoard' => $patternBoard,
             'patternBoards' => $patternBoards,
@@ -167,6 +173,7 @@ class AndonController extends Controller
             'closingTimeMarkers' => $closingTimeMarkers,
             'closingKanban' => $closingKanban,
             'nowMinute' => $nowMinute,
+            'keseiBoardHtml' => $keseiBoardHtml,
         ];
 
         if ($request->ajax()) {
@@ -176,8 +183,7 @@ class AndonController extends Controller
             // should snap back) and do a full reload only then.
             return response()->json([
                 'timeline' => view('andon._timeline', $viewData)->render(),
-                'kosei' => view('andon._kosei-timeline', $viewData)->render(),
-                'stockTimeline' => view('andon._stock-timeline', $viewData)->render(),
+                'kosei' => $keseiBoardHtml,
                 'planning' => view('andon._timeline', ['rows' => $planningRows, 'isPlanning' => true, 'editable' => false] + $viewData)->render(),
                 'nowMinute' => $nowMinute,
                 'serverTime' => now()->format('H:i:s'),

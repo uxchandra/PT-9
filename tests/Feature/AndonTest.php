@@ -277,138 +277,6 @@ class AndonTest extends TestCase
         return [$windowStart, $windowStart->copy()->addHours(23)];
     }
 
-    public function test_kosei_timeline_shows_a_tick_per_kanban_when_stock_drops(): void
-    {
-        $board = PatternBoard::create(['name' => 'TestBoard']);
-        $machine = Machine::create(['name' => 'M1']);
-        $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]); // 1 pc = 1 kanban, easy to count
-
-        PatternGroupItem::create([
-            'pattern_board_id' => $board->id,
-            'part_id' => $part->id,
-            'urutan' => 1,
-            'loading_time' => 10,
-            'jumlah_proses' => 1,
-            'total_kanban' => 1,
-            'dandori' => 0,
-        ]);
-
-        Pattern::create([
-            'pattern_board_id' => $board->id,
-            'machine_id' => $machine->id,
-            'part_id' => $part->id,
-            'proses' => 1,
-        ]);
-
-        [$windowStart] = $this->currentStockWindow();
-
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 50, 'std_min' => 10, 'captured_at' => $windowStart]);
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 48, 'std_min' => 10, 'captured_at' => $windowStart->copy()->addMinutes(15)]);
-        // Restock — must not produce a tick.
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 60, 'std_min' => 10, 'captured_at' => $windowStart->copy()->addMinutes(30)]);
-
-        $html = $this->get("/andon/{$board->id}")->getContent();
-
-        $this->assertStringContainsString('stok turun 2 kanban (2 pcs)', $html);
-        $this->assertStringNotContainsString('kanban (12 pcs)', $html, 'a stock increase must not produce a decrease tick');
-
-        // 2 red tick bars for the 2-kanban drop, plus the "2" label under them.
-        $eventTitlePos = strpos($html, 'stok turun 2 kanban (2 pcs)');
-        $this->assertNotFalse($eventTitlePos);
-        $snippet = substr($html, $eventTitlePos, 700);
-        $this->assertSame(2, substr_count($snippet, 'bg-red-500'));
-        $this->assertStringContainsString('>2</span>', $snippet);
-    }
-
-    public function test_kosei_timeline_rounds_a_sub_kanban_decrease_up_to_1_tick(): void
-    {
-        $board = PatternBoard::create(['name' => 'TestBoard']);
-        $machine = Machine::create(['name' => 'M1']);
-        // A 2pc drop is far smaller than this part's 100pc Qty Kbn, but the
-        // same round-up rule as total_kanban still counts it as 1 kanban.
-        $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 100]);
-
-        PatternGroupItem::create([
-            'pattern_board_id' => $board->id,
-            'part_id' => $part->id,
-            'urutan' => 1,
-            'loading_time' => 10,
-            'jumlah_proses' => 1,
-            'total_kanban' => 1,
-            'dandori' => 0,
-        ]);
-
-        Pattern::create([
-            'pattern_board_id' => $board->id,
-            'machine_id' => $machine->id,
-            'part_id' => $part->id,
-            'proses' => 1,
-        ]);
-
-        [$windowStart] = $this->currentStockWindow();
-
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 50, 'std_min' => 10, 'captured_at' => $windowStart]);
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 48, 'std_min' => 10, 'captured_at' => $windowStart->copy()->addMinutes(15)]);
-
-        $html = $this->get("/andon/{$board->id}")->getContent();
-
-        $this->assertStringContainsString('stok turun 1 kanban (2 pcs)', $html);
-    }
-
-    public function test_timeline_stok_shows_every_part_side_by_side_without_needing_a_click(): void
-    {
-        $board = PatternBoard::create(['name' => 'TestBoard']);
-        $machine = Machine::create(['name' => 'M1']);
-        $partA = Part::create(['part_no' => 'PART-A']);
-        $partB = Part::create(['part_no' => 'PART-B']);
-
-        foreach ([$partA, $partB] as $i => $part) {
-            PatternGroupItem::create([
-                'pattern_board_id' => $board->id,
-                'part_id' => $part->id,
-                'urutan' => $i + 1,
-                'loading_time' => 10,
-                'jumlah_proses' => 1,
-                'total_kanban' => 1,
-                'dandori' => 0,
-            ]);
-
-            Pattern::create([
-                'pattern_board_id' => $board->id,
-                'machine_id' => $machine->id,
-                'part_id' => $part->id,
-                'proses' => 1,
-            ]);
-        }
-
-        [$windowStart] = $this->currentStockWindow();
-
-        // Both parts captured in the same run/timestamp, like the real
-        // snapshot command does — PART-B is under its std_min.
-        StockSnapshot::create(['part_no' => 'PART-A', 'stock' => 50, 'std_min' => 10, 'captured_at' => $windowStart]);
-        StockSnapshot::create(['part_no' => 'PART-B', 'stock' => 5, 'std_min' => 10, 'captured_at' => $windowStart]);
-
-        $html = $this->get("/andon/{$board->id}")->getContent();
-
-        // Both parts appear as columns, with no click/selection needed.
-        $this->assertStringContainsString('PART-A', $html);
-        $this->assertStringContainsString('PART-B', $html);
-        $this->assertStringNotContainsString('Pilih part di Kosei', $html);
-
-        // One shared time row carries both parts' stock values — search only
-        // within the Timeline Stok panel, since the same "07:00" text also
-        // appears earlier on the Pattern gantt's own time axis.
-        $stockPanelPos = strpos($html, 'TIMELINE STOK');
-        $this->assertNotFalse($stockPanelPos);
-        $timePos = strpos($html, $windowStart->format('H:i'), $stockPanelPos);
-        $this->assertNotFalse($timePos);
-        $rowSnippet = substr($html, $timePos, 1000);
-        $this->assertMatchesRegularExpression('/>\s*50\s*</', $rowSnippet);
-        $this->assertMatchesRegularExpression('/>\s*5\s*</', $rowSnippet);
-        // PART-B's under-min cell is highlighted.
-        $this->assertStringContainsString('bg-red-50 text-red-600', $rowSnippet);
-    }
-
     public function test_andon_show_returns_json_partials_for_ajax_refresh_instead_of_the_full_page(): void
     {
         $board = PatternBoard::create(['name' => 'TestBoard']);
@@ -435,14 +303,15 @@ class AndonTest extends TestCase
         $response = $this->get("/andon/{$board->id}", ['X-Requested-With' => 'XMLHttpRequest']);
 
         $response->assertOk();
-        $response->assertJsonStructure(['timeline', 'kosei', 'stockTimeline', 'planning', 'nowMinute', 'serverTime', 'boardId', 'boardName']);
+        $response->assertJsonStructure(['timeline', 'kosei', 'planning', 'nowMinute', 'serverTime', 'boardId', 'boardName']);
 
         // The panel fragments must not include the full page shell (no
         // duplicate <html>/board switcher) — just the fragment markup itself.
         $data = $response->json();
         $this->assertStringContainsString('P1', $data['timeline']);
-        $this->assertStringContainsString('P1', $data['kosei']);
         $this->assertStringContainsString('P1', $data['planning']);
+        // The Kesei card renders the shared standalone board component.
+        $this->assertStringContainsString('kesei-panel-timeline', $data['kosei']);
         $this->assertStringNotContainsString('<html', $data['timeline']);
         $this->assertIsInt($data['nowMinute']);
     }
@@ -1046,158 +915,6 @@ class AndonTest extends TestCase
         $this->assertStringContainsString('andon-kanban-override-input', $planningHtml);
     }
 
-    public function test_kosei_shows_a_closing_time_marker_for_each_parts_production_slot(): void
-    {
-        $board = PatternBoard::create(['name' => 'TestBoard']);
-        $machine = Machine::create(['name' => 'M1']);
-        $part = Part::create(['part_no' => 'P1']);
-
-        // Shift 2 starts at 20:00 (chart minute 1200) — closing time is 4h
-        // earlier at 16:00 (minute 960), which is well after day-start so it
-        // has room to be drawn.
-        PatternGroupItem::create([
-            'pattern_board_id' => $board->id,
-            'part_id' => $part->id,
-            'shift' => 2,
-            'urutan' => 1,
-            'loading_time' => 30,
-            'jumlah_proses' => 1,
-            'total_kanban' => 1,
-            'dandori' => 0,
-        ]);
-
-        Pattern::create([
-            'pattern_board_id' => $board->id,
-            'machine_id' => $machine->id,
-            'part_id' => $part->id,
-            'shift' => 2,
-            'proses' => 1,
-        ]);
-
-        $html = $this->get("/andon/{$board->id}")->getContent();
-
-        $this->assertStringContainsString('closing-time-marker', $html);
-        // (960 - 420) * 1.8 = 972px.
-        $this->assertStringContainsString('left: 972px', $html);
-        $this->assertStringContainsString('Closing time 16:00', $html);
-    }
-
-    public function test_kosei_pins_a_pre_window_closing_time_marker_to_the_left_edge_instead_of_dropping_it(): void
-    {
-        $board = PatternBoard::create(['name' => 'TestBoard']);
-        $machine = Machine::create(['name' => 'M1']);
-        $part = Part::create(['part_no' => 'P1']);
-
-        // Production starts right at day-start (07:00) — closing time is 03:00,
-        // before the chart begins. It must still be drawn: pinned to the left
-        // edge, with the true time kept in the tooltip.
-        PatternGroupItem::create([
-            'pattern_board_id' => $board->id,
-            'part_id' => $part->id,
-            'urutan' => 1,
-            'loading_time' => 30,
-            'jumlah_proses' => 1,
-            'total_kanban' => 1,
-            'dandori' => 0,
-        ]);
-
-        Pattern::create([
-            'pattern_board_id' => $board->id,
-            'machine_id' => $machine->id,
-            'part_id' => $part->id,
-            'proses' => 1,
-        ]);
-
-        $html = $this->get("/andon/{$board->id}")->getContent();
-
-        $this->assertStringContainsString('closing-time-marker--pinned', $html);
-        // Pinned hard against the left edge.
-        $this->assertMatchesRegularExpression('/closing-time-marker--pinned"\s*style="left: 0px/', $html);
-        // Tooltip still names the real (pre-window) closing time.
-        $this->assertStringContainsString('Closing time 03:00', $html);
-    }
-
-    public function test_kesei_ct_column_shows_the_kanban_as_of_the_closing_time(): void
-    {
-        $board = PatternBoard::create(['name' => 'TestBoard']);
-        $machine = Machine::create(['name' => 'M1']);
-        $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]); // 1 pc = 1 kanban
-
-        // Part starts at 07:00 (dandori 30) → closing time = 03:00.
-        PatternGroupItem::create([
-            'pattern_board_id' => $board->id,
-            'part_id' => $part->id,
-            'urutan' => 1,
-            'loading_time' => 60,
-            'jumlah_proses' => 1,
-            'total_kanban' => 1,
-            'dandori' => 30,
-        ]);
-
-        Pattern::create([
-            'pattern_board_id' => $board->id,
-            'machine_id' => $machine->id,
-            'part_id' => $part->id,
-            'proses' => 1,
-        ]);
-
-        [$windowStart] = $this->currentStockWindow();
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => $windowStart->copy()->subHours(5)]);
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 85, 'std_min' => 0, 'captured_at' => $windowStart->copy()->subHours(4)]);
-
-        $koseiHtml = $this->koseiPanelHtml($board->id);
-
-        // The Kesei panel gained a "CT" (closing-time kanban) column...
-        $this->assertStringContainsString('>CT</span>', $koseiHtml);
-
-        // ...and P1's CT cell shows 15 (100 → 85 by its 03:00 closing time).
-        $this->assertMatchesRegularExpression('/text-green-700">\s*15\s*</', $koseiHtml);
-    }
-
-    public function test_kesei_folds_pre_closing_red_ticks_into_an_accumulated_number_on_the_green_line(): void
-    {
-        $board = PatternBoard::create(['name' => 'TestBoard']);
-        $machine = Machine::create(['name' => 'M1']);
-        $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
-
-        // Shift 2 → starts 20:00 → closing time 16:00, well inside the window.
-        PatternGroupItem::create([
-            'pattern_board_id' => $board->id,
-            'part_id' => $part->id,
-            'shift' => 2,
-            'urutan' => 1,
-            'loading_time' => 30,
-            'jumlah_proses' => 1,
-            'total_kanban' => 1,
-            'dandori' => 0,
-        ]);
-
-        Pattern::create([
-            'pattern_board_id' => $board->id,
-            'machine_id' => $machine->id,
-            'part_id' => $part->id,
-            'shift' => 2,
-            'proses' => 1,
-        ]);
-
-        [$windowStart] = $this->currentStockWindow();
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => $windowStart]);                      // 07:00
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 90, 'std_min' => 0, 'captured_at' => $windowStart->copy()->addHours(3)]); // 10:00  -10
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 85, 'std_min' => 0, 'captured_at' => $windowStart->copy()->addHours(8)]); // 15:00  -5
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 70, 'std_min' => 0, 'captured_at' => $windowStart->copy()->addHours(10)]); // 17:00  -15 (after closing)
-
-        $koseiHtml = $this->koseiPanelHtml($board->id);
-
-        // Drops before the 16:00 closing time are no longer drawn as red ticks...
-        $this->assertStringNotContainsString('stok turun 10 kanban', $koseiHtml);
-        $this->assertStringNotContainsString('stok turun 5 kanban', $koseiHtml);
-        // ...they're folded into the accumulated total (10 + 5 = 15) on the green line.
-        $this->assertStringContainsString('whitespace-nowrap text-green-700"', $koseiHtml);
-        $this->assertMatchesRegularExpression('/whitespace-nowrap text-green-700"[^>]*>15</', $koseiHtml);
-        // The drop after closing still shows its red ticks — fresh accumulation.
-        $this->assertStringContainsString('stok turun 15 kanban (15 pcs)', $koseiHtml);
-    }
-
     private function koseiPanelHtml(int $boardId): string
     {
         $html = $this->get("/andon/{$boardId}")->getContent();
@@ -1299,41 +1016,6 @@ class AndonTest extends TestCase
         // Calendar-driven endpoint.
         $this->assertStringContainsString('Manual</span>', $html);
         $this->assertStringContainsString(route('andon.index'), $html);
-    }
-
-    public function test_timeline_stok_now_covers_the_full_24_hours_including_06_to_07(): void
-    {
-        $board = PatternBoard::create(['name' => 'TestBoard']);
-        $machine = Machine::create(['name' => 'M1']);
-        $part = Part::create(['part_no' => 'P1']);
-
-        PatternGroupItem::create([
-            'pattern_board_id' => $board->id,
-            'part_id' => $part->id,
-            'urutan' => 1,
-            'loading_time' => 10,
-            'jumlah_proses' => 1,
-            'total_kanban' => 1,
-            'dandori' => 0,
-        ]);
-
-        Pattern::create([
-            'pattern_board_id' => $board->id,
-            'machine_id' => $machine->id,
-            'part_id' => $part->id,
-            'proses' => 1,
-        ]);
-
-        [$windowStart] = $this->currentStockWindow();
-        $lateTime = $windowStart->copy()->addHours(23)->addMinutes(30); // 06:30 next day
-        StockSnapshot::create(['part_no' => 'P1', 'stock' => 42, 'std_min' => 0, 'captured_at' => $lateTime]);
-
-        $html = $this->get("/andon/{$board->id}")->getContent();
-
-        $stockPanelPos = strpos($html, 'TIMELINE STOK');
-        $this->assertNotFalse($stockPanelPos);
-        $timePos = strpos($html, $lateTime->format('H:i'), $stockPanelPos);
-        $this->assertNotFalse($timePos, '06:00-07:00 hour must now appear in Timeline Stok');
     }
 
     public function test_planning_table_requires_the_manage_planning_permission(): void

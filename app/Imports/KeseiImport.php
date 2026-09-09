@@ -70,6 +70,7 @@ class KeseiImport implements ToCollection, WithHeadingRow
 
             $attrs = [
                 'stock_source' => $this->cleanStockSource($row['stock_source'] ?? null),
+                'level' => trim((string) ($row['level'] ?? '')) ?: null,
                 'closing_time' => $this->parseTime($row['closing_time'] ?? null),
                 'closing_mode' => $this->parseClosingMode($row['closing_mode'] ?? null),
             ];

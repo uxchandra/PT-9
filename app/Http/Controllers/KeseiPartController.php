@@ -32,6 +32,7 @@ class KeseiPartController extends Controller
         $validated = $request->validate([
             'part_id' => ['required', 'exists:parts,id', 'unique:kesei_parts,part_id'],
             'stock_source' => ['nullable', 'string', 'max:255'],
+            'level' => ['nullable', 'string', 'max:50'],
             'closing_time' => ['nullable', 'date_format:H:i'],
             'closing_mode' => ['nullable', Rule::in(KeseiPart::CLOSING_MODES)],
             'pattern_board_ids' => ['nullable', 'array'],
@@ -41,6 +42,7 @@ class KeseiPartController extends Controller
         $keseiPart = KeseiPart::create([
             'part_id' => $validated['part_id'],
             'stock_source' => $this->cleanStockSource($validated['stock_source'] ?? null),
+            'level' => $validated['level'] ?? null,
             'closing_time' => $validated['closing_time'] ?? null,
             'closing_mode' => $validated['closing_mode'] ?? KeseiPart::CLOSING_PRE_RUN,
             'urutan' => (int) KeseiPart::max('urutan') + 1,
@@ -55,6 +57,7 @@ class KeseiPartController extends Controller
     {
         $validated = $request->validate([
             'stock_source' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'level' => ['sometimes', 'nullable', 'string', 'max:50'],
             'closing_time' => ['sometimes', 'nullable', 'date_format:H:i'],
             'closing_mode' => ['sometimes', Rule::in(KeseiPart::CLOSING_MODES)],
             'pattern_board_ids' => ['sometimes', 'nullable', 'array'],
@@ -66,6 +69,9 @@ class KeseiPartController extends Controller
         $updates = [];
         if (array_key_exists('stock_source', $validated)) {
             $updates['stock_source'] = $this->cleanStockSource($validated['stock_source']);
+        }
+        if (array_key_exists('level', $validated)) {
+            $updates['level'] = $validated['level'] ?: null;
         }
         if (array_key_exists('closing_time', $validated)) {
             $updates['closing_time'] = $validated['closing_time'] ?: null;
@@ -85,6 +91,7 @@ class KeseiPartController extends Controller
             return response()->json([
                 'ok' => true,
                 'stock_source' => $keseiPart->stock_source,
+                'level' => $keseiPart->level,
                 'closing_time' => $keseiPart->closing_time?->format('H:i'),
                 'closing_mode' => $keseiPart->closing_mode,
                 'pattern_board_ids' => $keseiPart->patternBoards()->pluck('pattern_boards.id'),

@@ -174,13 +174,8 @@
                                 </svg>
                             </button>
                         </div>
-                        <div class="flex-1 min-h-0 flex gap-3 p-3">
-                            <div id="andon-panel-kosei" class="h-full min-w-0" style="flex: 3 1 0%;">
-                                @include('andon._kosei-timeline')
-                            </div>
-                            <div id="andon-panel-stock" class="h-full min-w-0 rounded-lg border border-slate-300 overflow-hidden" style="flex: 1 1 0%;">
-                                @include('andon._stock-timeline')
-                            </div>
+                        <div id="andon-panel-kosei" class="flex-1 min-h-0 p-3">
+                            {!! $keseiBoardHtml !!}
                         </div>
                     </div>
 
@@ -328,7 +323,6 @@
             let nowMinute = hasPanels ? parseFloat(panels.dataset.nowMinute) : 0;
             let lastTimelineHtml = hasPanels ? document.getElementById('andon-panel-timeline').innerHTML : '';
             let lastKoseiHtml = hasPanels ? document.getElementById('andon-panel-kosei').innerHTML : '';
-            let lastStockHtml = hasPanels ? document.getElementById('andon-panel-stock').innerHTML : '';
             let lastPlanningHtml = hasPanels ? document.getElementById('andon-panel-planning').innerHTML : '';
 
             // Once the operator scrolls a panel by hand, that panel stops
@@ -368,12 +362,9 @@
                 if (followDisabled) return;
 
                 withProgrammaticScroll(() => {
-                    const koseiScroll = document.querySelector('#andon-panel-kosei .andon-scroll');
-                    if (koseiScroll) koseiScroll.scrollLeft = Math.max(0, (nowMinute - dayStart) * pxPerMinute - 500);
-
-                    // Timeline Stok scrolls vertically (rows = time) — the latest
-                    // capture is always the newest row, so just jump to the bottom.
-                    const stockScroll = document.querySelector('#andon-panel-stock .andon-scroll');
+                    // Timeline Stok inside the Kesei board scrolls vertically
+                    // (rows = time) — jump to the newest (bottom) row.
+                    const stockScroll = document.querySelector('#kesei-panel-stock .andon-scroll');
                     if (stockScroll) stockScroll.scrollTop = stockScroll.scrollHeight;
                 });
             }
@@ -428,9 +419,6 @@
                     }
                     if (data.kosei !== lastKoseiHtml && replacePanel('andon-panel-kosei', data.kosei)) {
                         lastKoseiHtml = data.kosei;
-                    }
-                    if (data.stockTimeline !== lastStockHtml && replacePanel('andon-panel-stock', data.stockTimeline)) {
-                        lastStockHtml = data.stockTimeline;
                     }
                     if (data.planning !== lastPlanningHtml && replacePanel('andon-panel-planning', data.planning)) {
                         lastPlanningHtml = data.planning;

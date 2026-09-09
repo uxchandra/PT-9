@@ -50,18 +50,8 @@
             <div class="shrink-0 flex items-center px-4 py-2 border-b border-slate-300 bg-slate-50">
                 <span class="font-bold text-slate-700 text-sm tracking-wide">KESEI</span>
             </div>
-            <div class="flex-1 min-h-0 flex gap-3 p-3">
-                <div id="andon-panel-timeline" class="h-full min-w-0" style="flex: 3 1 0%;">
-                    @include('andon-kesei._timeline')
-                </div>
-                <div class="h-full min-w-0 flex flex-col gap-2" style="flex: 1 1 0%;">
-                    <div id="andon-panel-closing" class="min-h-0 shrink-0 rounded-lg border border-slate-300 overflow-hidden" style="max-height: 45%;">
-                        @include('andon-kesei._closing-table')
-                    </div>
-                    <div id="andon-panel-stock" class="flex-1 min-h-0 rounded-lg border border-slate-300 overflow-hidden">
-                        @include('andon-kesei._stock-timeline')
-                    </div>
-                </div>
+            <div class="flex-1 min-h-0 p-3">
+                @include('andon-kesei._board')
             </div>
         </div>
     </div>
@@ -86,9 +76,9 @@
         // full reload only as a 30-min safety net. Scroll position of each
         // panel is preserved across swaps.
         (function () {
-            let lastTimeline = document.getElementById('andon-panel-timeline').innerHTML;
-            let lastStock = document.getElementById('andon-panel-stock').innerHTML;
-            let lastClosing = document.getElementById('andon-panel-closing').innerHTML;
+            let lastTimeline = document.getElementById('kesei-panel-timeline').innerHTML;
+            let lastStock = document.getElementById('kesei-panel-stock').innerHTML;
+            let lastClosing = document.getElementById('kesei-panel-closing').innerHTML;
 
             function replacePanel(id, html) {
                 const panel = document.getElementById(id);
@@ -109,12 +99,12 @@
                     if (!res.ok) return;
                     const data = await res.json();
                     if (data.timeline !== lastTimeline) {
-                        replacePanel('andon-panel-timeline', data.timeline);
+                        replacePanel('kesei-panel-timeline', data.timeline);
                         lastTimeline = data.timeline;
                         if (window.__keseiNowSync) window.__keseiNowSync();
                     }
-                    if (data.closingTable !== lastClosing) { replacePanel('andon-panel-closing', data.closingTable); lastClosing = data.closingTable; }
-                    if (data.stockTimeline !== lastStock) { replacePanel('andon-panel-stock', data.stockTimeline); lastStock = data.stockTimeline; }
+                    if (data.closingTable !== lastClosing) { replacePanel('kesei-panel-closing', data.closingTable); lastClosing = data.closingTable; }
+                    if (data.stockTimeline !== lastStock) { replacePanel('kesei-panel-stock', data.stockTimeline); lastStock = data.stockTimeline; }
                 } catch (e) {
                     // Network hiccup — next tick retries.
                 }
@@ -124,7 +114,7 @@
             setTimeout(() => window.location.reload(), 30 * 60 * 1000);
 
             // Auto-scroll the stock table to the newest (bottom) row on load.
-            const stockScroll = document.querySelector('#andon-panel-stock .andon-scroll');
+            const stockScroll = document.querySelector('#kesei-panel-stock .andon-scroll');
             if (stockScroll) stockScroll.scrollTop = stockScroll.scrollHeight;
         })();
 
@@ -156,7 +146,7 @@
                 baseAt = Date.now();
                 place(el);
 
-                const scroller = document.querySelector('#andon-panel-timeline .andon-scroll');
+                const scroller = document.querySelector('#kesei-panel-timeline .andon-scroll');
                 if (scroller) scroller.scrollLeft = Math.max(0, offsetPx() - 320);
             }
 

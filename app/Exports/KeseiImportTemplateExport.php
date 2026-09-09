@@ -9,15 +9,15 @@ class KeseiImportTemplateExport implements FromArray, WithHeadings
 {
     public function headings(): array
     {
-        return ['part_no', 'stock_source', 'closing_time', 'closing_mode', 'pattern'];
+        return ['part_no', 'level', 'stock_source', 'closing_time', 'closing_mode', 'pattern'];
     }
 
     public function array(): array
     {
         return [
-            ['GA241-04750', '', '', '', ''],
-            ['57453-BZ140', '', '14:30', 'end_of_day', 'A'],
-            ['B114-97511', 'B111-97502, B113-97514', '02:00', 'pre_run', 'A, B'],
+            ['GA241-04750', '', '', '', '', ''],
+            ['57453-BZ140', '2', '', '14:30', 'end_of_day', 'A'],
+            ['B114-97511', '3', 'B111-97502, B113-97514', '02:00', 'pre_run', 'A, B'],
         ];
     }
 }
