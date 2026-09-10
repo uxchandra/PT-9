@@ -47,9 +47,9 @@
         </div>
 
         <div class="flex-1 min-h-0 flex flex-col rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden">
-            <div class="shrink-0 flex items-center px-4 py-2 border-b border-slate-300 bg-slate-50">
+            <!-- <div class="shrink-0 flex items-center px-4 py-2 border-b border-slate-300 bg-slate-50">
                 <span class="font-bold text-slate-700 text-sm tracking-wide">KESEI</span>
-            </div>
+            </div> -->
             <div class="flex-1 min-h-0 p-3">
                 @include('andon-kesei._board')
             </div>

@@ -24,13 +24,17 @@ class CalendarEntry extends Model
     /**
      * The pattern board scheduled to run on $date ("Y-m-d"), or null when the
      * day has no assignment yet.
+     *
+     * Memoised per request: the Kesei board resolves this once per run-day per
+     * part (hundreds of identical look-ups on a busy board), and the calendar
+     * does not change mid-request. `once()` is flushed between requests/tests.
      */
     public static function patternBoardForDate(string $date): ?PatternBoard
     {
-        return static::query()
+        return once(fn () => static::query()
             ->with('patternBoard')
             ->whereDate('date', $date)
-            ->first()?->patternBoard;
+            ->first()?->patternBoard);
     }
 
     /**
