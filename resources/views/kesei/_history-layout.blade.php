@@ -1,6 +1,6 @@
 {{--
     Shared shell for the Kesei history pages — same layout/UX as Stock Part All.
-    Params: $pageTitle, $routeName, $resultsPartial, $searchPlaceholder, $perPage, $search
+    Params: $pageTitle, $routeName, $resultsPartial, $searchPlaceholder, $perPage, $search, $date
 --}}
 <x-app-layout>
     <x-slot name="header">{{ __('Kesei') }}</x-slot>
@@ -28,12 +28,14 @@
                         </select>
                         <span>{{ __('entri') }}</span>
                     </div>
+                    <input type="date" id="kesei-hist-date" value="{{ $date }}"
+                           class="rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700">
                     <div class="flex items-center gap-2">
                         <input type="text" id="kesei-hist-search" value="{{ $search }}" autocomplete="off"
                                placeholder="{{ $searchPlaceholder }}"
                                class="rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700 w-64">
                         <button type="button" id="kesei-hist-reset"
-                                class="text-sm text-gray-500 hover:text-gray-700 {{ $search === '' ? 'hidden' : '' }}">
+                                class="text-sm text-gray-500 hover:text-gray-700 {{ $search === '' && $date === '' ? 'hidden' : '' }}">
                             {{ __('Reset') }}
                         </button>
                     </div>
@@ -50,6 +52,7 @@
         (function () {
             const baseUrl = @json(route($routeName));
             const input = document.getElementById('kesei-hist-search');
+            const dateInput = document.getElementById('kesei-hist-date');
             const resetButton = document.getElementById('kesei-hist-reset');
             const perPageSelect = document.getElementById('kesei-hist-per-page');
             const results = document.getElementById('kesei-hist-results');
@@ -57,13 +60,15 @@
             let debounceTimer = null;
             let controller = null;
 
-            function fetchResults(query, perPage) {
+            function fetchResults() {
                 if (controller) controller.abort();
                 controller = new AbortController();
 
+                const query = input.value.trim();
                 const target = new URL(baseUrl);
                 if (query) target.searchParams.set('q', query);
-                target.searchParams.set('per_page', perPage);
+                if (dateInput.value) target.searchParams.set('date', dateInput.value);
+                target.searchParams.set('per_page', perPageSelect.value);
 
                 results.classList.add('opacity-50');
 
@@ -73,23 +78,22 @@
                         results.innerHTML = html;
                         results.classList.remove('opacity-50');
                         window.history.replaceState({}, '', target.toString());
-                        resetButton.classList.toggle('hidden', query === '');
+                        resetButton.classList.toggle('hidden', query === '' && dateInput.value === '');
                     })
                     .catch((e) => { if (e.name !== 'AbortError') results.classList.remove('opacity-50'); });
             }
 
             input.addEventListener('input', function () {
                 clearTimeout(debounceTimer);
-                const query = input.value.trim();
-                debounceTimer = setTimeout(() => fetchResults(query, perPageSelect.value), 350);
+                debounceTimer = setTimeout(fetchResults, 350);
             });
+            dateInput.addEventListener('change', fetchResults);
+            perPageSelect.addEventListener('change', fetchResults);
             resetButton.addEventListener('click', function () {
                 input.value = '';
+                dateInput.value = '';
                 input.focus();
-                fetchResults('', perPageSelect.value);
-            });
-            perPageSelect.addEventListener('change', function () {
-                fetchResults(input.value.trim(), perPageSelect.value);
+                fetchResults();
             });
         })();
     </script>

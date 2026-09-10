@@ -99,9 +99,10 @@ class KeseiBoard
                 ->values(),
             'stockDecreaseEvents' => $stockDecreaseEvents,
             'closingKanban' => $closingKanban,
-            // The Timeline Stok table stays a rolling 24h — the pile-forever rule
-            // is only about the red ticks.
-            'stockHistoryRows' => $this->buildStockHistoryRows($keseiRows, $stockByTime, $now->copy()->subDay()),
+            // The Timeline Stok table is a rolling 48h (captures land every
+            // 15 min, so ~192 rows) — the pile-forever rule is only for the
+            // red ticks.
+            'stockHistoryRows' => $this->buildStockHistoryRows($keseiRows, $stockByTime, $now->copy()->subDays(2)),
             // Positions are minutes past 07:00 on the looping clock face.
             'dayStart' => 0,
             'timelineEnd' => self::WINDOW_MINUTES,
@@ -129,6 +130,8 @@ class KeseiBoard
     /**
      * The earliest instant any row needs stock history from (floored to the
      * hour, clamped to the history floor), so one query covers every row.
+     * Also never later than 48h ago, so the Timeline Stok table always has a
+     * full 2-day window regardless of how recently each part closed.
      */
     private function queryStart(Collection $keseiRows, Carbon $now, Carbon $historyFloor): Carbon
     {
@@ -139,6 +142,11 @@ class KeseiBoard
         $start = $earliest !== null
             ? $now->copy()->setTimestamp($earliest)->startOfHour()
             : $now->copy()->subDay()->startOfHour();
+
+        $timelineFloor = $now->copy()->subDays(2)->startOfHour();
+        if ($start->gt($timelineFloor)) {
+            $start = $timelineFloor;
+        }
 
         return $start->lt($historyFloor) ? $historyFloor->copy()->startOfHour() : $start;
     }
@@ -292,7 +300,7 @@ class KeseiBoard
 
     /**
      * For each Kesei row, every moment its summed source stock dropped between
-     * two 5-minute captures, converted to kanban (lot ÷ qty_kbn rounded up).
+     * two 15-minute captures, converted to kanban (lot ÷ qty_kbn rounded up).
      * Only decreases produce a tick. Positions are on the looping clock face,
      * so ticks from different days can share an x position — that's fine.
      *

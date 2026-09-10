@@ -13,8 +13,8 @@ use Illuminate\Support\Facades\Log;
  * When a Kesei part's closing is reached, WhatsApp a one-line summary (part no,
  * planned pattern, accumulated Qty Kbn) to the configured numbers.
  *
- * Runs off the same 5-minute tick as stock:capture-snapshot, so a message lands
- * within ~5 minutes of the closing. A per-part-per-closing record (keyed by the
+ * Runs off the same 15-minute tick as stock:capture-snapshot, so a message
+ * lands within ~15 minutes of the closing. A per-part-per-closing record (keyed by the
  * closing's date) stops it from ever sending twice.
  */
 class KeseiClosingNotifier

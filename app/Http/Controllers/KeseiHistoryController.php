@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\KeseiClosingNotification;
 use App\Models\KeseiScan;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\View\View;
 
 class KeseiHistoryController extends Controller
@@ -14,6 +15,7 @@ class KeseiHistoryController extends Controller
     public function scans(Request $request): View
     {
         $search = trim((string) $request->query('q', ''));
+        $date = $this->date($request);
         $perPage = $this->perPage($request);
 
         $scans = KeseiScan::query()
@@ -21,12 +23,13 @@ class KeseiHistoryController extends Controller
             ->when($search !== '', fn ($q) => $q->where(fn ($w) => $w
                 ->where('part_no', 'like', "%{$search}%")
                 ->orWhere('location', 'like', "%{$search}%")))
+            ->when($date !== '', fn ($q) => $q->whereDate('scanned_at', $date))
             ->orderByDesc('scanned_at')
             ->orderByDesc('id')
             ->paginate($perPage)
             ->withQueryString();
 
-        $viewData = ['scans' => $scans, 'search' => $search, 'perPage' => $perPage];
+        $viewData = ['scans' => $scans, 'search' => $search, 'date' => $date, 'perPage' => $perPage];
 
         return $request->ajax()
             ? view('kesei._history-scan-results', $viewData)
@@ -36,6 +39,7 @@ class KeseiHistoryController extends Controller
     public function closings(Request $request): View
     {
         $search = trim((string) $request->query('q', ''));
+        $date = $this->date($request);
         $perPage = $this->perPage($request);
 
         $rows = KeseiClosingNotification::query()
@@ -44,12 +48,13 @@ class KeseiHistoryController extends Controller
                 'keseiPart.part',
                 fn ($p) => $p->where('part_no', 'like', "%{$search}%")
             ))
+            ->when($date !== '', fn ($q) => $q->whereDate('created_at', $date))
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->paginate($perPage)
             ->withQueryString();
 
-        $viewData = ['rows' => $rows, 'search' => $search, 'perPage' => $perPage];
+        $viewData = ['rows' => $rows, 'search' => $search, 'date' => $date, 'perPage' => $perPage];
 
         return $request->ajax()
             ? view('kesei._history-closing-results', $viewData)
@@ -61,5 +66,16 @@ class KeseiHistoryController extends Controller
         $value = (int) $request->query('per_page', 50);
 
         return in_array($value, self::PER_PAGE, true) ? $value : 50;
+    }
+
+    private function date(Request $request): string
+    {
+        $raw = trim((string) $request->query('date', ''));
+
+        try {
+            return $raw === '' ? '' : Carbon::parse($raw)->toDateString();
+        } catch (\Throwable) {
+            return '';
+        }
     }
 }

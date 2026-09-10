@@ -23,7 +23,7 @@ class CaptureStockSnapshot extends Command
 
     public function handle(StockPartApi $api, KeseiClosingNotifier $keseiNotifier): int
     {
-        // Piggybacks on this 5-minute tick: a WhatsApp goes out when a Kesei
+        // Piggybacks on this 15-minute tick: a WhatsApp goes out when a Kesei
         // part reaches its closing time. Wrapped so a notifier hiccup never
         // blocks the actual stock capture.
         try {

@@ -6,18 +6,18 @@
     <table class="min-w-full text-xs whitespace-nowrap border-separate border-spacing-0">
         <thead>
             <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                <th class="sticky top-0 z-10 bg-gray-50 px-6 py-3 border-b-2 border-gray-300">{{ __('Datetime') }}</th>
+                <th class="sticky top-0 z-10 bg-gray-50 px-6 py-3 border-b-2 border-gray-300">{{ __('Tanggal') }}</th>
                 <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300">{{ __('Part No') }}</th>
-                <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300">{{ __('Hari Produksi') }}</th>
+                <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300">{{ __('Closing Time') }}</th>
                 <th class="sticky top-0 z-10 bg-gray-50 px-6 py-3 border-b-2 border-l border-gray-300 text-right">{{ __('Qty Kbn') }}</th>
             </tr>
         </thead>
         <tbody>
             @forelse ($rows as $row)
                 <tr class="hover:bg-gray-50">
-                    <td class="px-6 py-3 border-b border-gray-300 text-gray-800">{{ $row->created_at?->format('d M Y H:i:s') ?? '-' }}</td>
+                    <td class="px-6 py-3 border-b border-gray-300 text-gray-800">{{ $row->created_at?->format('d M Y') ?? '-' }}</td>
                     <td class="px-4 py-3 border-b border-l border-gray-300 text-gray-800 font-medium">{{ $row->keseiPart?->part?->part_no ?? '(part terhapus)' }}</td>
-                    <td class="px-4 py-3 border-b border-l border-gray-300 text-gray-600">{{ \Illuminate\Support\Carbon::parse($row->notified_on)->format('d M Y') }}</td>
+                    <td class="px-4 py-3 border-b border-l border-gray-300 text-gray-600">{{ $row->keseiPart?->closing_time?->format('H:i') ?? '-' }}</td>
                     <td class="px-6 py-3 border-b border-l border-gray-300 text-right font-semibold text-gray-800">{{ $row->qty_kbn }}</td>
                 </tr>
             @empty

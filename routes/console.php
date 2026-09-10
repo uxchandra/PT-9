@@ -8,5 +8,5 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Schedule::command('stock:capture-snapshot')->everyFiveMinutes();
+Schedule::command('stock:capture-snapshot')->everyFifteenMinutes();
 Schedule::command('stock:prune-snapshots')->dailyAt('06:00');
