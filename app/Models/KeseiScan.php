@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * One scanned SOS label = one kanban pull. These are the red ticks on the
@@ -17,6 +18,11 @@ class KeseiScan extends Model
         return [
             'scanned_at' => 'datetime',
         ];
+    }
+
+    public function scannedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'scanned_by');
     }
 
     /**

@@ -3,6 +3,7 @@
 use App\Http\Controllers\AndonController;
 use App\Http\Controllers\AndonKeseiController;
 use App\Http\Controllers\CalendarController;
+use App\Http\Controllers\KeseiHistoryController;
 use App\Http\Controllers\KeseiImportController;
 use App\Http\Controllers\KeseiPartController;
 use App\Http\Controllers\LotMakingController;
@@ -91,6 +92,8 @@ Route::middleware('auth')->group(function () {
         Route::get('kesei/import-template', [KeseiImportController::class, 'template'])->name('kesei.import.template');
         Route::get('kesei/import', [KeseiImportController::class, 'create'])->name('kesei.import.create');
         Route::post('kesei/import', [KeseiImportController::class, 'store'])->name('kesei.import.store');
+        Route::get('kesei/history-scan', [KeseiHistoryController::class, 'scans'])->name('kesei-scans.index');
+        Route::get('kesei/history-closing', [KeseiHistoryController::class, 'closings'])->name('kesei-closings.index');
         Route::patch('kesei/{keseiPart}', [KeseiPartController::class, 'update'])->name('kesei.update');
         Route::delete('kesei/{keseiPart}', [KeseiPartController::class, 'destroy'])->name('kesei.destroy');
     });

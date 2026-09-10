@@ -121,96 +121,45 @@
                     @endcan
 
                     @can('view andon')
-                    <a href="{{ route('andon.index') }}" target="_blank"
-                       class="menu-item flex items-center justify-between px-4 py-2.5 text-gray-300">
-                        <div class="flex items-center">
-                            <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                      d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    <div x-data="{ open: false }">
+                        <button @click="open = !open" type="button"
+                                class="menu-group-header w-full flex items-center justify-between text-gray-300">
+                            <div class="flex items-center">
+                                <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                                </svg>
+                                <span class="font-semibold text-sm">{{ __('Andon') }}</span>
+                            </div>
+                            <svg class="w-4 h-4 chevron-icon shrink-0" :class="open ? 'open' : ''"
+                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                             </svg>
-                            <span class="font-semibold text-sm">{{ __('Andon') }}</span>
+                        </button>
+                        <div x-show="open" x-cloak class="ml-8 mt-1 space-y-1">
+                            <a href="{{ route('andon.index') }}" target="_blank"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h10M4 18h10"/>
+                                </svg>
+                                {{ __('Pattern') }}
+                            </a>
+                            <a href="{{ route('andon-kesei.show') }}" target="_blank"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V9m4 8V5m4 12v-6M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                                </svg>
+                                {{ __('Kesei 1') }}
+                            </a>
+                            <a href="{{ route('andon-kesei.scan') }}" target="_blank"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m0 14v1m8-8h-1M5 12H4M4 8V4h4m8 0h4v4m0 8v4h-4m-8 0H4v-4"/>
+                                </svg>
+                                {{ __('Kesei 2') }}
+                            </a>
                         </div>
-                        <svg class="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
-                        </svg>
-                    </a>
-                    @endcan
-
-                    @can('manage planning')
-                    <a href="{{ route('planning.index') }}"
-                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('planning.*') ? 'active' : '' }}">
-                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
-                        </svg>
-                        <span class="font-semibold text-sm">{{ __('Planning') }}</span>
-                    </a>
-                    @endcan
-
-                    @can('view stock part all')
-                    <a href="{{ route('stock-part-all.index') }}"
-                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('stock-part-all.*') ? 'active' : '' }}">
-                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
-                        </svg>
-                        <span class="font-semibold text-sm">{{ __('Stock Part All') }}</span>
-                    </a>
-                    @endcan
-
-                    @can('view stock snapshot')
-                    <a href="{{ route('stock-snapshots.index') }}"
-                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('stock-snapshots.*') ? 'active' : '' }}">
-                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-                        </svg>
-                        <span class="font-semibold text-sm">{{ __('Stock Snapshot') }}</span>
-                    </a>
-                    @endcan
-
-                    @can('manage patterns')
-                    <a href="{{ route('pattern-boards.index') }}"
-                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs(['pattern-boards.*', 'group-items.*', 'patterns.*']) ? 'active' : '' }}">
-                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M4 6h16M4 10h16M4 14h10M4 18h10"/>
-                        </svg>
-                        <span class="font-semibold text-sm">{{ __('Pattern') }}</span>
-                    </a>
-                    @endcan
-
-                    @can('manage patterns')
-                    <a href="{{ route('calendar.index') }}"
-                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('calendar.*') ? 'active' : '' }}">
-                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                        </svg>
-                        <span class="font-semibold text-sm">{{ __('Calendar') }}</span>
-                    </a>
-                    @endcan
-
-                    @can('manage lot making')
-                    <a href="{{ route('lot-makings.index') }}"
-                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('lot-makings.*') ? 'active' : '' }}">
-                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
-                        </svg>
-                        <span class="font-semibold text-sm">{{ __('Lot Making') }}</span>
-                    </a>
-                    @endcan
-
-                    @can('manage kesei')
-                    <a href="{{ route('kesei.index') }}"
-                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('kesei.*') ? 'active' : '' }}">
-                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-                        </svg>
-                        <span class="font-semibold text-sm">{{ __('Kesei') }}</span>
-                    </a>
+                    </div>
                     @endcan
 
                     @canany(['manage machines', 'manage parts', 'manage rest'])
@@ -263,6 +212,135 @@
                         </div>
                     </div>
                     @endcanany
+
+                    @can('manage kesei')
+                    @php $keseiActive = request()->routeIs(['kesei.*', 'kesei-scans.*', 'kesei-closings.*']); @endphp
+                    <div x-data="{ open: {{ $keseiActive ? 'true' : 'false' }} }">
+                        <button @click="open = !open" type="button"
+                                class="menu-group-header w-full flex items-center justify-between text-gray-300 {{ $keseiActive ? 'group-has-active' : '' }}">
+                            <div class="flex items-center">
+                                <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                                </svg>
+                                <span class="font-semibold text-sm">{{ __('Kesei') }}</span>
+                            </div>
+                            <svg class="w-4 h-4 chevron-icon shrink-0" :class="open ? 'open' : ''"
+                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <div x-show="open" x-cloak class="ml-8 mt-1 space-y-1">
+                            <a href="{{ route('kesei.index') }}"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300 {{ request()->routeIs('kesei.*') ? 'active' : '' }}">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
+                                </svg>
+                                {{ __('Part') }}
+                            </a>
+                            <a href="{{ route('kesei-scans.index') }}"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300 {{ request()->routeIs('kesei-scans.*') ? 'active' : '' }}">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m0 14v1m8-8h-1M5 12H4M4 8V4h4m8 0h4v4m0 8v4h-4m-8 0H4v-4"/>
+                                </svg>
+                                {{ __('History Scan') }}
+                            </a>
+                            <a href="{{ route('kesei-closings.index') }}"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300 {{ request()->routeIs('kesei-closings.*') ? 'active' : '' }}">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                {{ __('History Closing Time') }}
+                            </a>
+                        </div>
+                    </div>
+                    @endcan
+
+                    @canany(['view stock part all', 'view stock snapshot'])
+                    @php $stockActive = request()->routeIs(['stock-part-all.*', 'stock-snapshots.*']); @endphp
+                    <div x-data="{ open: {{ $stockActive ? 'true' : 'false' }} }">
+                        <button @click="open = !open" type="button"
+                                class="menu-group-header w-full flex items-center justify-between text-gray-300 {{ $stockActive ? 'group-has-active' : '' }}">
+                            <div class="flex items-center">
+                                <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                </svg>
+                                <span class="font-semibold text-sm">{{ __('Stock') }}</span>
+                            </div>
+                            <svg class="w-4 h-4 chevron-icon shrink-0" :class="open ? 'open' : ''"
+                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <div x-show="open" x-cloak class="ml-8 mt-1 space-y-1">
+                            @can('view stock part all')
+                            <a href="{{ route('stock-part-all.index') }}"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300 {{ request()->routeIs('stock-part-all.*') ? 'active' : '' }}">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                </svg>
+                                {{ __('Stock Part All') }}
+                            </a>
+                            @endcan
+                            @can('view stock snapshot')
+                            <a href="{{ route('stock-snapshots.index') }}"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300 {{ request()->routeIs('stock-snapshots.*') ? 'active' : '' }}">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                                </svg>
+                                {{ __('Stock Snapshot') }}
+                            </a>
+                            @endcan
+                        </div>
+                    </div>
+                    @endcanany
+
+                    @can('manage patterns')
+                    <a href="{{ route('calendar.index') }}"
+                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('calendar.*') ? 'active' : '' }}">
+                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                        </svg>
+                        <span class="font-semibold text-sm">{{ __('Calendar') }}</span>
+                    </a>
+                    @endcan
+
+                    @can('manage patterns')
+                    <a href="{{ route('pattern-boards.index') }}"
+                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs(['pattern-boards.*', 'group-items.*', 'patterns.*']) ? 'active' : '' }}">
+                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M4 6h16M4 10h16M4 14h10M4 18h10"/>
+                        </svg>
+                        <span class="font-semibold text-sm">{{ __('Pattern') }}</span>
+                    </a>
+                    @endcan
+
+                    @can('manage planning')
+                    <a href="{{ route('planning.index') }}"
+                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('planning.*') ? 'active' : '' }}">
+                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                        </svg>
+                        <span class="font-semibold text-sm">{{ __('Planning') }}</span>
+                    </a>
+                    @endcan
+
+                    @can('manage lot making')
+                    <a href="{{ route('lot-makings.index') }}"
+                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('lot-makings.*') ? 'active' : '' }}">
+                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                        </svg>
+                        <span class="font-semibold text-sm">{{ __('Lot Making') }}</span>
+                    </a>
+                    @endcan
                 </nav>
 
                 <!-- User / logout -->
