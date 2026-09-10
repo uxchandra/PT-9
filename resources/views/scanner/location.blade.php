@@ -24,7 +24,9 @@
 
     <div id="scan-flash" class="mb-3 hidden rounded-xl px-4 py-3 text-sm font-semibold"></div>
 
-    <p class="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400">{{ __('Perintah pulling') }}</p>
+    <p class="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-400">
+        {{ $free ? __('Part Store 3') : __('Perintah pulling') }}
+    </p>
 
     <ul id="pull-list" class="space-y-2">
         @forelse ($rows as $row)
@@ -33,17 +35,23 @@
                     <span class="font-mono text-base font-bold tracking-wide text-slate-900">{{ $row['part_no'] }}</span>
                     <span class="text-sm">
                         <span class="js-scanned font-extrabold {{ $row['done'] ? 'text-green-600' : 'text-slate-900' }}">{{ $row['scanned'] }}</span>
-                        <span class="text-slate-400">/ {{ $row['needed'] }}</span>
+                        @if (! $free)
+                            <span class="text-slate-400">/ {{ $row['needed'] }}</span>
+                        @else
+                            <span class="text-slate-400">{{ __('scan') }}</span>
+                        @endif
                     </span>
                 </div>
-                <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
-                    <div class="js-bar h-full rounded-full {{ $row['done'] ? 'bg-green-500' : 'bg-slate-800' }}"
-                         style="width: {{ $row['needed'] ? min(100, round($row['scanned'] / $row['needed'] * 100)) : 0 }}%"></div>
-                </div>
+                @unless ($free)
+                    <div class="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div class="js-bar h-full rounded-full {{ $row['done'] ? 'bg-green-500' : 'bg-slate-800' }}"
+                             style="width: {{ $row['needed'] ? min(100, round($row['scanned'] / $row['needed'] * 100)) : 0 }}%"></div>
+                    </div>
+                @endunless
             </li>
         @empty
             <li class="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-400">
-                {{ __('Belum ada demand untuk lokasi ini.') }}
+                {{ $free ? __('Belum ada part untuk lokasi ini.') : __('Belum ada demand untuk lokasi ini.') }}
             </li>
         @endforelse
     </ul>
@@ -64,19 +72,21 @@
             flash.textContent = msg;
             flash.className = 'mb-3 rounded-xl px-4 py-3 text-sm font-semibold ' +
                 (ok ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800');
-            flash.hidden = false;
             if (navigator.vibrate) navigator.vibrate(ok ? 40 : [60, 40, 60]);
         }
 
         function updateRow(partNo, scanned, needed) {
             var li = list.querySelector('li[data-part="' + (window.CSS && CSS.escape ? CSS.escape(partNo) : partNo) + '"]');
             if (!li) return;
-            var done = scanned >= needed;
-            li.querySelector('.js-scanned').textContent = scanned;
-            li.querySelector('.js-scanned').className = 'js-scanned font-extrabold ' + (done ? 'text-green-600' : 'text-slate-900');
+            var done = needed != null && scanned >= needed;
+            var el = li.querySelector('.js-scanned');
+            el.textContent = scanned;
+            el.className = 'js-scanned font-extrabold ' + (done ? 'text-green-600' : 'text-slate-900');
             var bar = li.querySelector('.js-bar');
-            bar.style.width = (needed ? Math.min(100, Math.round(scanned / needed * 100)) : 0) + '%';
-            bar.className = 'js-bar h-full rounded-full ' + (done ? 'bg-green-500' : 'bg-slate-800');
+            if (bar && needed != null) {
+                bar.style.width = (needed ? Math.min(100, Math.round(scanned / needed * 100)) : 0) + '%';
+                bar.className = 'js-bar h-full rounded-full ' + (done ? 'bg-green-500' : 'bg-slate-800');
+            }
         }
 
         form.addEventListener('submit', function (e) {
@@ -95,7 +105,10 @@
                 .then(function (r) { return r.json().then(function (d) { return { status: r.status, d: d }; }); })
                 .then(function (res) {
                     if (res.d.ok) {
-                        showFlash(true, res.d.part_no + '  ' + res.d.scanned + ' / ' + res.d.needed);
+                        var label = res.d.needed == null
+                            ? res.d.part_no + '  ✓ ' + res.d.scanned
+                            : res.d.part_no + '  ' + res.d.scanned + ' / ' + res.d.needed;
+                        showFlash(true, label);
                         updateRow(res.d.part_no, res.d.scanned, res.d.needed);
                     } else {
                         showFlash(false, res.d.reason || 'Scan ditolak.');

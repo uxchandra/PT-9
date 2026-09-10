@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['kesei_part_id', 'notified_on'])]
+#[Fillable(['kesei_part_id', 'notified_on', 'qty_kbn'])]
 class KeseiClosingNotification extends Model
 {
     public const UPDATED_AT = null;

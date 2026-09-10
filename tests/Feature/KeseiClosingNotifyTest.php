@@ -219,6 +219,7 @@ class KeseiClosingNotifyTest extends TestCase
         $this->notifier()->run();
 
         Http::assertSent(fn ($request) => str_contains($request->data()['message'], 'Qty Kbn : 4'));
+        $this->assertDatabaseHas('kesei_closing_notifications', ['notified_on' => '2026-09-15', 'qty_kbn' => 4]);
     }
 
     public function test_qty_kbn_matches_the_board_and_can_span_several_days_for_an_infrequent_part(): void

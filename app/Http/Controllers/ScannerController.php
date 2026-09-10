@@ -15,14 +15,11 @@ use Illuminate\View\View;
  */
 class ScannerController extends Controller
 {
-    private const LOCATION_NAMES = [
-        'finish-goods' => 'Finish Goods',
-        'store-3' => 'Store 3',
-    ];
-
     public function dashboard(): View
     {
-        return view('scanner.dashboard', ['locations' => self::LOCATION_NAMES]);
+        return view('scanner.dashboard', [
+            'locations' => collect(KeseiPull::LOCATIONS)->map(fn ($l) => $l['name'])->all(),
+        ]);
     }
 
     public function location(string $location, KeseiPull $pull): View
@@ -31,7 +28,8 @@ class ScannerController extends Controller
 
         return view('scanner.location', [
             'slug' => $location,
-            'label' => self::LOCATION_NAMES[$location],
+            'label' => KeseiPull::name($location),
+            'free' => KeseiPull::isFree($location),
             'rows' => $pull->list($location),
         ]);
     }
@@ -50,10 +48,11 @@ class ScannerController extends Controller
         $row = $pull->rowFor($location, $partNo);
 
         if ($row === null) {
-            return response()->json(['ok' => false, 'reason' => "{$partNo} tidak ada di daftar pulling."], 422);
+            return response()->json(['ok' => false, 'reason' => "{$partNo} tidak ada di daftar ".KeseiPull::name($location).'.'], 422);
         }
 
-        if ($row['remaining'] <= 0) {
+        // Only demand-mode locations cap the scan count.
+        if ($row['remaining'] !== null && $row['remaining'] <= 0) {
             return response()->json(['ok' => false, 'reason' => "{$partNo} sudah terpenuhi ({$row['scanned']}/{$row['needed']})."], 422);
         }
 
@@ -72,8 +71,8 @@ class ScannerController extends Controller
             'part_no' => $partNo,
             'scanned' => $scanned,
             'needed' => $row['needed'],
-            'remaining' => max(0, $row['needed'] - $scanned),
-            'done' => $scanned >= $row['needed'],
+            'remaining' => $row['needed'] === null ? null : max(0, $row['needed'] - $scanned),
+            'done' => $row['needed'] !== null && $scanned >= $row['needed'],
         ]);
     }
 }

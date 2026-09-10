@@ -142,6 +142,66 @@ class ScannerTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_store_3_lists_every_part_of_that_level_with_no_target(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        KeseiPart::create([
+            'part_id' => Part::create(['part_no' => 'ST3-001', 'qty_kbn' => 1])->id,
+            'level' => 'STORE 3', 'urutan' => 1,
+        ]);
+        // No stock change at all — still listed for Store 3.
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'store-3'))
+            ->assertOk()
+            ->assertSee('ST3-001')
+            ->assertSee('Part Store 3'); // free-mode header, no per-part target
+
+        Carbon::setTestNow();
+    }
+
+    public function test_store_3_allows_unlimited_scans_of_a_listed_part(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        KeseiPart::create([
+            'part_id' => Part::create(['part_no' => 'ST3-001'])->id,
+            'level' => 'STORE 3', 'urutan' => 1,
+        ]);
+
+        foreach ([1, 2, 3] as $n) {
+            $this->actingAs($this->scannerUser())
+                ->postJson(route('scanner.scan', 'store-3'), ['code' => 'x_x_ST3-001_1'])
+                ->assertOk()
+                ->assertJson(['ok' => true, 'part_no' => 'ST3-001', 'scanned' => $n, 'needed' => null, 'remaining' => null]);
+        }
+
+        $this->assertDatabaseCount('kesei_scans', 3);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_store_3_rejects_a_part_that_is_not_store_3(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        KeseiPart::create([
+            'part_id' => Part::create(['part_no' => 'ST3-001'])->id,
+            'level' => 'STORE 3', 'urutan' => 1,
+        ]);
+        KeseiPart::create([
+            'part_id' => Part::create(['part_no' => 'FG-9'])->id,
+            'level' => 'FINISH GOODS', 'urutan' => 2,
+        ]);
+
+        $this->actingAs($this->scannerUser())
+            ->postJson(route('scanner.scan', 'store-3'), ['code' => 'x_x_FG-9_1'])
+            ->assertStatus(422)
+            ->assertJson(['ok' => false]);
+
+        $this->assertDatabaseCount('kesei_scans', 0);
+
+        Carbon::setTestNow();
+    }
+
     public function test_scanning_beyond_the_needed_qty_is_rejected(): void
     {
         $this->pullablePart();

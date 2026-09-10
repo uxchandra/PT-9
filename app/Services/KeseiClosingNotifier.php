@@ -90,11 +90,15 @@ class KeseiClosingNotifier
             $date = $first['foldStart']->translatedFormat('d M Y');
 
             $lines = $members->map(fn (array $row) => [
+                'kesei' => $row['kesei'],
+                'foldStart' => $row['foldStart'],
                 'partNo' => $row['kesei']->part?->part_no ?? '(part terhapus)',
                 'qtyKbn' => $this->accumulatedKanban($row['kesei'], $row['cycleStart'], $row['foldStart']),
-            ])->all();
+            ]);
 
-            $message = $this->message($closing, $pattern, $date, $lines);
+            $message = $this->message($closing, $pattern, $date, $lines->map(
+                fn (array $l) => ['partNo' => $l['partNo'], 'qtyKbn' => $l['qtyKbn']]
+            )->all());
 
             $sentOk = false;
             foreach ($recipients as $to) {
@@ -102,16 +106,17 @@ class KeseiClosingNotifier
             }
 
             if ($sentOk) {
-                foreach ($members as $row) {
+                foreach ($lines as $line) {
                     KeseiClosingNotification::create([
-                        'kesei_part_id' => $row['kesei']->id,
-                        'notified_on' => $row['foldStart']->toDateString(),
+                        'kesei_part_id' => $line['kesei']->id,
+                        'notified_on' => $line['foldStart']->toDateString(),
+                        'qty_kbn' => $line['qtyKbn'],
                     ]);
                 }
-                $result['sent'] += $members->count();
+                $result['sent'] += $lines->count();
             } else {
                 // Not recorded — the next tick retries.
-                $result['failed'] += $members->count();
+                $result['failed'] += $lines->count();
             }
         }
 

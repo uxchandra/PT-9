@@ -44,16 +44,16 @@ class KeseiHistoryTest extends TestCase
             ->assertDontSee('BBB-222');
     }
 
-    public function test_history_closing_lists_notifications_with_the_part_no(): void
+    public function test_history_closing_lists_the_datetime_part_no_and_qty_kbn(): void
     {
         $kesei = KeseiPart::create(['part_id' => Part::create(['part_no' => 'CLOSE-1'])->id, 'urutan' => 1]);
-        KeseiClosingNotification::create(['kesei_part_id' => $kesei->id, 'notified_on' => '2026-09-10']);
+        KeseiClosingNotification::create(['kesei_part_id' => $kesei->id, 'notified_on' => '2026-09-10', 'qty_kbn' => 17]);
 
         $this->actingAs($this->admin())
             ->get(route('kesei-closings.index'))
             ->assertOk()
-            ->assertSee('CLOSE-1')
-            ->assertSee('History Closing Time');
+            ->assertSee('History Closing Time')
+            ->assertSeeInOrder(['CLOSE-1', '17']);
     }
 
     public function test_history_pages_require_manage_kesei(): void
