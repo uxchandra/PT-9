@@ -117,6 +117,45 @@ class KeseiBoard
     }
 
     /**
+     * The visible red-tick decrease events for ONE Kesei part, computed without
+     * building the whole board. The scanner's hot path uses this so a single
+     * scan doesn't trigger a full-board rebuild (all parts + 48h of snapshots +
+     * a calendar query per run-day per part).
+     *
+     * @return array{row: array<string, mixed>, events: array<int, array{kanban: int, at: Carbon}>}|null
+     */
+    public function rowContext(KeseiPart $part): ?array
+    {
+        $now = now();
+        $historyFloor = $now->copy()->subDays(KeseiPart::FOLD_HISTORY_DAYS);
+
+        $sources = $part->sourcePartNos();
+
+        if ($sources === []) {
+            return null;
+        }
+
+        [$foldStart, $cycleStart] = $part->foldBoundaries($now);
+
+        $row = [
+            'id' => $part->id,
+            'label' => $part->part?->part_no ?? '(part terhapus)',
+            'qty_kbn' => $part->part?->qty_kbn,
+            'sources' => $sources,
+            'closing_reached' => $foldStart !== null,
+            'fold_start' => $foldStart ?? $historyFloor,
+            'cycle_start' => $cycleStart,
+        ];
+
+        $rows = collect([$row]);
+        $queryStart = $this->queryStart($rows, $now, $historyFloor);
+        [$seedStock, $stockByTime] = $this->loadStock($rows, $queryStart, $now);
+        [$visible] = $this->splitEvents($rows, $this->buildStockDecreaseEvents($rows, $seedStock, $stockByTime));
+
+        return ['row' => $row, 'events' => $visible[$part->id] ?? []];
+    }
+
+    /**
      * A wall-clock time mapped onto the looping 07:00 → 07:00 face, as minutes
      * past 07:00 (0..1439).
      */

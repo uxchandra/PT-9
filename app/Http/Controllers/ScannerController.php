@@ -6,6 +6,7 @@ use App\Models\KeseiScan;
 use App\Services\KeseiPull;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 
 /**
@@ -26,7 +27,12 @@ class ScannerController extends Controller
     {
         abort_unless(KeseiPull::isLocation($location), 404);
 
-        $rows = $pull->list($location);
+        // Every open scanner polls this ~every 20s. The figures only move on the
+        // 15-minute stock feed and on new scans, so a short cache — busted by
+        // the newest scan id — keeps the poll from rebuilding the whole board
+        // on every tick.
+        $cacheKey = "scanner-pull:{$location}:".(KeseiScan::where('location', $location)->max('id') ?? 0);
+        $rows = collect(Cache::remember($cacheKey, 10, fn () => $pull->list($location)->all()));
 
         $data = [
             'slug' => $location,
@@ -54,7 +60,7 @@ class ScannerController extends Controller
             return response()->json(['ok' => false, 'reason' => 'QR tidak dikenali.'], 422);
         }
 
-        $row = $pull->rowFor($location, $partNo);
+        $row = $pull->scanRow($location, $partNo);
 
         if ($row === null) {
             return response()->json(['ok' => false, 'reason' => "{$partNo} tidak ada di daftar ".KeseiPull::name($location).'.'], 422);

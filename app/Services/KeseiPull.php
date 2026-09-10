@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\KeseiPart;
 use App\Models\KeseiScan;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -73,11 +74,59 @@ class KeseiPull
     }
 
     /**
+     * The one row a scanned part_no maps to at $locationSlug, computed on its
+     * own (no full-board rebuild) so a scan stays fast. Null when the part is
+     * not part of that location.
+     *
      * @return array{part_no: string, needed: ?int, scanned: int, remaining: ?int, last_update: ?string, done: bool}|null
      */
-    public function rowFor(string $locationSlug, string $partNo): ?array
+    public function scanRow(string $locationSlug, string $partNo): ?array
     {
-        return $this->list($locationSlug)->firstWhere('part_no', $partNo);
+        $loc = self::LOCATIONS[$locationSlug] ?? null;
+
+        if ($loc === null) {
+            return null;
+        }
+
+        $levels = $loc['levels'];
+        $free = ($loc['mode'] ?? 'demand') === 'free';
+
+        $part = KeseiPart::with(['part', 'patternBoards'])
+            ->whereHas('part', fn ($q) => $q->where('part_no', $partNo))
+            ->get()
+            ->first(fn (KeseiPart $p) => in_array(strtoupper(trim((string) $p->level)), $levels, true));
+
+        if ($part === null || $part->sourcePartNos() === []) {
+            return null;
+        }
+
+        if ($free) {
+            $foldStart = $part->foldBoundaries(now())[0]
+                ?? now()->subDays(KeseiPart::FOLD_HISTORY_DAYS);
+
+            $partNos = array_values(array_filter(array_unique(
+                array_merge([$part->part?->part_no], $part->sourcePartNos())
+            )));
+
+            return [
+                'part_no' => $part->part->part_no,
+                'needed' => null,
+                'scanned' => KeseiScan::whereIn('part_no', $partNos)
+                    ->where('scanned_at', '>', $foldStart)
+                    ->count(),
+                'remaining' => null,
+                'last_update' => null,
+                'done' => false,
+            ];
+        }
+
+        $ctx = $this->board->rowContext($part);
+
+        if ($ctx === null) {
+            return null;
+        }
+
+        return $this->demandRow($ctx['row'], collect($ctx['events']));
     }
 
     /**

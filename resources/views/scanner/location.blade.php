@@ -50,32 +50,30 @@
         var form = document.getElementById('scan-form');
         var flash = document.getElementById('scan-flash');
         var busy = false;
+        var queue = [];
 
-        function showFlash(ok, msg) {
+        // state: 'wait' (in flight), 'ok', 'bad'
+        function showFlash(state, msg) {
             flash.textContent = msg;
-            flash.className = 'mb-3 rounded-xl px-4 py-3 text-sm font-semibold ' +
-                (ok ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800');
-            if (navigator.vibrate) navigator.vibrate(ok ? 40 : [60, 40, 60]);
+            var tone = state === 'ok' ? 'bg-green-100 text-green-800'
+                : state === 'bad' ? 'bg-red-100 text-red-800'
+                : 'bg-slate-100 text-slate-600';
+            flash.className = 'mb-3 rounded-xl px-4 py-3 text-sm font-semibold ' + tone;
+            if (state !== 'wait' && navigator.vibrate) navigator.vibrate(state === 'ok' ? 40 : [60, 40, 60]);
         }
 
         // Optimistic: bump the just-scanned row until the next poll rebuilds it.
-        function bumpRow(partNo, scanned, needed) {
+        function bumpRow(partNo, scanned) {
             var list = document.getElementById('pull-list');
             var li = list && list.querySelector('li[data-part="' + (window.CSS && CSS.escape ? CSS.escape(partNo) : partNo) + '"]');
             if (!li) return;
-            var done = needed != null && scanned >= needed;
-            li.querySelectorAll('.js-scanned').forEach(function (el) {
-                el.textContent = scanned;
-            });
+            li.querySelectorAll('.js-scanned').forEach(function (el) { el.textContent = scanned; });
         }
 
-        form.addEventListener('submit', function (e) {
-            e.preventDefault();
-            var code = input.value.trim();
-            input.value = '';
-            input.focus();
-            if (!code || busy) return;
+        function send(code) {
             busy = true;
+            // Instant feedback — don't make the operator wait on the round-trip.
+            showFlash('wait', code.slice(-28) + ' …');
 
             fetch(scanUrl, {
                 method: 'POST',
@@ -97,14 +95,30 @@
                         var label = d.needed == null
                             ? d.part_no + '  ✓ ' + d.scanned
                             : d.part_no + '  ' + d.scanned + ' / ' + d.needed;
-                        showFlash(true, label);
-                        bumpRow(d.part_no, d.scanned, d.needed);
+                        showFlash('ok', label);
+                        bumpRow(d.part_no, d.scanned);
                     } else {
-                        showFlash(false, d.reason || 'Scan ditolak.');
+                        showFlash('bad', d.reason || 'Scan ditolak.');
                     }
                 })
-                .catch(function () { showFlash(false, 'Gagal — koneksi.'); })
-                .finally(function () { busy = false; input.focus(); });
+                .catch(function () { showFlash('bad', 'Gagal — koneksi.'); })
+                .finally(function () {
+                    busy = false;
+                    input.focus();
+                    if (queue.length) send(queue.shift());
+                });
+        }
+
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var code = input.value.trim();
+            input.value = '';
+            input.focus();
+            if (!code) return;
+            // A fast second scan while the first is in flight is queued, never
+            // dropped and never left half-typed in the field.
+            if (busy) { queue.push(code); return; }
+            send(code);
         });
 
         // Keep the field focused so every scan is captured by the wedge.
@@ -114,7 +128,7 @@
 
         // Re-pull the list every 20s so the 15-minute reset shows up live.
         setInterval(function () {
-            if (busy) return;
+            if (busy || queue.length) return;
             fetch(listUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
                 .then(function (r) {
                     if (r.status === 419 || r.status === 401 || (r.redirected && /\/login/.test(r.url))) {
