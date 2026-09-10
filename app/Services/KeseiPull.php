@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\KeseiPart;
 use App\Models\KeseiScan;
+use App\Models\StockSnapshot;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -14,7 +15,8 @@ use Illuminate\Support\Collection;
  *    feed. At each capture the unmet target carries forward and the new stock
  *    decrease is added on top, while the scan counter resets:
  *        needed_new = needed_old - scanned_old + decrease_this_interval
- *    "last_update" is the time of that last decrease. Over-scanning is rejected.
+ *    The page's "last update" is the time of the newest stock-feed capture (the
+ *    same 15-minute cadence as Timeline Stok). Over-scanning is rejected.
  *  - free (Store 3): every part with the right `level` is listed with no
  *    target — the operator may scan it any number of times. Scanning a part
  *    that is not on the list is still rejected.
@@ -71,6 +73,18 @@ class KeseiPull
             ->when(! $free, fn (Collection $c) => $c->filter(fn (array $r) => $r['needed'] > 0 || $r['scanned'] > 0))
             ->sortBy('done')
             ->values();
+    }
+
+    /**
+     * When the stock feed last captured — the same 15-minute cadence Timeline
+     * Stok records at. Shown once on the page as "last update", regardless of
+     * whether any part actually moved that interval. Null when the feed is empty.
+     */
+    public function lastStockUpdate(): ?string
+    {
+        $at = StockSnapshot::max('captured_at');
+
+        return $at ? Carbon::parse($at)->format('H:i') : null;
     }
 
     /**

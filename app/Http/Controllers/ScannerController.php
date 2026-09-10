@@ -39,8 +39,9 @@ class ScannerController extends Controller
             'label' => KeseiPull::name($location),
             'free' => KeseiPull::isFree($location),
             'rows' => $rows,
-            // One value for the whole page: newest stock-feed update across parts.
-            'lastUpdate' => $rows->pluck('last_update')->filter()->max() ?: null,
+            // One value for the whole page: when the 15-minute stock feed last
+            // captured — matches Timeline Stok, ticks every interval.
+            'lastUpdate' => $pull->lastStockUpdate(),
         ];
 
         // Polled every ~20s so the 15-minute reset shows up without a reload.
