@@ -67,13 +67,14 @@ class ScannerTest extends TestCase
         $this->get(route('scanner.dashboard'))->assertRedirect(route('login'));
     }
 
-    public function test_a_location_page_shows_the_location_and_a_scan_input(): void
+    public function test_a_location_page_shows_the_location_and_a_keyboardless_scan_input(): void
     {
         $this->actingAs($this->scannerUser())
             ->get(route('scanner.location', 'finish-goods'))
             ->assertOk()
             ->assertSee('FINISH GOODS')
-            ->assertSee('id="scan-input"', false);
+            ->assertSee('id="scan-input"', false)
+            ->assertSee('inputmode="none"', false); // hardware wedge, no soft keyboard
     }
 
     public function test_an_unknown_location_is_404(): void
@@ -124,6 +125,34 @@ class ScannerTest extends TestCase
             'location' => 'finish-goods',
             'raw' => 'S9 09 I 26 A_8_57183-BZ010_1',
         ]);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_finish_goods_target_rolls_with_the_15_minute_stock_feed(): void
+    {
+        // needed_new = needed_old - scanned + decrease  ->  10 - 2 + 3 = 11, scanned resets.
+        Carbon::setTestNow('2026-09-15 13:20:00');
+        KeseiPart::create([
+            'part_id' => Part::create(['part_no' => 'FG-ROLL', 'qty_kbn' => 1])->id,
+            'level' => 'FINISH GOODS', 'urutan' => 1,
+        ]);
+
+        StockSnapshot::create(['part_no' => 'FG-ROLL', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 12:45')]);
+        StockSnapshot::create(['part_no' => 'FG-ROLL', 'stock' => 90, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 13:00')]);  // -10
+        // two scans in the 13:00 window
+        KeseiScan::create(['part_no' => 'FG-ROLL', 'location' => 'finish-goods', 'raw' => 'x', 'scanned_at' => Carbon::parse('2026-09-15 13:05')]);
+        KeseiScan::create(['part_no' => 'FG-ROLL', 'location' => 'finish-goods', 'raw' => 'x', 'scanned_at' => Carbon::parse('2026-09-15 13:10')]);
+        // fresh 15-min capture, another -3
+        StockSnapshot::create(['part_no' => 'FG-ROLL', 'stock' => 87, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 13:15')]);  // -3
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'finish-goods'))
+            ->assertOk()
+            ->assertSee('FG-ROLL')
+            ->assertSee('/ 11')
+            ->assertSee('last update')
+            ->assertSee('13:15');
 
         Carbon::setTestNow();
     }

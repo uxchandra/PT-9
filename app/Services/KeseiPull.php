@@ -9,8 +9,11 @@ use Illuminate\Support\Collection;
 /**
  * The "pulling command" a scanner operator works from. Two modes:
  *
- *  - demand (Finish Goods): the target per part is how many kanban of demand
- *    has built up from the Stock Part All feed; over-scanning is rejected.
+ *  - demand (Finish Goods): the target per part rolls with the 15-minute stock
+ *    feed. At each capture the unmet target carries forward and the new stock
+ *    decrease is added on top, while the scan counter resets:
+ *        needed_new = needed_old - scanned_old + decrease_this_interval
+ *    "last_update" is the time of that last decrease. Over-scanning is rejected.
  *  - free (Store 3): every part with the right `level` is listed with no
  *    target — the operator may scan it any number of times. Scanning a part
  *    that is not on the list is still rejected.
@@ -42,7 +45,8 @@ class KeseiPull
 
     /**
      * @return Collection<int, array{
-     *     part_no: string, needed: ?int, scanned: int, remaining: ?int, done: bool
+     *     part_no: string, needed: ?int, scanned: int, remaining: ?int,
+     *     last_update: ?string, done: bool
      * }>
      */
     public function list(string $locationSlug): Collection
@@ -59,40 +63,17 @@ class KeseiPull
 
         return $data['keseiRows']
             ->filter(fn (array $row) => in_array(strtoupper(trim((string) $row['level'])), $levels, true))
-            ->map(function (array $row) use ($data, $free) {
-                $scanned = $this->scanCount($row, $row['fold_start']);
-
-                if ($free) {
-                    return [
-                        'part_no' => $row['label'],
-                        'needed' => null,       // no target
-                        'scanned' => $scanned,
-                        'remaining' => null,    // unlimited
-                        'done' => false,
-                    ];
-                }
-
-                $needed = (int) collect($data['stockDecreaseEvents'][$row['id']] ?? [])->sum('kanban');
-
-                return [
-                    'part_no' => $row['label'],
-                    'needed' => $needed,
-                    'scanned' => $scanned,
-                    'remaining' => max(0, $needed - $scanned),
-                    'done' => $needed > 0 && $scanned >= $needed,
-                ];
-            })
-            // demand mode only lists parts that actually have demand.
-            ->when(! $free, fn (Collection $c) => $c->filter(fn (array $r) => $r['needed'] > 0))
+            ->map(fn (array $row) => $free
+                ? $this->freeRow($row)
+                : $this->demandRow($row, collect($data['stockDecreaseEvents'][$row['id']] ?? [])))
+            // demand mode only lists parts that still have something to do.
+            ->when(! $free, fn (Collection $c) => $c->filter(fn (array $r) => $r['needed'] > 0 || $r['scanned'] > 0))
             ->sortBy('done')
             ->values();
     }
 
     /**
-     * The single row for one part, or null when the part is not on the list
-     * for this location.
-     *
-     * @return array{part_no: string, needed: ?int, scanned: int, remaining: ?int, done: bool}|null
+     * @return array{part_no: string, needed: ?int, scanned: int, remaining: ?int, last_update: ?string, done: bool}|null
      */
     public function rowFor(string $locationSlug, string $partNo): ?array
     {
@@ -100,14 +81,66 @@ class KeseiPull
     }
 
     /**
-     * @param  array{label: string, sources: array<int, string>}  $row
+     * @param  array{label: string, sources: array<int, string>, fold_start: Carbon}  $row
+     * @return array{part_no: string, needed: null, scanned: int, remaining: null, last_update: null, done: false}
      */
-    private function scanCount(array $row, Carbon $foldStart): int
+    private function freeRow(array $row): array
+    {
+        return [
+            'part_no' => $row['label'],
+            'needed' => null,
+            'scanned' => $this->scanTimes($row)->count(),
+            'remaining' => null,
+            'last_update' => null,
+            'done' => false,
+        ];
+    }
+
+    /**
+     * @param  array{label: string, sources: array<int, string>, fold_start: Carbon}  $row
+     * @param  Collection<int, array{kanban: int, at: Carbon}>  $events
+     * @return array{part_no: string, needed: int, scanned: int, remaining: int, last_update: ?string, done: bool}
+     */
+    private function demandRow(array $row, Collection $events): array
+    {
+        $totalDecrease = (int) $events->sum('kanban');
+        $lastUpdateAt = $events->pluck('at')->max();   // Carbon|null
+
+        $scanTimes = $this->scanTimes($row);
+
+        if ($lastUpdateAt !== null) {
+            $absorbed = $scanTimes->filter(fn (Carbon $t) => $t->lte($lastUpdateAt))->count();
+            $scanned = $scanTimes->filter(fn (Carbon $t) => $t->gt($lastUpdateAt))->count();
+        } else {
+            $absorbed = 0;
+            $scanned = $scanTimes->count();
+        }
+
+        $needed = max(0, $totalDecrease - $absorbed);
+
+        return [
+            'part_no' => $row['label'],
+            'needed' => $needed,
+            'scanned' => $scanned,
+            'remaining' => max(0, $needed - $scanned),
+            'last_update' => $lastUpdateAt?->format('H:i'),
+            'done' => $needed > 0 && $scanned >= $needed,
+        ];
+    }
+
+    /**
+     * Scan timestamps for a row's part_no(s) since the current cycle started.
+     *
+     * @param  array{label: string, sources: array<int, string>, fold_start: Carbon}  $row
+     * @return Collection<int, Carbon>
+     */
+    private function scanTimes(array $row): Collection
     {
         $partNos = array_values(array_unique(array_merge([$row['label']], $row['sources'])));
 
         return KeseiScan::whereIn('part_no', $partNos)
-            ->where('scanned_at', '>', $foldStart)
-            ->count();
+            ->where('scanned_at', '>', $row['fold_start'])
+            ->orderBy('scanned_at')
+            ->pluck('scanned_at');
     }
 }

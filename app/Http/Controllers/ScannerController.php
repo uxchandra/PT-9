@@ -22,16 +22,25 @@ class ScannerController extends Controller
         ]);
     }
 
-    public function location(string $location, KeseiPull $pull): View
+    public function location(Request $request, string $location, KeseiPull $pull): View
     {
         abort_unless(KeseiPull::isLocation($location), 404);
 
-        return view('scanner.location', [
+        $rows = $pull->list($location);
+
+        $data = [
             'slug' => $location,
             'label' => KeseiPull::name($location),
             'free' => KeseiPull::isFree($location),
-            'rows' => $pull->list($location),
-        ]);
+            'rows' => $rows,
+            // One value for the whole page: newest stock-feed update across parts.
+            'lastUpdate' => $rows->pluck('last_update')->filter()->max() ?: null,
+        ];
+
+        // Polled every ~20s so the 15-minute reset shows up without a reload.
+        return $request->ajax()
+            ? view('scanner._pull-list', $data)
+            : view('scanner.location', $data);
     }
 
     public function scan(Request $request, string $location, KeseiPull $pull): JsonResponse
