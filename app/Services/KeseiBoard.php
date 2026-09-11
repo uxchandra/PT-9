@@ -52,7 +52,16 @@ class KeseiBoard
             ? KeseiScan::max('id') ?? 0
             : StockSnapshot::max('id') ?? 0;
 
-        return Cache::remember("kesei-board:{$tickSource}:{$freshness}", 5, fn () => $this->build($tickSource));
+        $data = Cache::remember("kesei-board:{$tickSource}:{$freshness}", 5, fn () => $this->build($tickSource));
+
+        // The cache stores plain arrays (database serialisation of Collection
+        // objects causes "incomplete object" errors on unserialize). Wrap them
+        // back into Collections so the Blade templates can call ->isEmpty(),
+        // ->pluck(), etc. as before.
+        $data['keseiRows']   = collect($data['keseiRows']);
+        $data['closingRows'] = collect($data['closingRows']);
+
+        return $data;
     }
 
     /**
@@ -121,12 +130,16 @@ class KeseiBoard
         [$stockDecreaseEvents, $closingKanban] = $this->splitEvents($keseiRows, $allEvents);
 
         return [
-            'keseiRows' => $keseiRows,
+            // Stored as plain arrays — NOT Collections — so database cache
+            // serialisation never hits the "incomplete object" bug. The
+            // data() method wraps them back into Collections on retrieval.
+            'keseiRows' => $keseiRows->all(),
             // The Closing Time table starts empty and only lists a part once it
             // has passed its closing for the current run — newest closing on top.
             'closingRows' => $keseiRows->where('closed_now', true)
                 ->sortByDesc(fn (array $row) => $row['fold_start']->getTimestamp())
-                ->values(),
+                ->values()
+                ->all(),
             'stockDecreaseEvents' => $stockDecreaseEvents,
             'closingKanban' => $closingKanban,
             // The Timeline Stok table is a rolling 48h (captures land every
