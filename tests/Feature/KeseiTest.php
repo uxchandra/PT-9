@@ -126,6 +126,21 @@ class KeseiTest extends TestCase
         $this->assertMatchesRegularExpression('/>\s*50\s*</', substr($html, $stockPanelPos));
     }
 
+    public function test_the_scan_board_polls_much_faster_than_the_stock_board(): void
+    {
+        KeseiPart::create(['part_id' => Part::create(['part_no' => 'P1'])->id, 'urutan' => 1]);
+
+        // Stock only moves every 15 minutes; scans are live operator actions
+        // that should show up on the wall board almost immediately.
+        $this->get(route('andon-kesei.show'))
+            ->assertOk()
+            ->assertSee('setInterval(refresh, 60000)', false);
+
+        $this->get(route('andon-kesei.scan'))
+            ->assertOk()
+            ->assertSee('setInterval(refresh, 3000)', false);
+    }
+
     public function test_andon_kesei_ajax_returns_json_partials(): void
     {
         KeseiPart::create(['part_id' => Part::create(['part_no' => 'P1'])->id, 'urutan' => 1]);
@@ -144,13 +159,16 @@ class KeseiTest extends TestCase
         CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $a->id]);
 
         // Running pattern, closing already passed → shows.
-        $done = KeseiPart::create(['part_id' => Part::create(['part_no' => 'DONE', 'qty_kbn' => 1])->id, 'closing_time' => '09:00', 'closing_mode' => 'end_of_day', 'urutan' => 1]);
+        $done = KeseiPart::create(['part_id' => Part::create(['part_no' => 'DONE', 'qty_kbn' => 1])->id, 'urutan' => 1]);
+        $done->addClosing('09:00', 'end_of_day');
         $done->patternBoards()->sync([$a->id]);
         // Running pattern, closing not reached yet → hidden.
-        $waiting = KeseiPart::create(['part_id' => Part::create(['part_no' => 'WAITING'])->id, 'closing_time' => '17:00', 'closing_mode' => 'end_of_day', 'urutan' => 2]);
+        $waiting = KeseiPart::create(['part_id' => Part::create(['part_no' => 'WAITING'])->id, 'urutan' => 2]);
+        $waiting->addClosing('17:00', 'end_of_day');
         $waiting->patternBoards()->sync([$a->id]);
         // Different pattern → hidden.
-        $offRun = KeseiPart::create(['part_id' => Part::create(['part_no' => 'OFFRUN'])->id, 'closing_time' => '09:00', 'closing_mode' => 'end_of_day', 'urutan' => 3]);
+        $offRun = KeseiPart::create(['part_id' => Part::create(['part_no' => 'OFFRUN'])->id, 'urutan' => 3]);
+        $offRun->addClosing('09:00', 'end_of_day');
         $offRun->patternBoards()->sync([$b->id]);
 
         StockSnapshot::create(['part_no' => 'DONE', 'stock' => 20, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
@@ -182,9 +200,11 @@ class KeseiTest extends TestCase
         $a = PatternBoard::create(['name' => 'A']);
         CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $a->id]);
 
-        $early = KeseiPart::create(['part_id' => Part::create(['part_no' => 'EARLY'])->id, 'closing_time' => '09:00', 'closing_mode' => 'end_of_day', 'urutan' => 1]);
+        $early = KeseiPart::create(['part_id' => Part::create(['part_no' => 'EARLY'])->id, 'urutan' => 1]);
+        $early->addClosing('09:00', 'end_of_day');
         $early->patternBoards()->sync([$a->id]);
-        $late = KeseiPart::create(['part_id' => Part::create(['part_no' => 'LATE'])->id, 'closing_time' => '13:00', 'closing_mode' => 'end_of_day', 'urutan' => 2]);
+        $late = KeseiPart::create(['part_id' => Part::create(['part_no' => 'LATE'])->id, 'urutan' => 2]);
+        $late->addClosing('13:00', 'end_of_day');
         $late->patternBoards()->sync([$a->id]);
 
         $html = $this->get(route('andon-kesei.show'))->getContent();
@@ -206,7 +226,9 @@ class KeseiTest extends TestCase
         $planned = Part::create(['part_no' => 'PLANNED', 'qty_kbn' => 1]);
         $noClose = Part::create(['part_no' => 'NOCLOSE', 'qty_kbn' => 1]);
         // pre_run (default): the plan for the 09-15 07:00 run was fixed at 09-15 03:00.
-        KeseiPart::create(['part_id' => $planned->id, 'closing_time' => '03:00', 'urutan' => 1])->patternBoards()->sync([$a->id]);
+        $plannedKesei = KeseiPart::create(['part_id' => $planned->id, 'urutan' => 1]);
+        $plannedKesei->addClosing('03:00');
+        $plannedKesei->patternBoards()->sync([$a->id]);
         KeseiPart::create(['part_id' => $noClose->id, 'urutan' => 2])->patternBoards()->sync([$a->id]);
 
         // A 4-pc drop lands before the 03:00 cutoff; a later drop is the next plan.
@@ -346,11 +368,11 @@ class KeseiTest extends TestCase
             ->assertRedirect(route('kesei.index'));
 
         $entry = KeseiPart::first();
-        $this->assertSame('14:30', $entry->closing_time?->format('H:i'));
+        $this->assertSame('14:30', $entry->closings->first()->closing_time->format('H:i'));
         $this->assertEqualsCanonicalizing([$a->id, $b->id], $entry->patternBoards->pluck('id')->all());
     }
 
-    public function test_closing_time_and_patterns_can_be_set_inline_via_patch(): void
+    public function test_closing_times_and_patterns_can_be_set_inline_via_patch(): void
     {
         $a = PatternBoard::create(['name' => 'A']);
         $b = PatternBoard::create(['name' => 'B']);
@@ -358,21 +380,72 @@ class KeseiTest extends TestCase
         $user = $this->authorizedUser();
 
         $this->actingAs($user)
-            ->patchJson(route('kesei.update', $entry), ['closing_time' => '08:15'])
-            ->assertOk()->assertJson(['ok' => true, 'closing_time' => '08:15']);
-        $this->assertSame('08:15', $entry->fresh()->closing_time?->format('H:i'));
+            ->patchJson(route('kesei.update', $entry), ['closings' => [
+                ['closing_time' => '05:00', 'closing_mode' => 'pre_run'],
+                ['closing_time' => '15:00', 'closing_mode' => 'end_of_day'],
+            ]])
+            ->assertOk()
+            ->assertJson(['ok' => true, 'closing_label' => '05:00, 15:00']);
+
+        $this->assertSame(
+            ['05:00' => 'pre_run', '15:00' => 'end_of_day'],
+            $entry->fresh()->closings->mapWithKeys(fn ($c) => [$c->closing_time->format('H:i') => $c->closing_mode])->all()
+        );
 
         $this->actingAs($user)
             ->patchJson(route('kesei.update', $entry), ['pattern_board_ids' => [$a->id, $b->id]])
             ->assertOk();
         $this->assertEqualsCanonicalizing([$a->id, $b->id], $entry->fresh()->patternBoards->pluck('id')->all());
 
-        // Sending only patterns must not wipe the closing time.
-        $this->assertSame('08:15', $entry->fresh()->closing_time?->format('H:i'));
+        // Sending only patterns must not wipe the closing times.
+        $this->assertCount(2, $entry->fresh()->closings);
+
+        // Sending closings again fully replaces the previous set (not merges).
+        $this->actingAs($user)
+            ->patchJson(route('kesei.update', $entry), ['closings' => [['closing_time' => '06:00']]])
+            ->assertOk();
+        $this->assertSame(['06:00'], $entry->fresh()->closings->map(fn ($c) => $c->closing_time->format('H:i'))->all());
 
         // Sending an empty array clears the boards.
         $this->actingAs($user)->patchJson(route('kesei.update', $entry), ['pattern_board_ids' => []])->assertOk();
         $this->assertCount(0, $entry->fresh()->patternBoards);
+    }
+
+    public function test_a_part_with_two_closing_times_folds_and_notifies_independently_on_the_board(): void
+    {
+        Carbon::setTestNow('2026-09-15 16:00:00');
+
+        $a = PatternBoard::create(['name' => 'A']);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $a->id]);
+        $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'urutan' => 1]);
+        $kesei->addClosing('05:00', 'pre_run');
+        $kesei->addClosing('15:00', 'end_of_day');
+        $kesei->patternBoards()->sync([$a->id]);
+
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 20, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 00:00')]);
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 16, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 04:00')]); // -4, before 05:00
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 13, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 12:00')]); // -3, between 05:00 & 15:00
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 11, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 15:30')]); // -2, after 15:00
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+
+        // One marker div per configured closing time (the CSS rule itself also
+        // contains the class name once, so match the div's class attribute).
+        $this->assertSame(2, substr_count($html, 'class="closing-time-marker'));
+
+        // The live pile only counts what happened after the FRESHEST closing (15:00).
+        $this->assertMatchesRegularExpression('/text-green-700">2</', $html);
+        $this->assertStringContainsString('stok turun 2 kanban (2 pcs)', $html);
+        $this->assertStringNotContainsString('stok turun 4 kanban', $html);
+        $this->assertStringNotContainsString('stok turun 3 kanban', $html);
+
+        // Closing Time table: the 05:00 -> 15:00 span (3 kanban) folded at 15:00.
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+        $this->assertMatchesRegularExpression('/P1.*?>\s*3\s*<\/td>\s*<\/tr>/s', $table);
+        $this->assertStringContainsString('15:00', $table); // whichever closing fired, not a static column
+
+        Carbon::setTestNow();
     }
 
     public function test_andon_kesei_draws_a_closing_marker_and_folds_earlier_ticks_into_an_accumulated_number(): void
@@ -382,7 +455,9 @@ class KeseiTest extends TestCase
         $a = PatternBoard::create(['name' => 'A']);
         CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $a->id]);
         $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
-        KeseiPart::create(['part_id' => $part->id, 'closing_time' => '09:00', 'closing_mode' => 'end_of_day', 'urutan' => 1])->patternBoards()->sync([$a->id]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'urutan' => 1]);
+        $kesei->addClosing('09:00', 'end_of_day');
+        $kesei->patternBoards()->sync([$a->id]);
 
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:00')]);
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);  // -4, before closing
@@ -421,7 +496,8 @@ class KeseiTest extends TestCase
         CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $d->id]);
 
         $part = Part::create(['part_no' => 'EVERY4', 'qty_kbn' => 1]);
-        $kesei = KeseiPart::create(['part_id' => $part->id, 'closing_time' => '08:00', 'closing_mode' => 'end_of_day', 'urutan' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'urutan' => 1]);
+        $kesei->addClosing('08:00', 'end_of_day');
         $kesei->patternBoards()->sync([$d->id]);
 
         // Pile starts after the 09-11 08:00 run-day closing, then drops on three
@@ -462,7 +538,8 @@ class KeseiTest extends TestCase
         CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $d->id]);
 
         $part = Part::create(['part_no' => 'EVERY4', 'qty_kbn' => 1]);
-        $kesei = KeseiPart::create(['part_id' => $part->id, 'closing_time' => '08:00', 'closing_mode' => 'end_of_day', 'urutan' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'urutan' => 1]);
+        $kesei->addClosing('08:00', 'end_of_day');
         $kesei->patternBoards()->sync([$d->id]);
 
         StockSnapshot::create(['part_no' => 'EVERY4', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-11 09:00')]);
@@ -500,11 +577,36 @@ class KeseiTest extends TestCase
             ->assertRedirect(route('kesei.index'));
 
         $p1 = KeseiPart::whereHas('part', fn ($q) => $q->where('part_no', 'P1'))->first();
-        $this->assertSame('14:30', $p1->closing_time?->format('H:i'));
+        $this->assertSame('14:30', $p1->closings->first()->closing_time->format('H:i'));
         $this->assertEqualsCanonicalizing([$a->id, $b->id], $p1->patternBoards->pluck('id')->all());
 
         $p2 = KeseiPart::whereHas('part', fn ($q) => $q->where('part_no', 'P2'))->first();
         $this->assertSame([$a->id], $p2->patternBoards->pluck('id')->all());
+    }
+
+    public function test_import_sets_several_closing_times_with_paired_modes(): void
+    {
+        $csv = implode("\n", [
+            'part_no,closing_time,closing_mode',
+            'P1,"05:00, 15:00","pre_run, end_of_day"',
+        ]);
+
+        $this->actingAs($this->authorizedUser())
+            ->post(route('kesei.import.store'), ['file' => $this->csvUpload($csv)])
+            ->assertRedirect(route('kesei.index'));
+
+        $p1 = KeseiPart::whereHas('part', fn ($q) => $q->where('part_no', 'P1'))->first();
+        $this->assertSame(
+            ['05:00' => 'pre_run', '15:00' => 'end_of_day'],
+            $p1->closings->mapWithKeys(fn ($c) => [$c->closing_time->format('H:i') => $c->closing_mode])->all()
+        );
+
+        // Re-importing with a single time replaces the whole set, not merges.
+        $csv2 = implode("\n", ['part_no,closing_time', 'P1,06:00']);
+        $this->actingAs($this->authorizedUser())
+            ->post(route('kesei.import.store'), ['file' => $this->csvUpload($csv2)]);
+
+        $this->assertSame(['06:00'], $p1->fresh()->closings->map(fn ($c) => $c->closing_time->format('H:i'))->all());
     }
 
     public function test_import_template_downloads_an_xlsx(): void

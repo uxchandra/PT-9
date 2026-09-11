@@ -18,6 +18,9 @@ class KeseiImportTemplateExport implements FromArray, WithHeadings
             ['GA241-04750', '', '', '', '', ''],
             ['57453-BZ140', '2', '', '14:30', 'end_of_day', 'A'],
             ['B114-97511', '3', 'B111-97502, B113-97514', '02:00', 'pre_run', 'A, B'],
+            // Several closing times a day: one closing_mode per closing_time,
+            // paired up in order.
+            ['GA241-06050', '2', '', '05:00, 15:00', 'pre_run, end_of_day', 'A'],
         ];
     }
 }

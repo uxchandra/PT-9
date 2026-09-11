@@ -20,10 +20,15 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
  *   pattern, those fields are updated; otherwise the row is skipped.
  * - stock_source: comma-separated part_no list whose Stock Part All stock is
  *   summed for Timeline Stok. Blank = the row's own part_no.
- * - closing_time: HH:MM. Ignored if not a valid time.
+ * - closing_time: HH:MM, or several comma-separated (e.g. "05:00, 15:00") — a
+ *   part can fold/notify at more than one closing a day. A non-empty cell
+ *   REPLACES the row's full set of closing times, it does not add to it.
+ *   Invalid entries are dropped.
  * - closing_mode: "pre_run" (default) or "end_of_day" — whether closing_time is
  *   a planning cutoff before the 07:00 run or the close of the run's own day.
- *   Blank/unknown leaves it untouched.
+ *   One value applies to every closing_time in the row; a comma-separated list
+ *   the same length as closing_time pairs up positionally instead. Blank cell
+ *   with an empty closing_time leaves the row's closings untouched.
  * - pattern: one or more Pattern Board names, comma-separated (e.g. "A, B").
  *   Names with no matching board are ignored.
  * - Rows with an empty part_no are skipped.
@@ -71,11 +76,10 @@ class KeseiImport implements ToCollection, WithHeadingRow
             $attrs = [
                 'stock_source' => $this->cleanStockSource($row['stock_source'] ?? null),
                 'level' => trim((string) ($row['level'] ?? '')) ?: null,
-                'closing_time' => $this->parseTime($row['closing_time'] ?? null),
-                'closing_mode' => $this->parseClosingMode($row['closing_mode'] ?? null),
             ];
+            $closings = $this->parseClosings($row['closing_time'] ?? null, $row['closing_mode'] ?? null);
             $boardIds = $this->resolveBoards($row['pattern'] ?? null);
-            $hasAttr = collect($attrs)->contains(fn ($value) => $value !== null) || $boardIds !== [];
+            $hasAttr = collect($attrs)->contains(fn ($value) => $value !== null) || $closings !== [] || $boardIds !== [];
 
             $part = Part::firstOrCreate(['part_no' => $partNo]);
             if ($part->wasRecentlyCreated) {
@@ -88,6 +92,9 @@ class KeseiImport implements ToCollection, WithHeadingRow
                 if ($keseiId !== true && $hasAttr) {
                     $kesei = KeseiPart::find($keseiId);
                     $kesei->update(array_filter($attrs, fn ($value) => $value !== null));
+                    if ($closings !== []) {
+                        $kesei->syncClosings($closings);
+                    }
                     if ($boardIds !== []) {
                         $kesei->patternBoards()->syncWithoutDetaching($boardIds);
                     }
@@ -103,6 +110,7 @@ class KeseiImport implements ToCollection, WithHeadingRow
                 'part_id' => $part->id,
                 'urutan' => $this->nextUrutan++,
             ]);
+            $kesei->syncClosings($closings);
             $kesei->patternBoards()->sync($boardIds);
             $this->seen[$part->id] = true;
             $this->added++;
@@ -137,15 +145,47 @@ class KeseiImport implements ToCollection, WithHeadingRow
 
     /**
      * 'pre_run' / 'end_of_day' (or the Indonesian labels). Blank or unknown
-     * leaves the row's mode untouched — new rows fall back to the DB default.
+     * falls back to CLOSING_PRE_RUN.
      */
-    private function parseClosingMode(mixed $raw): ?string
+    private function parseClosingMode(mixed $raw): string
     {
         return match (mb_strtolower(trim((string) $raw))) {
-            'pre_run', 'sebelum', 'sebelum run', 'before' => KeseiPart::CLOSING_PRE_RUN,
             'end_of_day', 'akhir', 'akhir produksi', 'after' => KeseiPart::CLOSING_END_OF_DAY,
-            default => null,
+            default => KeseiPart::CLOSING_PRE_RUN,
         };
+    }
+
+    /**
+     * closing_time may hold several comma-separated times (e.g. "05:00, 15:00")
+     * — a part can fold/notify more than once a day. closing_mode pairs up
+     * positionally when it has the same count, otherwise one mode applies to
+     * every time in the row. Invalid times are dropped; an all-invalid or
+     * empty closing_time cell yields no closings (row's existing ones untouched).
+     *
+     * @return array<int, array{time: string, mode: string}>
+     */
+    private function parseClosings(mixed $timeRaw, mixed $modeRaw): array
+    {
+        $times = collect(explode(',', (string) $timeRaw))
+            ->map(fn ($t) => $this->parseTime($t))
+            ->filter()
+            ->values();
+
+        if ($times->isEmpty()) {
+            return [];
+        }
+
+        $modes = collect(explode(',', (string) $modeRaw))
+            ->map(fn ($m) => trim((string) $m))
+            ->filter(fn ($m) => $m !== '')
+            ->values();
+
+        $pairPositionally = $modes->count() === $times->count();
+
+        return $times->map(fn ($time, $i) => [
+            'time' => $time,
+            'mode' => $this->parseClosingMode($pairPositionally ? $modes[$i] : $modes->first()),
+        ])->all();
     }
 
     /**

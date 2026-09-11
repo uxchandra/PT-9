@@ -48,8 +48,8 @@ class KeseiHistoryController extends Controller
                 'keseiPart.part',
                 fn ($p) => $p->where('part_no', 'like', "%{$search}%")
             ))
-            ->when($date !== '', fn ($q) => $q->whereDate('created_at', $date))
-            ->orderByDesc('created_at')
+            ->when($date !== '', fn ($q) => $q->whereDate('notified_on', $date))
+            ->orderByDesc('notified_on')
             ->orderByDesc('id')
             ->paginate($perPage)
             ->withQueryString();

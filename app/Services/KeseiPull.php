@@ -105,7 +105,7 @@ class KeseiPull
         $levels = $loc['levels'];
         $free = ($loc['mode'] ?? 'demand') === 'free';
 
-        $part = KeseiPart::with(['part', 'patternBoards'])
+        $part = KeseiPart::with(['part', 'patternBoards', 'closings'])
             ->whereHas('part', fn ($q) => $q->where('part_no', $partNo))
             ->get()
             ->first(fn (KeseiPart $p) => in_array(strtoupper(trim((string) $p->level)), $levels, true));

@@ -46,8 +46,8 @@ class KeseiHistoryTest extends TestCase
 
     public function test_history_closing_lists_datetime_part_no_closing_time_and_qty_kbn(): void
     {
-        $kesei = KeseiPart::create(['part_id' => Part::create(['part_no' => 'CLOSE-1'])->id, 'closing_time' => '03:00', 'urutan' => 1]);
-        KeseiClosingNotification::create(['kesei_part_id' => $kesei->id, 'notified_on' => '2026-09-10', 'qty_kbn' => 17]);
+        $kesei = KeseiPart::create(['part_id' => Part::create(['part_no' => 'CLOSE-1'])->id, 'urutan' => 1]);
+        KeseiClosingNotification::create(['kesei_part_id' => $kesei->id, 'notified_on' => '2026-09-10 03:00:00', 'qty_kbn' => 17]);
 
         $this->actingAs($this->admin())
             ->get(route('kesei-closings.index'))

@@ -72,9 +72,10 @@
             setInterval(() => { seconds++; render(); }, 1000);
         })();
 
-        // Live refresh: fetch fresh panel HTML every 60s and swap in place; a
-        // full reload only as a 30-min safety net. Scroll position of each
-        // panel is preserved across swaps.
+        // Live refresh: fetch fresh panel HTML every $pollMs and swap in place
+        // (the scan board polls much faster than the stock board — see
+        // AndonKeseiController); a full reload only as a 30-min safety net.
+        // Scroll position of each panel is preserved across swaps.
         (function () {
             let lastTimeline = document.getElementById('kesei-panel-timeline').innerHTML;
             let lastStock = document.getElementById('kesei-panel-stock').innerHTML;
@@ -110,7 +111,7 @@
                 }
             }
 
-            setInterval(refresh, 60000);
+            setInterval(refresh, {{ $pollMs ?? 60000 }});
             setTimeout(() => window.location.reload(), 30 * 60 * 1000);
 
             // Auto-scroll the stock table to the newest (bottom) row on load.
@@ -119,7 +120,7 @@
         })();
 
         // Vertical "now" line on the Kesei timeline — nudged forward every
-        // second so it tracks the real clock between the 60s panel refreshes.
+        // second so it tracks the real clock between panel refreshes.
         (function () {
             let base = null;
             let baseAt = 0;
@@ -164,7 +165,7 @@
             setInterval(function () {
                 const el = document.getElementById('kesei-now-line');
                 if (!el) { base = null; return; }
-                // A fresh 60s render bumps data-now — re-sync to the server value.
+                // A fresh panel render bumps data-now — re-sync to the server value.
                 if (!base || parseFloat(el.dataset.now) !== base.now) { sync(el); return; }
                 place(el);
             }, 1000);

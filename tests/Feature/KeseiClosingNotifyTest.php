@@ -48,12 +48,16 @@ class KeseiClosingNotifyTest extends TestCase
 
     private function keseiPart(string $partNo, ?string $closing, ?string $qtyKbn = null, ?string $mode = null): KeseiPart
     {
-        return KeseiPart::create(array_filter([
+        $kesei = KeseiPart::create(array_filter([
             'part_id' => Part::create(['part_no' => $partNo, 'qty_kbn' => $qtyKbn])->id,
-            'closing_time' => $closing,
-            'closing_mode' => $mode,
             'urutan' => KeseiPart::max('urutan') + 1,
         ], fn ($v) => $v !== null));
+
+        if ($closing !== null) {
+            $kesei->addClosing($closing, $mode ?? KeseiPart::CLOSING_PRE_RUN);
+        }
+
+        return $kesei;
     }
 
     public function test_sends_a_whatsapp_when_a_closing_time_has_passed(): void
@@ -81,7 +85,7 @@ class KeseiClosingNotifyTest extends TestCase
         });
 
         $this->assertDatabaseHas('kesei_closing_notifications', [
-            'notified_on' => '2026-09-15',
+            'notified_on' => '2026-09-15 03:00:00',
         ]);
     }
 
@@ -219,7 +223,40 @@ class KeseiClosingNotifyTest extends TestCase
         $this->notifier()->run();
 
         Http::assertSent(fn ($request) => str_contains($request->data()['message'], 'Qty Kbn : 4'));
-        $this->assertDatabaseHas('kesei_closing_notifications', ['notified_on' => '2026-09-15', 'qty_kbn' => 4]);
+        $this->assertDatabaseHas('kesei_closing_notifications', ['notified_on' => '2026-09-15 03:00:00', 'qty_kbn' => 4]);
+    }
+
+    public function test_two_closing_times_on_the_same_day_each_notify_independently(): void
+    {
+        $this->fakeGatewayOk();
+        $a = PatternBoard::create(['name' => 'A']);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $a->id]);
+
+        $kesei = $this->keseiPart('P1', null, qtyKbn: '1');
+        $kesei->addClosing('05:00', KeseiPart::CLOSING_PRE_RUN);
+        $kesei->addClosing('15:00', KeseiPart::CLOSING_END_OF_DAY);
+        $kesei->patternBoards()->sync([$a->id]);
+
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 20, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 00:00')]);
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 16, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 04:00')]); // -4, before 05:00
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 13, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 12:00')]); // -3, between 05:00 & 15:00
+
+        // A tick right after the 05:00 closing — only that one is due.
+        Carbon::setTestNow('2026-09-15 05:05:00');
+        $first = $this->notifier()->run();
+        $this->assertSame(['sent' => 1, 'skipped' => 0, 'failed' => 0], $first);
+
+        // A tick right after the 15:00 closing — the 05:00 one is not re-sent.
+        Carbon::setTestNow('2026-09-15 15:05:00');
+        $second = $this->notifier()->run();
+        $this->assertSame(['sent' => 1, 'skipped' => 0, 'failed' => 0], $second);
+
+        Http::assertSent(fn ($r) => str_contains($r->data()['message'], 'Closing 05:00') && str_contains($r->data()['message'], 'Qty Kbn : 4'));
+        Http::assertSent(fn ($r) => str_contains($r->data()['message'], 'Closing 15:00') && str_contains($r->data()['message'], 'Qty Kbn : 3'));
+
+        $this->assertDatabaseHas('kesei_closing_notifications', ['notified_on' => '2026-09-15 05:00:00', 'qty_kbn' => 4]);
+        $this->assertDatabaseHas('kesei_closing_notifications', ['notified_on' => '2026-09-15 15:00:00', 'qty_kbn' => 3]);
+        $this->assertSame(2, KeseiClosingNotification::count());
     }
 
     public function test_qty_kbn_matches_the_board_and_can_span_several_days_for_an_infrequent_part(): void

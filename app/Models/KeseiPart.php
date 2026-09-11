@@ -6,10 +6,11 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
-#[Fillable(['part_id', 'stock_source', 'level', 'closing_time', 'closing_mode', 'urutan'])]
+#[Fillable(['part_id', 'stock_source', 'level', 'urutan'])]
 class KeseiPart extends Model
 {
     /**
@@ -27,19 +28,6 @@ class KeseiPart extends Model
 
     public const CLOSING_MODES = [self::CLOSING_PRE_RUN, self::CLOSING_END_OF_DAY];
 
-    protected function casts(): array
-    {
-        return [
-            'closing_time' => 'datetime:H:i',
-        ];
-    }
-
-    public function isPreRunClosing(): bool
-    {
-        // Anything but an explicit end_of_day counts as pre-run (the default).
-        return $this->closing_mode !== self::CLOSING_END_OF_DAY;
-    }
-
     public function part(): BelongsTo
     {
         return $this->belongsTo(Part::class);
@@ -51,6 +39,49 @@ class KeseiPart extends Model
     public function patternBoards(): BelongsToMany
     {
         return $this->belongsToMany(PatternBoard::class)->orderBy('name');
+    }
+
+    /**
+     * A Kesei row can carry more than one closing time (e.g. 05:00 and
+     * 15:00) — each one folds the pile and notifies independently.
+     */
+    public function closings(): HasMany
+    {
+        return $this->hasMany(KeseiPartClosing::class)->orderBy('closing_time');
+    }
+
+    /**
+     * Convenience for adding a single closing time (the common case — one
+     * part, one cutoff). For several at once, see syncClosings().
+     */
+    public function addClosing(string $time, string $mode = self::CLOSING_PRE_RUN): KeseiPartClosing
+    {
+        return $this->closings()->create(['closing_time' => $time, 'closing_mode' => $mode]);
+    }
+
+    /**
+     * Replace this row's full set of closing times with the given ones.
+     *
+     * @param  array<int, array{time: string, mode?: string}>  $closings
+     */
+    public function syncClosings(array $closings): void
+    {
+        $this->closings()->delete();
+
+        foreach ($closings as $closing) {
+            $this->addClosing($closing['time'], $closing['mode'] ?? self::CLOSING_PRE_RUN);
+        }
+    }
+
+    /**
+     * A comma-separated "05:00, 15:00" for compact display — empty dash when
+     * the part has no closing time at all.
+     */
+    public function closingTimesLabel(): string
+    {
+        $label = $this->closings->pluck('closing_time')->map(fn (Carbon $t) => $t->format('H:i'))->implode(', ');
+
+        return $label !== '' ? $label : '—';
     }
 
     /**
@@ -80,9 +111,8 @@ class KeseiPart extends Model
     }
 
     /**
-     * The wall-clock instant this row's closing time falls on for the 07:00
-     * production run that starts at $runDayStart. Null when the row has no
-     * closing time.
+     * The wall-clock instant one closing definition falls on for the 07:00
+     * production run that starts at $runDayStart.
      *
      *  - pre_run    : the closing sits in the 24h BEFORE the run. A time < 07:00
      *                 lands the same morning; a time >= 07:00 the evening before.
@@ -90,15 +120,11 @@ class KeseiPart extends Model
      *                 A time >= 07:00 lands that day; a time < 07:00 the next
      *                 calendar morning.
      */
-    public function closingInstantForRunDay(Carbon $runDayStart): ?Carbon
+    public function closingInstantForRunDay(Carbon $runDayStart, KeseiPartClosing $closing): Carbon
     {
-        if ($this->closing_time === null) {
-            return null;
-        }
+        $at = $runDayStart->copy()->setTime((int) $closing->closing_time->hour, (int) $closing->closing_time->minute);
 
-        $at = $runDayStart->copy()->setTime((int) $this->closing_time->hour, (int) $this->closing_time->minute);
-
-        if ($this->isPreRunClosing()) {
+        if ($closing->isPreRunClosing()) {
             if ($at->gte($runDayStart)) {
                 $at->subDay();
             }
@@ -152,23 +178,48 @@ class KeseiPart extends Model
     }
 
     /**
+     * Every (closing instant, its run-day start) pair that has already passed
+     * as of $now, across EVERY closing definition and every recent run-day —
+     * newest instant first. This is the one place the "which closing is the
+     * most recent" question gets answered, so foldBoundaries(),
+     * plannedRunDayStart() and closedForCurrentRun() all agree with each other
+     * regardless of how many closing times the row carries.
+     *
+     * @return array<int, array{0: Carbon, 1: Carbon}>
+     */
+    private function pastClosingInstants(Carbon $now): array
+    {
+        $closings = $this->closings;
+
+        if ($closings->isEmpty()) {
+            return [];
+        }
+
+        $pairs = [];
+
+        foreach ($this->recentRunDayStarts($now) as $runDayStart) {
+            foreach ($closings as $closing) {
+                $at = $this->closingInstantForRunDay($runDayStart, $closing);
+
+                if ($at->lte($now)) {
+                    $pairs[] = [$at, $runDayStart];
+                }
+            }
+        }
+
+        usort($pairs, fn (array $a, array $b) => $b[0] <=> $a[0]);
+
+        return $pairs;
+    }
+
+    /**
      * The run-day (07:00 start) whose closing is the most recent one at/before
      * $now — i.e. the run this row is currently planning for / has just closed.
      * Null when no closing has passed within FOLD_HISTORY_DAYS.
      */
     public function plannedRunDayStart(Carbon $now): ?Carbon
     {
-        if ($this->closing_time === null) {
-            return null;
-        }
-
-        foreach ($this->recentRunDayStarts($now) as $runDayStart) {
-            if ($this->closingInstantForRunDay($runDayStart)->lte($now)) {
-                return $runDayStart;
-            }
-        }
-
-        return null;
+        return $this->pastClosingInstants($now)[0][1] ?? null;
     }
 
     /**
@@ -210,54 +261,42 @@ class KeseiPart extends Model
 
     /**
      * Has the closing for the CURRENT production-day cycle already passed for
-     * this row? True only when the row is running now and its closing instant
-     * for that run is in the past. This is what puts a row into the Andon
-     * Closing Time table — the table is empty until a part reaches its closing.
+     * this row? True only when the row is running now and AT LEAST ONE of its
+     * closing definitions has, for TODAY's run specifically, passed. This is
+     * what puts a row into the Andon Closing Time table — the table is empty
+     * until a part reaches a closing, and (with several closing times) shows
+     * whichever is the freshest via foldBoundaries()'s own numbers.
      */
     public function closedForCurrentRun(Carbon $now): bool
     {
-        if ($this->closing_time === null || ! $this->isRunningNow($now)) {
+        if (! $this->isRunningNow($now)) {
             return false;
         }
 
-        return $now->gte($this->closingInstantForRunDay(CalendarEntry::productionDayStart($now)));
+        $productionDayStart = CalendarEntry::productionDayStart($now);
+
+        return $this->closings->contains(
+            fn (KeseiPartClosing $closing) => $now->gte($this->closingInstantForRunDay($productionDayStart, $closing))
+        );
     }
 
     /**
      * [foldStart, cycleStart] for this row at $now:
-     *  - foldStart  — the most recent closing at/before $now, or null when none
-     *                 has passed. Red ticks after it are the live pile; ticks
+     *  - foldStart  — the most recent closing (across every closing time this
+     *                 row carries) at/before $now, or null when none has
+     *                 passed. Red ticks after it are the live pile; ticks
      *                 before it have folded.
-     *  - cycleStart — the closing before that (or the history floor when there is
-     *                 none). The span (cycleStart, foldStart] is what folded into
-     *                 the accumulated-kanban number.
+     *  - cycleStart — the closing before that (or the history floor when there
+     *                 is none). The span (cycleStart, foldStart] is what folded
+     *                 into the accumulated-kanban number.
      *
      * @return array{0: ?Carbon, 1: Carbon}
      */
     public function foldBoundaries(Carbon $now): array
     {
         $historyFloor = $now->copy()->subDays(self::FOLD_HISTORY_DAYS);
+        $pairs = $this->pastClosingInstants($now);
 
-        if ($this->closing_time === null) {
-            return [null, $historyFloor];
-        }
-
-        $found = [];
-
-        foreach ($this->recentRunDayStarts($now) as $runDayStart) {
-            $closingAt = $this->closingInstantForRunDay($runDayStart);
-
-            if ($closingAt->gt($now)) {
-                continue;
-            }
-
-            $found[] = $closingAt;
-
-            if (count($found) === 2) {
-                break;
-            }
-        }
-
-        return [$found[0] ?? null, $found[1] ?? $historyFloor];
+        return [$pairs[0][0] ?? null, $pairs[1][0] ?? $historyFloor];
     }
 }

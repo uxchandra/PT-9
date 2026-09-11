@@ -4,11 +4,13 @@ namespace App\Services;
 
 use App\Models\CalendarEntry;
 use App\Models\KeseiPart;
+use App\Models\KeseiPartClosing;
 use App\Models\KeseiScan;
 use App\Models\PatternGroupItem;
 use App\Models\StockSnapshot;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Builds everything the Kesei board renders — a fixed 07:00 → 07:00 clock face
@@ -40,18 +42,35 @@ class KeseiBoard
      */
     public function data(string $tickSource = 'stock'): array
     {
+        // The scan board polls every few seconds so a scan shows up almost
+        // instantly. Keying the cache by the newest row id of whichever table
+        // actually drives the ticks means a genuinely new scan/stock reading
+        // is never stale — it changes the key — while repeated polls in
+        // between (the common case) share one computed board instead of
+        // rebuilding it from scratch every few seconds.
+        $freshness = $tickSource === 'scan'
+            ? KeseiScan::max('id') ?? 0
+            : StockSnapshot::max('id') ?? 0;
+
+        return Cache::remember("kesei-board:{$tickSource}:{$freshness}", 5, fn () => $this->build($tickSource));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function build(string $tickSource): array
+    {
         $now = now();
         // Only the *time* (07:00) matters here — the blade uses it for the hour
         // axis labels, which wrap 07 → 06 → 07.
         $anchor = $now->copy()->setTime(7, 0);
         $historyFloor = $now->copy()->subDays(KeseiPart::FOLD_HISTORY_DAYS);
 
-        $keseiRows = KeseiPart::with(['part', 'patternBoards'])
+        $keseiRows = KeseiPart::with(['part', 'patternBoards', 'closings'])
             ->orderBy('urutan')
             ->orderBy('id')
             ->get()
             ->map(function (KeseiPart $kesei) use ($now, $historyFloor) {
-                $closing = $kesei->closing_time;
                 [$foldStart, $cycleStart] = $kesei->foldBoundaries($now);
 
                 return [
@@ -68,8 +87,19 @@ class KeseiBoard
                     // Has it passed its closing for the current run? Only then
                     // does it appear in the Closing Time table.
                     'closed_now' => $kesei->closedForCurrentRun($now),
-                    'closing_label' => $closing?->format('H:i'),
-                    'closing_minute' => $closing ? $this->clockMinute($closing) : null,
+                    // Which specific closing time just fired — a part can carry
+                    // several (e.g. 05:00 and 15:00); this is whichever is freshest.
+                    'closing_label' => $foldStart?->format('H:i'),
+                    // Every configured closing time's position on the looping
+                    // clock face, for drawing a marker per definition.
+                    'closing_markers' => $kesei->closings
+                        ->map(fn (KeseiPartClosing $c) => [
+                            'minute' => $this->clockMinute($c->closing_time),
+                            'label' => $c->closing_time->format('H:i'),
+                        ])
+                        ->unique('minute')
+                        ->values()
+                        ->all(),
                     'closing_reached' => $foldStart !== null,
                     // Visible pile starts after the last closing; when none has
                     // passed, show everything within the history window.
@@ -394,9 +424,14 @@ class KeseiBoard
     }
 
     /**
-     * Scan-driven ticks: one event per scanned SOS label (1 kanban each),
-     * positioned on the clock face by when it was scanned. A scan is matched
-     * to the Kesei row whose own part_no or a source part_no equals it.
+     * Scan-driven ticks: one event per minute a row got scanned in, kanban
+     * = how many scans landed in that minute. Several scans in the same
+     * minute land on the exact same clock-face pixel (the tick position only
+     * has minute resolution), so they're combined into one tick with a
+     * summed count instead of stacking invisibly on top of each other — the
+     * same shape the stock-decrease ticks already have (one number per
+     * capture, not one tick per unit dropped). A scan is matched to the Kesei
+     * row whose own part_no or a source part_no equals it.
      *
      * @return array<int, array<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>>
      */
@@ -414,26 +449,37 @@ class KeseiBoard
             }
         }
 
-        $events = array_fill_keys($keseiRows->pluck('id')->all(), []);
+        // [rowId][minute] => ['kanban' => count, 'at' => latest scan in that minute]
+        $grouped = [];
 
         KeseiScan::whereIn('part_no', array_keys($rowByPartNo))
             ->whereBetween('scanned_at', [$from, $to])
             ->orderBy('scanned_at')
             ->get(['part_no', 'scanned_at'])
-            ->each(function (KeseiScan $scan) use (&$events, $rowByPartNo) {
+            ->each(function (KeseiScan $scan) use (&$grouped, $rowByPartNo) {
                 $rowId = $rowByPartNo[$scan->part_no] ?? null;
                 if ($rowId === null) {
                     return;
                 }
 
-                $events[$rowId][] = [
-                    'minute' => $this->clockMinute($scan->scanned_at),
-                    'kanban' => 1,
-                    'pcs' => 1,
-                    'time' => $scan->scanned_at->format('H:i'),
-                    'at' => $scan->scanned_at,
-                ];
+                $minute = $this->clockMinute($scan->scanned_at);
+                $grouped[$rowId][$minute]['kanban'] = ($grouped[$rowId][$minute]['kanban'] ?? 0) + 1;
+                $grouped[$rowId][$minute]['at'] = $scan->scanned_at;
             });
+
+        $events = array_fill_keys($keseiRows->pluck('id')->all(), []);
+
+        foreach ($grouped as $rowId => $byMinute) {
+            foreach ($byMinute as $minute => $group) {
+                $events[$rowId][] = [
+                    'minute' => $minute,
+                    'kanban' => $group['kanban'],
+                    'pcs' => $group['kanban'],
+                    'time' => $group['at']->format('H:i'),
+                    'at' => $group['at'],
+                ];
+            }
+        }
 
         return $events;
     }

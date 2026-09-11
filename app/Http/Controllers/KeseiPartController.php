@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\KeseiPart;
+use App\Models\KeseiPartClosing;
 use App\Models\Part;
 use App\Models\PatternBoard;
 use Illuminate\Http\JsonResponse;
@@ -16,7 +17,7 @@ class KeseiPartController extends Controller
 {
     public function index(): View
     {
-        $keseiParts = KeseiPart::with(['part', 'patternBoards'])->orderBy('urutan')->orderBy('id')->get();
+        $keseiParts = KeseiPart::with(['part', 'patternBoards', 'closings'])->orderBy('urutan')->orderBy('id')->get();
 
         $availableParts = Part::whereNotIn('id', $keseiParts->pluck('part_id'))
             ->orderBy('part_no')
@@ -43,10 +44,12 @@ class KeseiPartController extends Controller
             'part_id' => $validated['part_id'],
             'stock_source' => $this->cleanStockSource($validated['stock_source'] ?? null),
             'level' => $validated['level'] ?? null,
-            'closing_time' => $validated['closing_time'] ?? null,
-            'closing_mode' => $validated['closing_mode'] ?? KeseiPart::CLOSING_PRE_RUN,
             'urutan' => (int) KeseiPart::max('urutan') + 1,
         ]);
+
+        if (! empty($validated['closing_time'])) {
+            $keseiPart->addClosing($validated['closing_time'], $validated['closing_mode'] ?? KeseiPart::CLOSING_PRE_RUN);
+        }
 
         $keseiPart->patternBoards()->sync($validated['pattern_board_ids'] ?? []);
 
@@ -58,8 +61,11 @@ class KeseiPartController extends Controller
         $validated = $request->validate([
             'stock_source' => ['sometimes', 'nullable', 'string', 'max:255'],
             'level' => ['sometimes', 'nullable', 'string', 'max:50'],
-            'closing_time' => ['sometimes', 'nullable', 'date_format:H:i'],
-            'closing_mode' => ['sometimes', Rule::in(KeseiPart::CLOSING_MODES)],
+            // The full set of closing times for this row — sending it replaces
+            // whatever was there before (same "sync" shape as pattern_board_ids).
+            'closings' => ['sometimes', 'array'],
+            'closings.*.closing_time' => ['required', 'date_format:H:i'],
+            'closings.*.closing_mode' => ['nullable', Rule::in(KeseiPart::CLOSING_MODES)],
             'pattern_board_ids' => ['sometimes', 'nullable', 'array'],
             'pattern_board_ids.*' => ['integer', 'exists:pattern_boards,id'],
         ]);
@@ -73,14 +79,14 @@ class KeseiPartController extends Controller
         if (array_key_exists('level', $validated)) {
             $updates['level'] = $validated['level'] ?: null;
         }
-        if (array_key_exists('closing_time', $validated)) {
-            $updates['closing_time'] = $validated['closing_time'] ?: null;
-        }
-        if (array_key_exists('closing_mode', $validated)) {
-            $updates['closing_mode'] = $validated['closing_mode'];
-        }
         if ($updates !== []) {
             $keseiPart->update($updates);
+        }
+
+        if (array_key_exists('closings', $validated)) {
+            $keseiPart->syncClosings(collect($validated['closings'])
+                ->map(fn (array $c) => ['time' => $c['closing_time'], 'mode' => $c['closing_mode'] ?? KeseiPart::CLOSING_PRE_RUN])
+                ->all());
         }
 
         if (array_key_exists('pattern_board_ids', $validated)) {
@@ -92,8 +98,11 @@ class KeseiPartController extends Controller
                 'ok' => true,
                 'stock_source' => $keseiPart->stock_source,
                 'level' => $keseiPart->level,
-                'closing_time' => $keseiPart->closing_time?->format('H:i'),
-                'closing_mode' => $keseiPart->closing_mode,
+                'closings' => $keseiPart->closings->map(fn (KeseiPartClosing $c) => [
+                    'closing_time' => $c->closing_time->format('H:i'),
+                    'closing_mode' => $c->closing_mode,
+                ])->all(),
+                'closing_label' => $keseiPart->closingTimesLabel(),
                 'pattern_board_ids' => $keseiPart->patternBoards()->pluck('pattern_boards.id'),
             ]);
         }

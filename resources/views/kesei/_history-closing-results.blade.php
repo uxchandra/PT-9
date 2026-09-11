@@ -14,10 +14,11 @@
         </thead>
         <tbody>
             @forelse ($rows as $row)
+                @php $notifiedAt = \Illuminate\Support\Carbon::parse($row->notified_on); @endphp
                 <tr class="hover:bg-gray-50">
-                    <td class="px-6 py-3 border-b border-gray-300 text-gray-800">{{ $row->created_at?->format('d M Y') ?? '-' }}</td>
+                    <td class="px-6 py-3 border-b border-gray-300 text-gray-800">{{ $notifiedAt->format('d M Y') }}</td>
                     <td class="px-4 py-3 border-b border-l border-gray-300 text-gray-800 font-medium">{{ $row->keseiPart?->part?->part_no ?? '(part terhapus)' }}</td>
-                    <td class="px-4 py-3 border-b border-l border-gray-300 text-gray-600">{{ $row->keseiPart?->closing_time?->format('H:i') ?? '-' }}</td>
+                    <td class="px-4 py-3 border-b border-l border-gray-300 text-gray-600">{{ $notifiedAt->format('H:i') }}</td>
                     <td class="px-6 py-3 border-b border-l border-gray-300 text-right font-semibold text-gray-800">{{ $row->qty_kbn }}</td>
                 </tr>
             @empty

@@ -281,4 +281,26 @@ class ScannerTest extends TestCase
 
         Carbon::setTestNow();
     }
+
+    public function test_several_scans_in_the_same_minute_combine_into_one_tick(): void
+    {
+        $this->pullablePart();
+
+        // Three scans landing in the same clock-face minute would otherwise
+        // stack invisibly on top of each other — they must combine into one
+        // tick worth 3 kanban instead.
+        foreach (['09:30:01', '09:30:20', '09:30:45'] as $time) {
+            KeseiScan::create([
+                'part_no' => '57183-BZ010', 'location' => 'finish-goods', 'raw' => 'x',
+                'scanned_at' => Carbon::parse("2026-09-15 {$time}"),
+            ]);
+        }
+
+        $html = $this->get(route('andon-kesei.scan'))->getContent();
+
+        $this->assertStringContainsString('stok turun 3 kanban (3 pcs)', $html);
+        $this->assertStringNotContainsString('stok turun 1 kanban (1 pcs)', $html);
+
+        Carbon::setTestNow();
+    }
 }

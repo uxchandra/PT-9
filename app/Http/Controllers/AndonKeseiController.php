@@ -19,17 +19,21 @@ class AndonKeseiController extends Controller
 {
     public function show(Request $request, KeseiBoard $board): View|JsonResponse
     {
-        return $this->render($request, $board->data('stock'), 'KESEI KANBAN LINE 9');
+        return $this->render($request, $board->data('stock'), 'KESEI KANBAN LINE 9', 60000);
     }
 
     public function showScan(Request $request, KeseiBoard $board): View|JsonResponse
     {
-        return $this->render($request, $board->data('scan'), 'KESEI SCAN LINE 9');
+        // Scans are live operator actions on a handheld — refresh fast so a
+        // tick lands on the wall board almost immediately, not on the stock
+        // board's 60s cadence (stock only moves every 15 minutes anyway).
+        return $this->render($request, $board->data('scan'), 'KESEI SCAN LINE 9', 3000);
     }
 
-    private function render(Request $request, array $viewData, string $title): View|JsonResponse
+    private function render(Request $request, array $viewData, string $title, int $pollMs): View|JsonResponse
     {
         $viewData['boardTitle'] = $title;
+        $viewData['pollMs'] = $pollMs;
 
         if ($request->ajax()) {
             return response()->json([

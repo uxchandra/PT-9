@@ -55,18 +55,19 @@
                         </div>
                         <div class="relative shrink-0" style="width: {{ $totalWidth }}px;">
                             @php
-                                $closingMinute = $row['closing_minute'];
                                 // Live count of the red ticks currently on this row — resets to
-                                // 0 the moment the closing folds them away.
+                                // 0 the moment the (most recent) closing folds them away.
                                 $ck = collect($stockDecreaseEvents[$row['id']] ?? [])->sum('kanban');
                             @endphp
-                            @if ($closingMinute !== null)
+                            {{-- A row can carry more than one closing time a day (e.g. 05:00
+                                 and 15:00) — one marker per definition. --}}
+                            @foreach ($row['closing_markers'] as $marker)
                                 <div class="closing-time-marker absolute top-0 bottom-0 z-10"
-                                     style="left: {{ max(0, ($closingMinute - $dayStart) * $pxPerMinute) }}px;"
-                                     title="{{ __('Closing time') }} {{ $row['closing_label'] }} — {{ $ck }} kanban berjalan">
+                                     style="left: {{ max(0, ($marker['minute'] - $dayStart) * $pxPerMinute) }}px;"
+                                     title="{{ __('Closing time') }} {{ $marker['label'] }} — {{ $ck }} kanban berjalan">
                                     <span class="absolute bottom-0.5 left-1 text-[9px] font-bold leading-none whitespace-nowrap {{ $ck > 0 ? 'text-green-700' : 'text-slate-400' }}">{{ $ck }}</span>
                                 </div>
-                            @endif
+                            @endforeach
                             @foreach ($stockDecreaseEvents[$row['id']] ?? [] as $event)
                                 {{-- The controller already drops ticks that folded at the last run-day
                                      closing; whatever is left here is the live pile and always shows. --}}

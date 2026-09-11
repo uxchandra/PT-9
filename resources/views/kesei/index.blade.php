@@ -121,8 +121,7 @@
                             <th class="px-3 py-3 w-28 whitespace-nowrap">{{ __('Part No') }}</th>
                             <th class="px-3 py-3 w-20 whitespace-nowrap">{{ __('Level') }}</th>
                             <th class="px-6 py-3">{{ __('SOS Code') }}</th>
-                            <th class="px-6 py-3">{{ __('Closing Time') }}</th>
-                            <th class="px-4 py-3 w-24 text-center whitespace-nowrap">{{ __('Pre-run') }}</th>
+                            <th class="px-4 py-3 w-40">{{ __('Closing Time') }}</th>
                             <th class="px-4 py-3 w-40">{{ __('Pattern') }}</th>
                             <th class="px-3 py-3 w-12 text-center">{{ __('Aksi') }}</th>
                         </tr>
@@ -152,23 +151,34 @@
                                            value="{{ $item->stock_source }}">
                                     <span class="kesei-status ml-1 text-xs"></span>
                                 </td>
-                                <td class="px-6 py-3">
-                                    <input type="time"
-                                           class="kesei-inline rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
-                                           data-field="closing_time"
-                                           data-url="{{ route('kesei.update', $item) }}"
-                                           value="{{ $item->closing_time?->format('H:i') }}">
-                                    <span class="kesei-status ml-1 text-xs"></span>
-                                </td>
-                                <td class="px-4 py-3 w-24 text-center" title="{{ __('Checklist = closing sebelum run. Kosong = closing di akhir produksi.') }}">
-                                    <input type="checkbox"
-                                           class="kesei-inline rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                                           data-field="closing_mode"
-                                           data-checked-value="pre_run"
-                                           data-unchecked-value="end_of_day"
-                                           data-url="{{ route('kesei.update', $item) }}"
-                                           @checked($item->isPreRunClosing())>
-                                    <span class="kesei-status ml-1 text-xs"></span>
+                                <td class="px-4 py-3 w-40">
+                                    <div class="flex items-center gap-1">
+                                        <details class="kesei-closings relative" data-url="{{ route('kesei.update', $item) }}">
+                                            <summary class="list-none cursor-pointer text-xs text-gray-700 hover:text-brand-600 [&::-webkit-details-marker]:hidden">
+                                                <span class="kesei-closings-text">{{ $item->closingTimesLabel() }}</span>
+                                            </summary>
+                                            <div class="absolute z-20 mt-1 w-60 rounded-md border border-gray-200 bg-white shadow-lg p-2 flex flex-col gap-2">
+                                                <div class="kesei-closings-rows flex flex-col gap-1.5">
+                                                    @foreach ($item->closings as $closing)
+                                                        <div class="kesei-closing-row flex items-center gap-1">
+                                                            <input type="time" value="{{ $closing->closing_time->format('H:i') }}"
+                                                                   class="kesei-closing-time flex-1 rounded-md border-gray-300 text-xs focus:border-brand-500 focus:ring-brand-500">
+                                                            <label class="inline-flex items-center gap-1 text-[11px] text-gray-600" title="{{ __('Checklist = closing sebelum run. Kosong = closing di akhir produksi.') }}">
+                                                                <input type="checkbox" class="kesei-closing-mode rounded border-gray-300 text-brand-600 focus:ring-brand-500" @checked($closing->isPreRunClosing())>
+                                                                {{ __('Pre') }}
+                                                            </label>
+                                                            <button type="button" class="kesei-closing-remove text-gray-300 hover:text-red-600" aria-label="{{ __('Hapus') }}">&times;</button>
+                                                        </div>
+                                                    @endforeach
+                                                </div>
+                                                <div class="flex items-center justify-between gap-1">
+                                                    <button type="button" class="kesei-closing-add text-[11px] font-semibold text-brand-700 hover:text-brand-900">+ {{ __('Tambah jam') }}</button>
+                                                    <button type="button" class="kesei-closing-save rounded bg-brand-700 px-2 py-1 text-[11px] font-semibold text-white hover:bg-brand-800">{{ __('Simpan') }}</button>
+                                                </div>
+                                            </div>
+                                        </details>
+                                        <span class="kesei-status text-xs"></span>
+                                    </div>
                                 </td>
                                 <td class="px-4 py-3 w-40">
                                     <div class="flex items-center gap-1">
@@ -206,7 +216,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada part di Kesei.') }}</td>
+                                <td colspan="8" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada part di Kesei.') }}</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -253,7 +263,7 @@
                         .catch(function () { set('✕', 'text-red-600'); });
                 }
 
-                // Inline auto-save of Source / Closing Time / Mode.
+                // Inline auto-save of Source / Level.
                 document.querySelectorAll('.kesei-inline').forEach(function (field) {
                     const badge = field.closest('td').querySelector('.kesei-status');
                     field.addEventListener('change', function () {
@@ -265,8 +275,6 @@
                                 if (!d) return;
                                 if (field.dataset.field === 'stock_source') field.value = d.stock_source ?? '';
                                 if (field.dataset.field === 'level') field.value = d.level ?? '';
-                                if (field.dataset.field === 'closing_time') field.value = d.closing_time ?? '';
-                                if (field.dataset.field === 'closing_mode' && field.type === 'checkbox') field.checked = (d.closing_mode ?? 'pre_run') === 'pre_run';
                             });
                     });
                 });
@@ -282,6 +290,57 @@
                         save(cell.dataset.url, { pattern_board_ids: checked.map(function (c) { return Number(c.value); }) }, badge);
                     });
                     // Click anywhere outside closes the dropdown.
+                    document.addEventListener('click', function (e) {
+                        if (cell.open && !cell.contains(e.target)) cell.open = false;
+                    });
+                });
+
+                // Closing Time: a "05:00, 15:00" text that opens a dropdown of
+                // add/remove rows (time + pre-run toggle). Explicit Save button —
+                // a freshly-added, still-empty row must not auto-save.
+                document.querySelectorAll('.kesei-closings').forEach(function (cell) {
+                    const text = cell.querySelector('.kesei-closings-text');
+                    const rows = cell.querySelector('.kesei-closings-rows');
+                    const badge = cell.parentElement.querySelector('.kesei-status');
+
+                    function addRow(time, preRun) {
+                        const row = document.createElement('div');
+                        row.className = 'kesei-closing-row flex items-center gap-1';
+                        row.innerHTML =
+                            '<input type="time" class="kesei-closing-time flex-1 rounded-md border-gray-300 text-xs focus:border-brand-500 focus:ring-brand-500" value="' + (time || '') + '">' +
+                            '<label class="inline-flex items-center gap-1 text-[11px] text-gray-600">' +
+                            '<input type="checkbox" class="kesei-closing-mode rounded border-gray-300 text-brand-600 focus:ring-brand-500"' + (preRun ? ' checked' : '') + '> {{ __('Pre') }}</label>' +
+                            '<button type="button" class="kesei-closing-remove text-gray-300 hover:text-red-600">&times;</button>';
+                        rows.appendChild(row);
+                    }
+
+                    cell.querySelector('.kesei-closing-add').addEventListener('click', function () {
+                        addRow('', true);
+                    });
+
+                    rows.addEventListener('click', function (e) {
+                        if (e.target.classList.contains('kesei-closing-remove')) {
+                            e.target.closest('.kesei-closing-row').remove();
+                        }
+                    });
+
+                    cell.querySelector('.kesei-closing-save').addEventListener('click', function () {
+                        const closings = Array.from(rows.querySelectorAll('.kesei-closing-row'))
+                            .map(function (row) {
+                                return {
+                                    closing_time: row.querySelector('.kesei-closing-time').value,
+                                    closing_mode: row.querySelector('.kesei-closing-mode').checked ? 'pre_run' : 'end_of_day',
+                                };
+                            })
+                            .filter(function (c) { return c.closing_time; });
+
+                        save(cell.dataset.url, { closings: closings }, badge).then(function (d) {
+                            if (!d) return;
+                            text.textContent = d.closing_label || '—';
+                            cell.open = false;
+                        });
+                    });
+
                     document.addEventListener('click', function (e) {
                         if (cell.open && !cell.contains(e.target)) cell.open = false;
                     });

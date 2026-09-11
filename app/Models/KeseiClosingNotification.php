@@ -11,9 +11,11 @@ class KeseiClosingNotification extends Model
 {
     public const UPDATED_AT = null;
 
-    // 'notified_on' is left as a plain "Y-m-d" string — a 'date' cast would
-    // serialise it back through the full datetime format on save (same reason
-    // as CalendarEntry::$date).
+    // 'notified_on' is the exact closing instant (a part can carry more than
+    // one closing time a day, so the date alone isn't enough to dedupe them)
+    // and is left as a plain "Y-m-d H:i:s" string — a 'datetime' cast would
+    // serialise it back through a different format on save (same reason as
+    // CalendarEntry::$date).
 
     public function keseiPart(): BelongsTo
     {
