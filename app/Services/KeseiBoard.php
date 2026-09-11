@@ -52,14 +52,67 @@ class KeseiBoard
             ? KeseiScan::max('id') ?? 0
             : StockSnapshot::max('id') ?? 0;
 
-        $data = Cache::remember("kesei-board:{$tickSource}:{$freshness}", 5, fn () => $this->build($tickSource));
+        $frozen = Cache::remember(
+            "kesei-board:{$tickSource}:{$freshness}",
+            5,
+            fn () => $this->freeze($this->build($tickSource))
+        );
 
-        // The cache stores plain arrays (database serialisation of Collection
-        // objects causes "incomplete object" errors on unserialize). Wrap them
-        // back into Collections so the Blade templates can call ->isEmpty(),
-        // ->pluck(), etc. as before.
-        $data['keseiRows']   = collect($data['keseiRows']);
-        $data['closingRows'] = collect($data['closingRows']);
+        return $this->thaw($frozen);
+    }
+
+    /**
+     * Carbon instances don't reliably survive the database/file cache's
+     * serialize()/unserialize() round-trip — under load the class can come
+     * back as `_PHP_Incomplete_Class`, which then breaks both Blade
+     * ($windowStart->copy()->...) and any query that binds the value
+     * (KeseiPull's ->where('scanned_at', '>', $row['fold_start'])). So
+     * nothing but plain strings/arrays ever goes into the cache — every
+     * Carbon here is flattened to a "Y-m-d H:i:s" string, and thaw() rebuilds
+     * real Carbon instances the moment the data comes back out, cache hit or
+     * not, so every consumer sees exactly the shape build() always returned.
+     *
+     * @return array<string, mixed>
+     */
+    private function freeze(array $data): array
+    {
+        $freezeRow = fn (array $row) => [
+            ...$row,
+            'fold_start' => $row['fold_start']->toDateTimeString(),
+            'cycle_start' => $row['cycle_start']->toDateTimeString(),
+        ];
+
+        $data['keseiRows'] = collect($data['keseiRows'])->map($freezeRow)->all();
+        $data['closingRows'] = collect($data['closingRows'])->map($freezeRow)->all();
+        $data['stockDecreaseEvents'] = collect($data['stockDecreaseEvents'])
+            ->map(fn (array $events) => collect($events)
+                ->map(fn (array $e) => [...$e, 'at' => $e['at']->toDateTimeString()])
+                ->all())
+            ->all();
+        $data['windowStart'] = $data['windowStart']->toDateTimeString();
+
+        return $data;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function thaw(array $data): array
+    {
+        $thawRow = fn (array $row) => [
+            ...$row,
+            'fold_start' => Carbon::parse($row['fold_start']),
+            'cycle_start' => Carbon::parse($row['cycle_start']),
+        ];
+
+        $data['keseiRows'] = collect($data['keseiRows'])->map($thawRow);
+        $data['closingRows'] = collect($data['closingRows'])->map($thawRow);
+        $data['stockDecreaseEvents'] = collect($data['stockDecreaseEvents'])
+            ->map(fn (array $events) => collect($events)
+                ->map(fn (array $e) => [...$e, 'at' => Carbon::parse($e['at'])])
+                ->all())
+            ->all();
+        $data['windowStart'] = Carbon::parse($data['windowStart']);
 
         return $data;
     }
@@ -130,10 +183,7 @@ class KeseiBoard
         [$stockDecreaseEvents, $closingKanban] = $this->splitEvents($keseiRows, $allEvents);
 
         return [
-            // Stored as plain arrays — NOT Collections — so database cache
-            // serialisation never hits the "incomplete object" bug. The
-            // data() method wraps them back into Collections on retrieval.
-            'keseiRows' => $keseiRows->all(),
+            'keseiRows' => $keseiRows,
             // The Closing Time table starts empty and only lists a part once it
             // has passed its closing for the current run — newest closing on top.
             'closingRows' => $keseiRows->where('closed_now', true)
