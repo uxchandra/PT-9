@@ -57,9 +57,11 @@
             let lastGrid = document.getElementById('lot-making-panel-grid').innerHTML;
             let lastRoller = document.getElementById('lot-making-panel-roller').innerHTML;
 
-            function scrollRollerToBottom() {
+            // The roller list is flex-col-reverse, so scrollTop 0 is the
+            // "newest" end — no scrollHeight math needed.
+            function scrollRollerToNewest() {
                 const roller = document.getElementById('lot-making-roller');
-                if (roller) roller.scrollTop = roller.scrollHeight;
+                if (roller) roller.scrollTop = 0;
             }
 
             async function refresh() {
@@ -75,14 +77,14 @@
                     if (data.roller !== lastRoller) {
                         document.getElementById('lot-making-panel-roller').innerHTML = data.roller;
                         lastRoller = data.roller;
-                        scrollRollerToBottom();
+                        scrollRollerToNewest();
                     }
                 } catch (e) {
                     // Network hiccup — next tick retries.
                 }
             }
 
-            scrollRollerToBottom();
+            scrollRollerToNewest();
             setInterval(refresh, 3000);
             setTimeout(() => window.location.reload(), 30 * 60 * 1000);
         })();
