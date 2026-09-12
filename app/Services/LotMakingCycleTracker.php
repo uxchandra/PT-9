@@ -50,6 +50,7 @@ class LotMakingCycleTracker
             LotMakingCycle::create([
                 'part_no' => $partNo,
                 'lot_produksi' => $lotMaking->lot_produksi,
+                'source' => LotMakingCycle::SOURCE_SCAN,
                 'completed_at' => now(),
             ]);
         }
@@ -59,7 +60,9 @@ class LotMakingCycleTracker
     {
         // ->max() is a raw aggregate query — it returns a plain scalar from
         // the driver, not a cast Carbon instance.
-        $value = LotMakingCycle::where('part_no', $partNo)->max('completed_at');
+        $value = LotMakingCycle::where('part_no', $partNo)
+            ->where('source', LotMakingCycle::SOURCE_SCAN)
+            ->max('completed_at');
 
         return $value !== null ? Carbon::parse($value) : null;
     }

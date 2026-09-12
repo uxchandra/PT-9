@@ -2,8 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Models\LotMaking;
 use App\Models\StockSnapshot;
 use App\Services\KeseiClosingNotifier;
+use App\Services\LotMakingDemandCycleTracker;
 use App\Services\StockPartApi;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -11,7 +13,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
 #[Signature('stock:capture-snapshot')]
-#[Description('Fetch stock part data from the SOS source system and store an aggregated per-part TD snapshot, limited to parts used by Pattern or Kesei')]
+#[Description('Fetch stock part data from the SOS source system and store an aggregated per-part TD snapshot, limited to parts used by Pattern, Kesei, or Lot Making')]
 class CaptureStockSnapshot extends Command
 {
     /**
@@ -21,7 +23,7 @@ class CaptureStockSnapshot extends Command
      */
     private const PROCESS = 'TD';
 
-    public function handle(StockPartApi $api, KeseiClosingNotifier $keseiNotifier): int
+    public function handle(StockPartApi $api, KeseiClosingNotifier $keseiNotifier, LotMakingDemandCycleTracker $demandCycles): int
     {
         // Piggybacks on this 15-minute tick: a WhatsApp goes out when a Kesei
         // part reaches its closing time. Wrapped so a notifier hiccup never
@@ -69,6 +71,22 @@ class CaptureStockSnapshot extends Command
         }
 
         $this->info("Captured stock snapshot for {$grouped->count()} parts (of {$wanted->count()} monitored) at {$capturedAt->toDateTimeString()}.");
+
+        // Same piggyback as the Kesei notifier above: this is the only
+        // moment new demand data exists, so it's also the only moment a Lot
+        // Making 2 (demand-sourced) cycle could have just completed.
+        try {
+            $lotMakingPartNos = LotMaking::with('part')->get()
+                ->map(fn (LotMaking $lotMaking) => $lotMaking->part?->part_no)
+                ->filter()
+                ->unique();
+
+            foreach ($lotMakingPartNos as $partNo) {
+                $demandCycles->checkForCompletion($partNo);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('LotMakingDemandCycleTracker failed during stock:capture-snapshot', ['error' => $e->getMessage()]);
+        }
 
         return self::SUCCESS;
     }

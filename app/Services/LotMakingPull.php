@@ -95,6 +95,77 @@ class LotMakingPull
     }
 
     /**
+     * Kanban-pull (stock decrease) events for $partNo at or after $since — or
+     * within the usual history floor when $since is null. Shared by the
+     * Andon "Lot Making 2" board and its cycle tracker so both read the exact
+     * same numbers the scanner's pulling command would show, with nothing
+     * scan-related involved.
+     *
+     * $since is meant to be a previous cycle completion's timestamp, and the
+     * boundary is deliberately INCLUSIVE: one stock-snapshot tick can carry
+     * more than one lot's worth of kanban, so the event that completion was
+     * logged against may still have leftover kanban that didn't form a full
+     * lot. Returning it again (in full) lets the caller net out exactly what
+     * it already spent — see LotMakingDemandCycleTracker — instead of that
+     * leftover silently vanishing because the event that carried it is never
+     * looked at again.
+     *
+     * @return Collection<int, array{kanban: int, at: Carbon}>
+     */
+    public function eventsSince(string $partNo, ?Carbon $since): Collection
+    {
+        return $this->eventsSinceBatch([$partNo => $since])[$partNo] ?? collect();
+    }
+
+    /**
+     * Batched form of eventsSince() — one stock-snapshot query for every part
+     * asked for, each starting from its own cutoff, instead of one query per
+     * part. $sinceByPart maps part_no => cutoff (null = use the history
+     * floor for that part).
+     *
+     * @param  array<string, ?Carbon>  $sinceByPart
+     * @return array<string, Collection<int, array{kanban: int, at: Carbon}>>
+     */
+    public function eventsSinceBatch(array $sinceByPart): array
+    {
+        if ($sinceByPart === []) {
+            return [];
+        }
+
+        $partNos = array_keys($sinceByPart);
+        $historyFloor = now()->copy()->subDays(self::HISTORY_DAYS);
+
+        $qtyKbnByPart = LotMaking::with('part')->get()
+            ->filter(fn (LotMaking $lm) => $lm->part !== null && in_array($lm->part->part_no, $partNos, true))
+            ->keyBy(fn (LotMaking $lm) => $lm->part->part_no)
+            ->map(fn (LotMaking $lm) => $lm->part->qty_kbn);
+
+        $windowFloor = collect($sinceByPart)
+            ->map(fn (?Carbon $since) => $since ?? $historyFloor)
+            ->reduce(fn (?Carbon $carry, Carbon $floor) => $carry === null || $floor->lt($carry) ? $floor : $carry);
+
+        $snapshotsByPart = StockSnapshot::whereIn('part_no', $partNos)
+            ->whereBetween('captured_at', [$windowFloor->copy()->subDay(), now()])
+            ->orderBy('captured_at')
+            ->get(['part_no', 'stock', 'captured_at'])
+            ->groupBy('part_no');
+
+        $result = [];
+
+        foreach ($sinceByPart as $partNo => $since) {
+            $floor = $since ?? $historyFloor;
+            $events = $this->decreaseEvents($qtyKbnByPart->get($partNo), $floor, $snapshotsByPart->get($partNo, collect()));
+
+            // decreaseEvents() already only returns rows at/after $floor, so
+            // once $floor is exactly $since this is already the inclusive
+            // boundary described above — nothing further to filter.
+            $result[$partNo] = $events;
+        }
+
+        return $result;
+    }
+
+    /**
      * @param  Collection<int, StockSnapshot>  $snapshots  chronological, may include seed rows before $from
      * @param  Collection<int, Carbon>  $scanTimes
      * @return array{part_no: string, needed: int, scanned: int, remaining: int, last_update: ?string, done: bool}

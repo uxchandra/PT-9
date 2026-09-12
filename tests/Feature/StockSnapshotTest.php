@@ -3,11 +3,15 @@
 namespace Tests\Feature;
 
 use App\Models\KeseiPart;
+use App\Models\LotMaking;
+use App\Models\LotMakingCycle;
+use App\Models\LotMakingScan;
 use App\Models\Part;
 use App\Models\PatternBoard;
 use App\Models\PatternGroupItem;
 use App\Models\StockSnapshot;
 use App\Models\User;
+use App\Services\LotMakingDemandCycleTracker;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -68,6 +72,94 @@ class StockSnapshotTest extends TestCase
         );
         // The wrong-process row did not inflate PATTERN-PART's stock.
         $this->assertSame(40, StockSnapshot::where('part_no', 'PATTERN-PART')->first()->stock);
+    }
+
+    public function test_capture_also_records_a_part_used_only_by_lot_making(): void
+    {
+        $part = Part::create(['part_no' => 'LOT-ONLY']);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 2]);
+
+        $this->fakeFeed([$this->row('LOT-ONLY', 30)]);
+
+        $this->artisan('stock:capture-snapshot')->assertSuccessful();
+
+        $this->assertSame(['LOT-ONLY'], StockSnapshot::pluck('part_no')->all());
+    }
+
+    public function test_a_full_lot_of_demand_completes_a_lot_making_2_cycle_on_the_capture_tick(): void
+    {
+        $part = Part::create(['part_no' => 'DEMAND-1', 'qty_kbn' => 1]);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 4, 'slot' => 2]);
+
+        StockSnapshot::create(['part_no' => 'DEMAND-1', 'stock' => 100, 'std_min' => 0, 'captured_at' => now()->subMinutes(20)]);
+
+        $this->fakeFeed([$this->row('DEMAND-1', 96)]); // -4 pcs / qty_kbn 1 = 4 kanban = exactly one lot
+
+        $this->artisan('stock:capture-snapshot')->assertSuccessful();
+
+        $cycle = LotMakingCycle::where('part_no', 'DEMAND-1')->where('source', 'demand')->first();
+        $this->assertNotNull($cycle);
+        $this->assertSame(4, $cycle->lot_produksi);
+        // No operator ever scanned anything — this is purely a stock-feed event.
+        $this->assertSame(0, LotMakingScan::count());
+    }
+
+    public function test_several_lots_of_demand_in_one_tick_complete_multiple_lot_making_2_cycles(): void
+    {
+        $part = Part::create(['part_no' => 'DEMAND-2', 'qty_kbn' => 1]);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 4, 'slot' => 2]);
+
+        StockSnapshot::create(['part_no' => 'DEMAND-2', 'stock' => 100, 'std_min' => 0, 'captured_at' => now()->subMinutes(20)]);
+
+        $this->fakeFeed([$this->row('DEMAND-2', 91)]); // -9 pcs = 9 kanban = 2 full lots + 1 left over
+
+        $this->artisan('stock:capture-snapshot')->assertSuccessful();
+
+        $this->assertSame(2, LotMakingCycle::where('part_no', 'DEMAND-2')->where('source', 'demand')->count());
+    }
+
+    public function test_leftover_demand_from_a_multi_lot_tick_carries_forward_instead_of_vanishing(): void
+    {
+        // A single 15-minute tick can easily carry more than one lot's worth
+        // of kanban: 13 pulled against a lot of 5 completes 2 full lots with
+        // 3 left over. That 3 must still count toward the *next* lot instead
+        // of disappearing because the event it came from already produced
+        // completions.
+        $part = Part::create(['part_no' => 'DEMAND-4', 'qty_kbn' => 1]);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 5, 'slot' => 2]);
+
+        StockSnapshot::create(['part_no' => 'DEMAND-4', 'stock' => 50, 'std_min' => 0, 'captured_at' => now()->subMinutes(30)]);
+        $this->fakeFeed([$this->row('DEMAND-4', 37)]); // -13 kanban = 2 lots + 3 left over
+
+        $this->artisan('stock:capture-snapshot')->assertSuccessful();
+        $this->assertSame(2, LotMakingCycle::where('part_no', 'DEMAND-4')->where('source', 'demand')->count());
+
+        $tracker = app(LotMakingDemandCycleTracker::class);
+        $this->assertSame(3, $tracker->ticksSinceLastCycle('DEMAND-4'));
+
+        // A further +4 kanban should complete a 3rd lot (3 + 4 = 7 >= 5),
+        // leaving 2 pending — proving the carry keeps accumulating correctly
+        // across repeated polls, not just surviving a single one.
+        StockSnapshot::create(['part_no' => 'DEMAND-4', 'stock' => 33, 'std_min' => 0, 'captured_at' => now()]);
+        $tracker->checkForCompletion('DEMAND-4');
+
+        $this->assertSame(3, LotMakingCycle::where('part_no', 'DEMAND-4')->where('source', 'demand')->count());
+        $this->assertSame(2, $tracker->ticksSinceLastCycle('DEMAND-4'));
+    }
+
+    public function test_lot_making_2_demand_completions_never_touch_the_lot_making_1_scan_tracker(): void
+    {
+        $part = Part::create(['part_no' => 'DEMAND-3', 'qty_kbn' => 1]);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 4, 'slot' => 2]);
+
+        StockSnapshot::create(['part_no' => 'DEMAND-3', 'stock' => 100, 'std_min' => 0, 'captured_at' => now()->subMinutes(20)]);
+
+        $this->fakeFeed([$this->row('DEMAND-3', 96)]);
+
+        $this->artisan('stock:capture-snapshot')->assertSuccessful();
+
+        $this->assertSame(1, LotMakingCycle::where('part_no', 'DEMAND-3')->where('source', 'demand')->count());
+        $this->assertSame(0, LotMakingCycle::where('part_no', 'DEMAND-3')->where('source', 'scan')->count());
     }
 
     public function test_prune_deletes_snapshots_older_than_7_days(): void

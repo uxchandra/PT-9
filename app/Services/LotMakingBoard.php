@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\LotMaking;
 use App\Models\LotMakingCycle;
 use App\Models\LotMakingScan;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
@@ -13,22 +14,32 @@ use Illuminate\Support\Collection;
  * breakdown — `slot` columns, the first (slot - 1) each holding slot_fix,
  * the last holding whatever's left so the columns sum to exactly
  * lot_produksi (Excel's ROUNDUP behaviour: only the last slot is partial) —
- * plus how many of each column's capacity has been scanned so far ("ticks").
+ * plus how many of each column's capacity is filled so far ("ticks").
  *
  * A part with no `row` set doesn't get lumped in with every other unrowed
  * part — each renders as its own single-part band.
  *
- * The right-hand roller panel lists completed cycles (see LotMakingCycle),
- * newest at the bottom.
+ * Two flavours, identical grid, different tick source — same idea as
+ * KeseiBoard's 'stock'/'scan' split:
+ *  - data('scan')   — "Lot Making 1": ticks from real operator scans
+ *  - data('demand') — "Lot Making 2": ticks straight from the SOS
+ *    kanban-pull/stock-decrease feed, no scan required
+ *
+ * The right-hand roller panel lists completed cycles for that same source
+ * (see LotMakingCycle), newest at the bottom.
  */
 class LotMakingBoard
 {
     private const ROLLER_LIMIT = 30;
 
+    public function __construct(private LotMakingPull $pull)
+    {
+    }
+
     /**
      * @return array<string, mixed>
      */
-    public function data(): array
+    public function data(string $source = 'scan'): array
     {
         // `row`/`kolom` are free-text (not necessarily numeric-padded or even
         // sequential), so ordering is done in PHP with a natural comparison —
@@ -39,7 +50,10 @@ class LotMakingBoard
         $lotMakings = LotMaking::with('part')->orderBy('id')->get();
 
         $partNos = $lotMakings->map(fn (LotMaking $lm) => $lm->part?->part_no)->filter()->unique()->values()->all();
-        $ticksByPart = $this->ticksSinceLastCycle($partNos);
+        $cycleSource = $source === 'demand' ? LotMakingCycle::SOURCE_DEMAND : LotMakingCycle::SOURCE_SCAN;
+        $ticksByPart = $source === 'demand'
+            ? $this->ticksSinceLastCycleDemand($partNos)
+            : $this->ticksSinceLastCycleScan($partNos);
 
         $rows = $lotMakings
             ->groupBy(fn (LotMaking $lm) => $lm->row !== null ? 'row:'.$lm->row : 'solo:'.$lm->id)
@@ -63,8 +77,11 @@ class LotMakingBoard
             ->all();
 
         // Oldest first — rendered top-to-bottom, so the newest completion
-        // naturally ends up at the bottom of the panel.
-        $cycles = LotMakingCycle::orderByDesc('completed_at')
+        // naturally ends up at the bottom of the panel. Scoped to this
+        // board's own source so a scan completion never shows up on the
+        // demand board's roller or vice versa.
+        $cycles = LotMakingCycle::where('source', $cycleSource)
+            ->orderByDesc('completed_at')
             ->limit(self::ROLLER_LIMIT)
             ->get()
             ->sortBy('completed_at')
@@ -95,20 +112,21 @@ class LotMakingBoard
     }
 
     /**
-     * Scans recorded since each part's last completed cycle (or ever, if it
-     * has never completed one) — batched across every part in one pass
+     * Scans recorded since each part's last completed *scan* cycle (or ever,
+     * if it has never completed one) — batched across every part in one pass
      * rather than per-row queries.
      *
      * @param  array<int, string>  $partNos
      * @return array<string, int>
      */
-    private function ticksSinceLastCycle(array $partNos): array
+    private function ticksSinceLastCycleScan(array $partNos): array
     {
         if ($partNos === []) {
             return [];
         }
 
         $lastCompletion = LotMakingCycle::whereIn('part_no', $partNos)
+            ->where('source', LotMakingCycle::SOURCE_SCAN)
             ->selectRaw('part_no, MAX(completed_at) as completed_at')
             ->groupBy('part_no')
             ->pluck('completed_at', 'part_no');
@@ -127,6 +145,66 @@ class LotMakingBoard
             $ticks[$partNo] = $since !== null
                 ? $scans->filter(fn (LotMakingScan $s) => $s->scanned_at->gt($since))->count()
                 : $scans->count();
+        }
+
+        return $ticks;
+    }
+
+    /**
+     * Kanban pulled (stock decrease from the SOS feed) since each part's last
+     * completed *demand* cycle — batched across every part in one pass via
+     * LotMakingPull::eventsSinceBatch(), rather than one stock-snapshot query
+     * per part.
+     *
+     * eventsSinceBatch()'s cutoff is inclusive, so the boundary event (the
+     * one a completion was last logged against) comes back in full — a
+     * single stock-snapshot tick can carry more than one lot's worth of
+     * kanban, and whatever didn't form a full lot needs to keep showing up
+     * as pending ticks rather than vanishing. So this nets out exactly how
+     * much of that boundary event was already spent (see
+     * LotMakingDemandCycleTracker, which does the matching math when logging
+     * completions) before returning the remainder.
+     *
+     * @param  array<int, string>  $partNos
+     * @return array<string, int>
+     */
+    private function ticksSinceLastCycleDemand(array $partNos): array
+    {
+        if ($partNos === []) {
+            return [];
+        }
+
+        $cycles = LotMakingCycle::whereIn('part_no', $partNos)
+            ->where('source', LotMakingCycle::SOURCE_DEMAND)
+            ->get(['part_no', 'completed_at']);
+
+        $lastCompletion = $cycles->groupBy('part_no')
+            ->map(fn (Collection $rows) => $rows->max('completed_at'));
+
+        $completionsAtBoundary = $cycles->groupBy('part_no')
+            ->map(fn (Collection $rows, string $partNo) => $rows
+                ->where('completed_at', $lastCompletion->get($partNo))
+                ->count());
+
+        $lotProduksiByPart = LotMaking::with('part')->get()
+            ->filter(fn (LotMaking $lm) => $lm->part !== null && in_array($lm->part->part_no, $partNos, true))
+            ->keyBy(fn (LotMaking $lm) => $lm->part->part_no)
+            ->map(fn (LotMaking $lm) => $lm->lot_produksi ?? 0);
+
+        $sinceByPart = collect($partNos)
+            ->mapWithKeys(fn (string $partNo) => [
+                $partNo => $lastCompletion->has($partNo) ? Carbon::parse($lastCompletion->get($partNo)) : null,
+            ])
+            ->all();
+
+        $eventsByPart = $this->pull->eventsSinceBatch($sinceByPart);
+
+        $ticks = [];
+
+        foreach ($partNos as $partNo) {
+            $pulled = (int) ($eventsByPart[$partNo] ?? collect())->sum('kanban');
+            $alreadySpent = ($completionsAtBoundary->get($partNo) ?? 0) * ($lotProduksiByPart->get($partNo) ?? 0);
+            $ticks[$partNo] = max(0, $pulled - $alreadySpent);
         }
 
         return $ticks;

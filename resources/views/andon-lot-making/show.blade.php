@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>LOT MAKING LINE 9</title>
+    <title>{{ $boardTitle ?? 'LOT MAKING LINE 9' }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         body { background: #000; }
@@ -21,7 +21,7 @@
                 <img src="{{ asset('images/logo_step.png') }}" alt="STEP" class="h-14 w-auto object-contain">
             </div>
             <div class="flex flex-1 items-center justify-center py-3">
-                <h1 class="text-2xl sm:text-4xl font-extrabold uppercase tracking-wide text-white">{{ __('LOT MAKING LINE 9') }}</h1>
+                <h1 class="text-2xl sm:text-4xl font-extrabold uppercase tracking-wide text-white">{{ $boardTitle ?? __('LOT MAKING LINE 9') }}</h1>
             </div>
             <div class="flex shrink-0 flex-col items-center justify-center border-l-2 border-white px-6 font-bold" style="width: 190px;">
                 <div class="text-lg">{{ now()->format('d/m/Y') }}</div>
@@ -85,7 +85,7 @@
             }
 
             scrollRollerToNewest();
-            setInterval(refresh, 3000);
+            setInterval(refresh, {{ $pollMs ?? 3000 }});
             setTimeout(() => window.location.reload(), 30 * 60 * 1000);
         })();
     </script>

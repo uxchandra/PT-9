@@ -15,9 +15,11 @@ class StockSnapshot extends Model
 
     /**
      * Every part_no worth recording / showing: parts assigned in any Kelompok
-     * Pattern, every Kesei row's part, and every Kesei stock-source part_no
-     * (which may not exist in Part List at all). Both the capture command and
-     * the Stock Snapshot page scope to this set.
+     * Pattern, every Kesei row's part, every Kesei stock-source part_no
+     * (which may not exist in Part List at all), and every Lot Making part —
+     * its scanner card and both Andon boards (Lot Making 1 and 2) all read
+     * their demand straight from this snapshot history. Both the capture
+     * command and the Stock Snapshot page scope to this set.
      *
      * @return Collection<int, string>
      */
@@ -30,9 +32,13 @@ class StockSnapshot extends Model
         $keseiPartNos = $keseiParts->map(fn (KeseiPart $kesei) => $kesei->part?->part_no);
         $keseiSourceNos = $keseiParts->flatMap(fn (KeseiPart $kesei) => $kesei->sourcePartNos());
 
+        $lotMakingPartNos = LotMaking::with('part')->get()
+            ->map(fn (LotMaking $lotMaking) => $lotMaking->part?->part_no);
+
         return $patternPartNos
             ->merge($keseiPartNos)
             ->merge($keseiSourceNos)
+            ->merge($lotMakingPartNos)
             ->filter()
             ->unique()
             ->values();

@@ -15,7 +15,7 @@ class AndonLotMakingTest extends TestCase
     {
         $this->get(route('andon-lot-making.show'))
             ->assertOk()
-            ->assertSee('LOT MAKING LINE 9');
+            ->assertSee('LOT MAKING  LINE 9');
     }
 
     public function test_it_shows_a_placeholder_when_there_is_no_data(): void

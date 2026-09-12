@@ -33,6 +33,7 @@ Route::get('/andon', [AndonController::class, 'index'])->name('andon.index');
 Route::get('/andon-kesei', [AndonKeseiController::class, 'show'])->name('andon-kesei.show');
 Route::get('/andon-kesei-scan', [AndonKeseiController::class, 'showScan'])->name('andon-kesei.scan');
 Route::get('/andon-lot-making', [AndonLotMakingController::class, 'show'])->name('andon-lot-making.show');
+Route::get('/andon-lot-making-2', [AndonLotMakingController::class, 'showDemand'])->name('andon-lot-making.demand');
 Route::get('/andon/{patternBoard}', [AndonController::class, 'show'])->name('andon.show');
 Route::get('/andon-planning/{patternBoard}', [AndonController::class, 'planning'])->name('andon.planning');
 Route::post('/andon-planning/pattern/{pattern}/actual', [AndonController::class, 'updateActual'])->name('andon.planning.actual.update');
