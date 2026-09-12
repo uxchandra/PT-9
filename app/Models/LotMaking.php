@@ -3,31 +3,49 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable([
-    'assy_part_code', 'part_id', 'qty_kanban', 'lot', 'loading_time', 'dandori',
-    'lot_produksi', 'safety_stock', 'total_kanban_edar', 'next_process', 'kapasitas_rak',
-])]
+#[Fillable(['no', 'part_id', 'row', 'kolom', 'lot_produksi', 'slot'])]
 class LotMaking extends Model
 {
     protected function casts(): array
     {
         return [
-            'qty_kanban' => 'integer',
-            'lot' => 'integer',
-            'loading_time' => 'integer',
-            'dandori' => 'integer',
+            'no' => 'integer',
             'lot_produksi' => 'integer',
-            'safety_stock' => 'integer',
-            'total_kanban_edar' => 'integer',
-            'kapasitas_rak' => 'integer',
+            'slot' => 'integer',
         ];
     }
 
     public function part(): BelongsTo
     {
         return $this->belongsTo(Part::class);
+    }
+
+    /**
+     * lot_produksi ÷ slot, unrounded. Not stored — a pure function of the two
+     * columns it derives from, so it can never go stale when either changes.
+     * Null when slot isn't set (or zero), rather than dividing by it.
+     */
+    protected function avgSlot(): Attribute
+    {
+        return Attribute::get(
+            fn () => ($this->slot && $this->lot_produksi !== null)
+                ? $this->lot_produksi / $this->slot
+                : null
+        );
+    }
+
+    /**
+     * avg_slot rounded UP to a whole slot (Excel's ROUNDUP) — how many slots
+     * are actually needed to hold the production lot.
+     */
+    protected function slotFix(): Attribute
+    {
+        return Attribute::get(
+            fn () => $this->avg_slot !== null ? (int) ceil($this->avg_slot) : null
+        );
     }
 }

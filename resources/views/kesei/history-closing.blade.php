@@ -1,4 +1,5 @@
 @include('kesei._history-layout', [
+    'header' => __('Kesei'),
     'pageTitle' => __('History Closing Time'),
     'routeName' => 'kesei-closings.index',
     'resultsPartial' => 'kesei._history-closing-results',

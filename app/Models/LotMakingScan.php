@@ -2,17 +2,19 @@
 
 namespace App\Models;
 
+use App\Services\LotMakingCycleTracker;
 use App\Support\SosLabel;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * One scanned SOS label = one kanban pull. These are the red ticks on the
- * scan-driven Andon Kesei board (as opposed to the API-stock-driven one).
+ * One scanned SOS label against the Lot Making scanner card. Feeds both the
+ * rolling stock-based demand (same math as Kesei's Finish Goods) and the
+ * slot-fill tick position tracked by {@see LotMakingCycleTracker}.
  */
-#[Fillable(['part_no', 'location', 'raw', 'scanned_by', 'scanned_at'])]
-class KeseiScan extends Model
+#[Fillable(['part_no', 'raw', 'scanned_by', 'scanned_at'])]
+class LotMakingScan extends Model
 {
     protected function casts(): array
     {
@@ -26,11 +28,6 @@ class KeseiScan extends Model
         return $this->belongsTo(User::class, 'scanned_by');
     }
 
-    /**
-     * Pull the part number out of an SOS QR payload like
-     * "S9 09 I 26 A_8_57183-BZ010_1" — the 3rd underscore-separated segment.
-     * Returns null when the payload doesn't have that shape.
-     */
     public static function parsePartNo(string $raw): ?string
     {
         return SosLabel::parsePartNo($raw);

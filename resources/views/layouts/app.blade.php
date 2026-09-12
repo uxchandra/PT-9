@@ -158,6 +158,13 @@
                                 </svg>
                                 {{ __('Kesei 2') }}
                             </a>
+                            <a href="{{ route('andon-lot-making.show') }}" target="_blank"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M3 12h18M3 17h18"/>
+                                </svg>
+                                {{ __('Lot Making 1') }}
+                            </a>
                         </div>
                     </div>
                     @endcan
@@ -332,14 +339,39 @@
                     @endcan
 
                     @can('manage lot making')
-                    <a href="{{ route('lot-makings.index') }}"
-                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('lot-makings.*') ? 'active' : '' }}">
-                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
-                        </svg>
-                        <span class="font-semibold text-sm">{{ __('Lot Making') }}</span>
-                    </a>
+                    @php $lotMakingActive = request()->routeIs(['lot-makings.*', 'lot-making-scans.*']); @endphp
+                    <div x-data="{ open: {{ $lotMakingActive ? 'true' : 'false' }} }">
+                        <button @click="open = !open" type="button"
+                                class="menu-group-header w-full flex items-center justify-between text-gray-300 {{ $lotMakingActive ? 'group-has-active' : '' }}">
+                            <div class="flex items-center">
+                                <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                </svg>
+                                <span class="font-semibold text-sm">{{ __('Lot Making') }}</span>
+                            </div>
+                            <svg class="w-4 h-4 chevron-icon shrink-0" :class="open ? 'open' : ''"
+                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <div x-show="open" x-cloak class="ml-8 mt-1 space-y-1">
+                            <a href="{{ route('lot-makings.index') }}"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300 {{ request()->routeIs('lot-makings.*') ? 'active' : '' }}">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"/>
+                                </svg>
+                                {{ __('Part') }}
+                            </a>
+                            <a href="{{ route('lot-making-scans.index') }}"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300 {{ request()->routeIs('lot-making-scans.*') ? 'active' : '' }}">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m0 14v1m8-8h-1M5 12H4M4 8V4h4m8 0h4v4m0 8v4h-4m-8 0H4v-4"/>
+                                </svg>
+                                {{ __('History Scan') }}
+                            </a>
+                        </div>
+                    </div>
                     @endcan
                 </nav>
 

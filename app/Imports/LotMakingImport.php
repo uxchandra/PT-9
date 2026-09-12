@@ -9,15 +9,16 @@ use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
 /**
- * Imports rows shaped like the template:
- * assy_part_code | part_no | qty_kanban | lot | loading_time | dandori |
- * lot_produksi | safety_stock | total_kanban_edar | next_process | kapasitas_rak.
+ * Imports rows shaped like the template: no | row | kolom | part_no | lot_produksi | slot.
  *
- * Each row is one Lot Making record, keyed by assy_part_code + part. The part
- * is matched by part_no (created automatically if it doesn't exist yet). A row
- * whose assy_part_code + part already exist is updated in place; a new
- * combination is created. Rows with an empty assy_part_code or part_no are
- * skipped. Numeric columns that are blank or non-numeric are stored as null.
+ * Each row is one Lot Making record, keyed by part (one part = one row). The
+ * part is matched by part_no (created automatically if it doesn't exist yet).
+ * A row for a part that's already in Lot Making is updated in place; a new
+ * part creates a new record. Rows with an empty part_no are skipped. Numeric
+ * columns that are blank or non-numeric are stored as null. avg_slot/slot_fix
+ * are never imported — they're always computed from lot_produksi and slot.
+ * `no` is a manually-set position (for arranging rows later), not a row count
+ * — it's stored as-is, gaps and all.
  */
 class LotMakingImport implements ToCollection, WithHeadingRow
 {
@@ -32,10 +33,9 @@ class LotMakingImport implements ToCollection, WithHeadingRow
     public function collection(SupportCollection $rows): void
     {
         foreach ($rows as $row) {
-            $assyPartCode = trim((string) ($row['assy_part_code'] ?? ''));
             $partNo = trim((string) ($row['part_no'] ?? ''));
 
-            if ($assyPartCode === '' || $partNo === '') {
+            if ($partNo === '') {
                 $this->rowsSkipped++;
 
                 continue;
@@ -47,17 +47,13 @@ class LotMakingImport implements ToCollection, WithHeadingRow
             }
 
             $lotMaking = LotMaking::updateOrCreate(
-                ['assy_part_code' => $assyPartCode, 'part_id' => $part->id],
+                ['part_id' => $part->id],
                 [
-                    'qty_kanban' => $this->int($row['qty_kanban'] ?? null),
-                    'lot' => $this->int($row['lot'] ?? null),
-                    'loading_time' => $this->int($row['loading_time'] ?? null),
-                    'dandori' => $this->int($row['dandori'] ?? null),
+                    'no' => $this->int($row['no'] ?? null),
+                    'row' => $this->str($row['row'] ?? null),
+                    'kolom' => $this->str($row['kolom'] ?? null),
                     'lot_produksi' => $this->int($row['lot_produksi'] ?? null),
-                    'safety_stock' => $this->int($row['safety_stock'] ?? null),
-                    'total_kanban_edar' => $this->int($row['total_kanban_edar'] ?? null),
-                    'next_process' => $this->str($row['next_process'] ?? null),
-                    'kapasitas_rak' => $this->int($row['kapasitas_rak'] ?? null),
+                    'slot' => $this->int($row['slot'] ?? null),
                 ]
             );
 

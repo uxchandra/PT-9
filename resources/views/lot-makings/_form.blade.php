@@ -1,25 +1,30 @@
 @php
     $lm = $lm ?? null;
-    $numericFields = [
-        'qty_kanban' => 'Qty / Kanban',
-        'lot' => 'Lot',
-        'loading_time' => 'Loading Time',
-        'dandori' => 'Dandori',
-        'lot_produksi' => 'Lot Produksi',
-        'safety_stock' => 'Safety Stock',
-        'total_kanban_edar' => 'Total Kanban Edar',
-        'kapasitas_rak' => 'Kapasitas Rak',
-    ];
 @endphp
 
 @csrf
 
 <div class="space-y-5">
-    <div>
-        <x-input-label for="assy_part_code" :value="__('Assy Part Code')" />
-        <x-text-input id="assy_part_code" name="assy_part_code" type="text" class="block w-full mt-1"
-                      :value="old('assy_part_code', $lm?->assy_part_code)" required autofocus />
-        <x-input-error :messages="$errors->get('assy_part_code')" class="mt-2" />
+    <div class="grid grid-cols-3 gap-4">
+        <div>
+            <x-input-label for="no" :value="__('No')" />
+            <x-text-input id="no" name="no" type="number" min="0" class="block w-full mt-1"
+                          :value="old('no', $lm?->no)" autofocus />
+            <p class="mt-1 text-xs text-gray-400">{{ __('Posisi urutan (opsional)') }}</p>
+            <x-input-error :messages="$errors->get('no')" class="mt-2" />
+        </div>
+        <div>
+            <x-input-label for="row" :value="__('Row')" />
+            <x-text-input id="row" name="row" type="text" class="block w-full mt-1"
+                          :value="old('row', $lm?->row)" />
+            <x-input-error :messages="$errors->get('row')" class="mt-2" />
+        </div>
+        <div>
+            <x-input-label for="kolom" :value="__('Kolom')" />
+            <x-text-input id="kolom" name="kolom" type="text" class="block w-full mt-1"
+                          :value="old('kolom', $lm?->kolom)" />
+            <x-input-error :messages="$errors->get('kolom')" class="mt-2" />
+        </div>
     </div>
 
     <div>
@@ -33,23 +38,28 @@
         <x-input-error :messages="$errors->get('part_id')" class="mt-2" />
     </div>
 
-    <div>
-        <x-input-label for="next_process" :value="__('Next Process')" />
-        <x-text-input id="next_process" name="next_process" type="text" class="block w-full mt-1"
-                      :value="old('next_process', $lm?->next_process)" />
-        <x-input-error :messages="$errors->get('next_process')" class="mt-2" />
+    <div class="grid grid-cols-2 gap-4">
+        <div>
+            <x-input-label for="lot_produksi" :value="__('Lot Produksi')" />
+            <x-text-input id="lot_produksi" name="lot_produksi" type="number" min="0" class="block w-full mt-1"
+                          :value="old('lot_produksi', $lm?->lot_produksi)" />
+            <x-input-error :messages="$errors->get('lot_produksi')" class="mt-2" />
+        </div>
+        <div>
+            <x-input-label for="slot" :value="__('Slot')" />
+            <x-text-input id="slot" name="slot" type="number" min="1" class="block w-full mt-1"
+                          :value="old('slot', $lm?->slot)" />
+            <x-input-error :messages="$errors->get('slot')" class="mt-2" />
+        </div>
     </div>
 
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        @foreach ($numericFields as $field => $label)
-            <div>
-                <x-input-label :for="$field" :value="__($label)" />
-                <x-text-input :id="$field" :name="$field" type="number" min="0" class="block w-full mt-1"
-                              :value="old($field, $lm?->{$field})" />
-                <x-input-error :messages="$errors->get($field)" class="mt-2" />
-            </div>
-        @endforeach
-    </div>
+    @if ($lm && $lm->slot_fix !== null)
+        <div class="flex gap-6 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+            <span>{{ __('Avg Slot') }}: <strong class="text-gray-800">{{ number_format($lm->avg_slot, 2) }}</strong></span>
+            <span>{{ __('Slot Fix') }}: <strong class="text-gray-800">{{ $lm->slot_fix }}</strong></span>
+            <span class="text-gray-400">{{ __('(dihitung otomatis dari Lot Produksi ÷ Slot)') }}</span>
+        </div>
+    @endif
 
     <div class="flex items-center gap-3 pt-1">
         <x-primary-button>{{ __('Simpan') }}</x-primary-button>

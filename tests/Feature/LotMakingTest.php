@@ -8,6 +8,7 @@ use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class LotMakingTest extends TestCase
@@ -42,64 +43,99 @@ class LotMakingTest extends TestCase
 
         $response = $this->actingAs($this->authorizedUser())
             ->post(route('lot-makings.store'), [
-                'assy_part_code' => 'ASSY-1',
+                'no' => 3,
                 'part_id' => $part->id,
-                'qty_kanban' => 20,
-                'lot' => 100,
-                'loading_time' => 40,
-                'dandori' => 10,
+                'row' => 'A',
+                'kolom' => '1',
                 'lot_produksi' => 200,
-                'safety_stock' => 50,
-                'total_kanban_edar' => 12,
-                'next_process' => 'Assembly',
-                'kapasitas_rak' => 30,
+                'slot' => 40,
             ]);
 
         $response->assertRedirect(route('lot-makings.index'));
 
         $lm = LotMaking::first();
-        $this->assertSame('ASSY-1', $lm->assy_part_code);
+        $this->assertSame(3, $lm->no);
         $this->assertSame($part->id, $lm->part_id);
+        $this->assertSame('A', $lm->row);
+        $this->assertSame('1', $lm->kolom);
         $this->assertSame(200, $lm->lot_produksi);
-        $this->assertSame('Assembly', $lm->next_process);
+        $this->assertSame(40, $lm->slot);
     }
 
-    public function test_assy_part_code_and_part_are_required(): void
+    public function test_no_is_the_manually_set_position_that_drives_listing_order(): void
+    {
+        $partA = Part::create(['part_no' => 'AAA-111']);
+        $partB = Part::create(['part_no' => 'BBB-222']);
+        // Created out of order, but "no" should decide the listing order.
+        LotMaking::create(['part_id' => $partA->id, 'no' => 2]);
+        LotMaking::create(['part_id' => $partB->id, 'no' => 1]);
+
+        $html = $this->actingAs($this->authorizedUser())->get(route('lot-makings.index'))->getContent();
+
+        $this->assertLessThan(strpos($html, 'AAA-111'), strpos($html, 'BBB-222'));
+    }
+
+    public function test_part_is_required(): void
     {
         $this->actingAs($this->authorizedUser())
-            ->post(route('lot-makings.store'), ['lot' => 5])
-            ->assertSessionHasErrors(['assy_part_code', 'part_id']);
+            ->post(route('lot-makings.store'), ['row' => 'A'])
+            ->assertSessionHasErrors(['part_id']);
 
         $this->assertSame(0, LotMaking::count());
     }
 
-    public function test_numeric_fields_reject_negative_values(): void
+    public function test_numeric_fields_reject_negative_or_zero_values(): void
     {
         $part = Part::create(['part_no' => 'P1']);
 
         $this->actingAs($this->authorizedUser())
             ->post(route('lot-makings.store'), [
-                'assy_part_code' => 'ASSY-1',
                 'part_id' => $part->id,
-                'safety_stock' => -3,
+                'lot_produksi' => -3,
             ])
-            ->assertSessionHasErrors('safety_stock');
+            ->assertSessionHasErrors('lot_produksi');
+
+        // slot is a divisor — 0 would make avg_slot/slot_fix meaningless.
+        $this->actingAs($this->authorizedUser())
+            ->post(route('lot-makings.store'), [
+                'part_id' => $part->id,
+                'slot' => 0,
+            ])
+            ->assertSessionHasErrors('slot');
+    }
+
+    public function test_avg_slot_and_slot_fix_are_computed_not_stored(): void
+    {
+        $part = Part::create(['part_no' => 'P1']);
+        $lm = LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 205, 'slot' => 40]);
+
+        $this->assertEqualsWithDelta(5.125, $lm->avg_slot, 0.0001);
+        $this->assertSame(6, $lm->slot_fix); // ROUNDUP(5.125) = 6
+
+        $this->assertFalse(Schema::hasColumn('lot_makings', 'avg_slot'));
+        $this->assertFalse(Schema::hasColumn('lot_makings', 'slot_fix'));
+
+        // No slot set yet → both are null, not a division-by-zero error.
+        $noSlot = LotMaking::create(['part_id' => Part::create(['part_no' => 'P2'])->id, 'lot_produksi' => 100]);
+        $this->assertNull($noSlot->avg_slot);
+        $this->assertNull($noSlot->slot_fix);
     }
 
     public function test_a_lot_making_can_be_updated_and_deleted(): void
     {
         $part = Part::create(['part_no' => 'P1']);
-        $lm = LotMaking::create(['assy_part_code' => 'ASSY-1', 'part_id' => $part->id, 'lot' => 100]);
+        $lm = LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 100]);
 
         $this->actingAs($this->authorizedUser())
             ->put(route('lot-makings.update', $lm), [
-                'assy_part_code' => 'ASSY-1',
                 'part_id' => $part->id,
-                'lot' => 250,
+                'lot_produksi' => 250,
+                'slot' => 50,
             ])
             ->assertRedirect(route('lot-makings.index'));
 
-        $this->assertSame(250, $lm->fresh()->lot);
+        $this->assertSame(250, $lm->fresh()->lot_produksi);
+        $this->assertSame(5, $lm->fresh()->slot_fix);
 
         $this->actingAs($this->authorizedUser())
             ->delete(route('lot-makings.destroy', $lm))
@@ -108,22 +144,22 @@ class LotMakingTest extends TestCase
         $this->assertSame(0, LotMaking::count());
     }
 
-    public function test_index_search_filters_by_assy_code_and_part_no(): void
+    public function test_index_search_filters_by_row_kolom_and_part_no(): void
     {
         $partA = Part::create(['part_no' => 'AAA-111']);
         $partB = Part::create(['part_no' => 'BBB-222']);
-        LotMaking::create(['assy_part_code' => 'ALPHA', 'part_id' => $partA->id]);
-        LotMaking::create(['assy_part_code' => 'BETA', 'part_id' => $partB->id]);
+        LotMaking::create(['part_id' => $partA->id, 'row' => 'ROWALPHA', 'kolom' => '1']);
+        LotMaking::create(['part_id' => $partB->id, 'row' => 'ROWBETA', 'kolom' => '2']);
 
-        $byCode = $this->actingAs($this->authorizedUser())
-            ->get(route('lot-makings.index', ['q' => 'ALPHA']))->getContent();
-        $this->assertStringContainsString('ALPHA', $byCode);
-        $this->assertStringNotContainsString('BETA', $byCode);
+        $byRow = $this->actingAs($this->authorizedUser())
+            ->get(route('lot-makings.index', ['q' => 'ROWALPHA']))->getContent();
+        $this->assertStringContainsString('ROWALPHA', $byRow);
+        $this->assertStringNotContainsString('ROWBETA', $byRow);
 
         $byPartNo = $this->actingAs($this->authorizedUser())
             ->get(route('lot-makings.index', ['q' => 'BBB-222']))->getContent();
-        $this->assertStringContainsString('BETA', $byPartNo);
-        $this->assertStringNotContainsString('ALPHA', $byPartNo);
+        $this->assertStringContainsString('ROWBETA', $byPartNo);
+        $this->assertStringNotContainsString('ROWALPHA', $byPartNo);
     }
 
     public function test_import_creates_rows_resolves_parts_and_updates_existing(): void
@@ -132,10 +168,10 @@ class LotMakingTest extends TestCase
         $user = $this->authorizedUser();
 
         $csv = implode("\n", [
-            'assy_part_code,part_no,qty_kanban,lot,loading_time,dandori,lot_produksi,safety_stock,total_kanban_edar,next_process,kapasitas_rak',
-            'ASSY-1,EXISTING-PART,20,100,40,10,200,50,12,Assembly,30',
-            'ASSY-2,NEW-PART,16,50,160,10,120,24,8,Welding,24',
-            ',SKIP-ME,1,1,1,1,1,1,1,x,1',
+            'no,row,kolom,part_no,lot_produksi,slot',
+            '1,A,1,EXISTING-PART,200,40',
+            '2,A,2,NEW-PART,120,30',
+            '3,B,3,,1,1', // blank part_no -> skipped
         ]);
 
         $this->actingAs($user)
@@ -144,21 +180,22 @@ class LotMakingTest extends TestCase
 
         $this->assertSame(2, LotMaking::count());
         $this->assertNotNull(Part::where('part_no', 'NEW-PART')->first(), 'missing part is created');
-        $this->assertNull(Part::where('part_no', 'SKIP-ME')->first(), 'row without assy_part_code is skipped');
 
-        $row1 = LotMaking::where('assy_part_code', 'ASSY-1')->first();
+        $row1 = LotMaking::whereHas('part', fn ($q) => $q->where('part_no', 'EXISTING-PART'))->first();
+        $this->assertSame(1, $row1->no);
         $this->assertSame(200, $row1->lot_produksi);
-        $this->assertSame('Assembly', $row1->next_process);
+        $this->assertSame('A', $row1->row);
+        $this->assertSame(5, $row1->slot_fix);
 
-        // Re-import with a changed value for the same assy_part_code + part → update, not duplicate.
+        // Re-importing the same part updates in place instead of duplicating.
         $csv2 = implode("\n", [
-            'assy_part_code,part_no,qty_kanban,lot,loading_time,dandori,lot_produksi,safety_stock,total_kanban_edar,next_process,kapasitas_rak',
-            'ASSY-1,EXISTING-PART,20,999,40,10,200,50,12,Assembly,30',
+            'no,row,kolom,part_no,lot_produksi,slot',
+            '9,A,1,EXISTING-PART,999,40',
         ]);
         $this->actingAs($user)->post(route('lot-makings.import.store'), ['file' => $this->csvUpload($csv2)]);
 
         $this->assertSame(2, LotMaking::count());
-        $this->assertSame(999, LotMaking::where('assy_part_code', 'ASSY-1')->first()->lot);
+        $this->assertSame(999, $row1->fresh()->lot_produksi);
     }
 
     public function test_import_template_downloads_an_xlsx(): void

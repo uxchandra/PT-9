@@ -2,11 +2,13 @@
 
 use App\Http\Controllers\AndonController;
 use App\Http\Controllers\AndonKeseiController;
+use App\Http\Controllers\AndonLotMakingController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\KeseiHistoryController;
 use App\Http\Controllers\KeseiImportController;
 use App\Http\Controllers\KeseiPartController;
 use App\Http\Controllers\LotMakingController;
+use App\Http\Controllers\LotMakingHistoryController;
 use App\Http\Controllers\LotMakingImportController;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\PartController;
@@ -30,6 +32,7 @@ Route::get('/', function () {
 Route::get('/andon', [AndonController::class, 'index'])->name('andon.index');
 Route::get('/andon-kesei', [AndonKeseiController::class, 'show'])->name('andon-kesei.show');
 Route::get('/andon-kesei-scan', [AndonKeseiController::class, 'showScan'])->name('andon-kesei.scan');
+Route::get('/andon-lot-making', [AndonLotMakingController::class, 'show'])->name('andon-lot-making.show');
 Route::get('/andon/{patternBoard}', [AndonController::class, 'show'])->name('andon.show');
 Route::get('/andon-planning/{patternBoard}', [AndonController::class, 'planning'])->name('andon.planning');
 Route::post('/andon-planning/pattern/{pattern}/actual', [AndonController::class, 'updateActual'])->name('andon.planning.actual.update');
@@ -100,8 +103,11 @@ Route::middleware('auth')->group(function () {
 
     Route::middleware('can:manage lot making')->group(function () {
         Route::get('lot-makings/import-template', [LotMakingImportController::class, 'template'])->name('lot-makings.import.template');
-        Route::get('lot-makings/import', [LotMakingImportController::class, 'create'])->name('lot-makings.import.create');
+        // The import form lives in a modal on the index page now (no
+        // standalone page) — only the template download and the submit
+        // endpoint need routes.
         Route::post('lot-makings/import', [LotMakingImportController::class, 'store'])->name('lot-makings.import.store');
+        Route::get('lot-makings/history-scan', [LotMakingHistoryController::class, 'scans'])->name('lot-making-scans.index');
 
         Route::resource('lot-makings', LotMakingController::class)->except(['show']);
     });

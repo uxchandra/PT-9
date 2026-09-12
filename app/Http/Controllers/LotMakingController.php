@@ -26,13 +26,15 @@ class LotMakingController extends Controller
 
         if ($search !== '') {
             $query->where(function (Builder $q) use ($search) {
-                $q->where('assy_part_code', 'like', "%{$search}%")
-                    ->orWhere('next_process', 'like', "%{$search}%")
+                $q->where('row', 'like', "%{$search}%")
+                    ->orWhere('kolom', 'like', "%{$search}%")
                     ->orWhereHas('part', fn (Builder $p) => $p->where('part_no', 'like', "%{$search}%"));
             });
         }
 
-        $lotMakings = $query->orderBy('assy_part_code')->orderBy('id')
+        // `no` is the manually-set position — the primary sort, so it's the
+        // one field that actually decides where a row lands in the listing.
+        $lotMakings = $query->orderBy('no')->orderBy('row')->orderBy('kolom')->orderBy('id')
             ->paginate($perPage)
             ->withQueryString();
 
@@ -85,20 +87,13 @@ class LotMakingController extends Controller
     private function validated(Request $request): array
     {
         return $request->validate([
-            'assy_part_code' => ['required', 'string', 'max:255'],
+            'no' => ['nullable', 'integer', 'min:0'],
             'part_id' => ['required', 'exists:parts,id'],
-            'qty_kanban' => ['nullable', 'integer', 'min:0'],
-            'lot' => ['nullable', 'integer', 'min:0'],
-            'loading_time' => ['nullable', 'integer', 'min:0'],
-            'dandori' => ['nullable', 'integer', 'min:0'],
+            'row' => ['nullable', 'string', 'max:50'],
+            'kolom' => ['nullable', 'string', 'max:50'],
             'lot_produksi' => ['nullable', 'integer', 'min:0'],
-            'safety_stock' => ['nullable', 'integer', 'min:0'],
-            'total_kanban_edar' => ['nullable', 'integer', 'min:0'],
-            'next_process' => ['nullable', 'string', 'max:255'],
-            'kapasitas_rak' => ['nullable', 'integer', 'min:0'],
-        ], [], [
-            'assy_part_code' => 'assy part code',
-            'part_id' => 'part',
-        ]);
+            // A divisor — 0 would make avg_slot/slot_fix meaningless.
+            'slot' => ['nullable', 'integer', 'min:1'],
+        ], [], ['part_id' => 'part']);
     }
 }

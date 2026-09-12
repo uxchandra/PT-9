@@ -22,7 +22,7 @@
 
                     <div class="flex items-center gap-2">
                         <input type="text" id="lm-search" value="{{ $search }}" autocomplete="off"
-                               placeholder="{{ __('Cari assy code / part no / next process...') }}"
+                               placeholder="{{ __('Cari row / kolom / part no...') }}"
                                class="rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700 w-64">
                         <button type="button" id="lm-search-reset"
                                 class="text-sm text-gray-500 hover:text-gray-700 {{ $search === '' ? 'hidden' : '' }}">
@@ -30,10 +30,10 @@
                         </button>
                     </div>
 
-                    <a href="{{ route('lot-makings.import.create') }}"
-                       class="inline-flex items-center justify-center px-4 py-2.5 bg-white border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition ease-in-out duration-150 shadow-sm">
+                    <button type="button" x-data="" x-on:click="$dispatch('open-modal', 'lot-making-import')"
+                            class="inline-flex items-center justify-center px-4 py-2.5 bg-white border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition ease-in-out duration-150 shadow-sm">
                         {{ __('Import') }}
-                    </a>
+                    </button>
                     <a href="{{ route('lot-makings.create') }}"
                        class="inline-flex items-center justify-center px-4 py-2.5 bg-brand-800 border border-transparent rounded-lg font-semibold text-sm text-white hover:bg-brand-900 transition ease-in-out duration-150 shadow-sm">
                         {{ __('Tambah Lot Making') }}
@@ -55,6 +55,8 @@
             </div>
         </div>
     </div>
+
+    @include('lot-makings._import-modal')
 
     <script>
         (function () {

@@ -1,9 +1,10 @@
 {{--
-    Shared shell for the Kesei history pages — same layout/UX as Stock Part All.
-    Params: $pageTitle, $routeName, $resultsPartial, $searchPlaceholder, $perPage, $search, $date
+    Shared shell for history pages (Kesei, Lot Making, …) — same layout/UX as
+    Stock Part All.
+    Params: $pageTitle, $routeName, $resultsPartial, $searchPlaceholder, $perPage, $search, $date, $header
 --}}
 <x-app-layout>
-    <x-slot name="header">{{ __('Kesei') }}</x-slot>
+    <x-slot name="header">{{ $header }}</x-slot>
 
     <style>
         .kesei-table-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; }

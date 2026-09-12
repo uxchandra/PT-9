@@ -1,4 +1,5 @@
 @include('kesei._history-layout', [
+    'header' => __('Kesei'),
     'pageTitle' => __('History Scan'),
     'routeName' => 'kesei-scans.index',
     'resultsPartial' => 'kesei._history-scan-results',
