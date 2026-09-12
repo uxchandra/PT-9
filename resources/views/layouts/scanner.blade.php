@@ -5,6 +5,7 @@
     {{-- Rugged handheld (SEUIC AutoID Q9): full device width, no pinch-zoom. --}}
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="user-authenticated" content="{{ auth()->check() ? '1' : '0' }}">
     <meta name="theme-color" content="#0f172a">
     <title>@yield('title', 'KESEI KANBAN')</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])

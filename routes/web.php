@@ -55,6 +55,13 @@ Route::get('/dashboard', function () {
 })->middleware('auth')->name('dashboard');
 
 Route::middleware('auth')->group(function () {
+    // Pinged by the front-end only while the user is actually interacting
+    // with the page (see resources/js/app.js) — keeps the session (and its
+    // CSRF token) alive for genuinely active users without lengthening
+    // SESSION_LIFETIME itself, so a truly idle/abandoned tab still expires
+    // on schedule.
+    Route::get('/keep-alive', fn () => response()->noContent())->name('keep-alive');
+
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');

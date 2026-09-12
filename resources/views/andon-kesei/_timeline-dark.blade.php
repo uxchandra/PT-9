@@ -38,13 +38,14 @@
 
                 @foreach ($keseiRows as $row)
                     @php
-                        // Active rows alternate two dark warm shades so a run of them
-                        // stays readable; inactive rows stay flat black and dimmed.
+                        // Active rows alternate two vivid amber shades so a run of them
+                        // stays readable and clearly reads as "running now" on a black
+                        // board; inactive rows stay flat black and dimmed.
                         $rowBg = $row['runs_today']
-                            ? ($loop->even ? 'bg-[#2a2110]' : 'bg-[#3a2e17]')
+                            ? ($loop->even ? 'bg-amber-500/25' : 'bg-amber-600/30')
                             : 'bg-black opacity-40';
                         $labelBg = $row['runs_today']
-                            ? ($loop->even ? '#2a2110' : '#3a2e17')
+                            ? ($loop->even ? '#b45309' : '#92400e')
                             : '#000000';
                     @endphp
                     <div class="flex border-b border-white/10 transition-colors {{ $rowBg }}"

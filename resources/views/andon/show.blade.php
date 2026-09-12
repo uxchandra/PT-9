@@ -95,13 +95,13 @@
             </div>
 
             <div class="text-center">
-                <h1 class="text-xl sm:text-2xl font-extrabold tracking-wide text-white whitespace-nowrap">ANDON MONITORING PT 9</h1>
+                <h1 class="text-xl sm:text-2xl font-extrabold tracking-wide text-white whitespace-nowrap">ANDON MONITORING LINE 9</h1>
             </div>
 
             <div class="flex flex-wrap items-center justify-end gap-4 text-sm">
                 <div class="flex items-center gap-1.5"><span class="w-3 h-3 border border-white bg-slate-700"></span><span class="text-slate-300">Dandori</span></div>
                 <div class="flex items-center gap-1.5"><span class="w-3 h-3 border border-blue-500" style="background-image:repeating-linear-gradient(135deg,#1d4ed8 0 3px,#1e3a8a 3px 6px)"></span><span class="text-slate-300">Rest</span></div>
-                <div class="flex items-center gap-1.5"><span class="flex items-center gap-px h-3"><span class="block w-0.5 h-full rounded-sm" style="background-color:#ff3b3b;"></span><span class="block w-0.5 h-full rounded-sm" style="background-color:#ff3b3b;"></span></span><span class="text-slate-300">Stok Turun (kanban)</span></div>
+                <div class="flex items-center gap-1.5"><span class="flex items-center gap-px h-3"><span class="block w-0.5 h-full rounded-sm" style="background-color:#ff3b3b;"></span><span class="block w-0.5 h-full rounded-sm" style="background-color:#ff3b3b;"></span></span><span class="text-slate-300">Kanban Pull</span></div>
                 <div class="flex items-center gap-1.5"><span class="w-0 h-3 border-l-2 border-dashed" style="border-color:#22c55e;"></span><span class="text-slate-300">Closing Time</span></div>
                 <div id="andon-clock" class="font-mono text-white text-base font-semibold tabular-nums ml-2" data-server-time="{{ now()->format('H:i:s') }}"></div>
             </div>

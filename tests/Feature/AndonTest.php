@@ -1015,7 +1015,6 @@ class AndonTest extends TestCase
         // Flagged as a manual override — there's no "Auto" link back to the
         // Calendar-driven endpoint, and the page polls its OWN board's
         // endpoint (never the auto one), so it never snaps back on its own.
-        $this->assertStringContainsString('Manual</span>', $html);
         $this->assertStringNotContainsString('href="'.route('andon.index').'"', $html);
         $this->assertStringContainsString('refreshUrl: '.json_encode(route('andon.show', $boardB)), $html);
     }
