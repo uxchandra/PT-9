@@ -38,17 +38,15 @@
                                         </div>
                                     @endforeach
                                 </div>
-                                {{-- Scan ticks — fills bottom-up per column, capped at that
-                                     column's own capacity; green once a column is full. --}}
+                                {{-- Scan ticks — one thin red line per scan recorded for that
+                                     column, same look as the red kanban ticks on Andon Kesei. --}}
                                 <div class="flex border-b border-white" style="height: 90px;">
                                     @foreach ($part['slots'] as $i => $capacity)
-                                        @php
-                                            $filled = $part['ticks'][$i] ?? 0;
-                                            $pct = $capacity > 0 ? min(100, round($filled / $capacity * 100)) : 0;
-                                            $isFull = $capacity > 0 && $filled >= $capacity;
-                                        @endphp
-                                        <div class="relative flex-1 border-white {{ $i === 0 ? '' : 'border-l' }}" style="min-width: {{ $cellWidth }}px;">
-                                            <div class="absolute inset-x-0 bottom-0 {{ $isFull ? 'bg-green-400' : 'bg-sky-400' }}" style="height: {{ $pct }}%;"></div>
+                                        @php $filled = $part['ticks'][$i] ?? 0; @endphp
+                                        <div class="flex flex-1 items-end justify-center gap-px border-white p-1 {{ $i === 0 ? '' : 'border-l' }}" style="min-width: {{ $cellWidth }}px;">
+                                            @for ($t = 0; $t < $filled; $t++)
+                                                <span class="block w-0.5 h-full rounded-sm bg-red-500"></span>
+                                            @endfor
                                         </div>
                                     @endforeach
                                 </div>

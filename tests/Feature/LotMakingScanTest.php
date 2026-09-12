@@ -134,10 +134,10 @@ class LotMakingScanTest extends TestCase
                 ->assertJson(['ok' => true]);
         }
 
-        // 4 of the 5 (capacity-1) columns are now completely full — no cycle yet.
+        // 4 of the 5 (capacity-1) columns now each have one red tick — no cycle yet.
         $this->assertSame(0, LotMakingCycle::count());
         $html = $this->get(route('andon-lot-making.show'))->getContent();
-        $this->assertSame(4, substr_count($html, 'bg-green-400'));
+        $this->assertSame(4, substr_count($html, 'bg-red-500'));
 
         // The 5th scan fills the last column and completes the cycle.
         $this->actingAs($this->scannerUser())
