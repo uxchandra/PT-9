@@ -1001,7 +1001,7 @@ class AndonTest extends TestCase
             ->assertExactJson(['reload' => true, 'boardId' => null]);
     }
 
-    public function test_andon_explicit_board_is_a_manual_override_with_a_way_back_to_auto(): void
+    public function test_andon_explicit_board_is_a_manual_override_that_stays_selected(): void
     {
         $this->seedBoard('BOARD-A', 'PART-A');
         $boardB = $this->seedBoard('BOARD-B', 'PART-B');
@@ -1012,10 +1012,12 @@ class AndonTest extends TestCase
 
         // Renders the explicitly-asked board, not the Calendar's.
         $this->assertStringContainsString('PART-B 1/1', $html);
-        // Flagged as a manual override, with an "Auto" link back to the
-        // Calendar-driven endpoint.
+        // Flagged as a manual override — there's no "Auto" link back to the
+        // Calendar-driven endpoint, and the page polls its OWN board's
+        // endpoint (never the auto one), so it never snaps back on its own.
         $this->assertStringContainsString('Manual</span>', $html);
-        $this->assertStringContainsString(route('andon.index'), $html);
+        $this->assertStringNotContainsString('href="'.route('andon.index').'"', $html);
+        $this->assertStringContainsString('refreshUrl: '.json_encode(route('andon.show', $boardB)), $html);
     }
 
     public function test_planning_table_requires_the_manage_planning_permission(): void

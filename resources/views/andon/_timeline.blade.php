@@ -1,5 +1,5 @@
 @if (empty($rows))
-    <div class="h-full flex items-center justify-center text-center text-slate-400">
+    <div class="h-full flex items-center justify-center text-center text-slate-500">
         {{ __('Belum ada pattern yang di-assign ke mesin untuk board ini.') }}
     </div>
 @else
@@ -27,11 +27,11 @@
         <div class="h-full flex flex-col" style="width: {{ 110 + $totalWidth }}px;">
 
             {{-- Time axis header --}}
-            <div class="shrink-0 flex sticky top-0 z-30 bg-slate-50 border-b border-slate-300">
-                <div class="sticky left-0 z-40 bg-slate-50 border-r border-slate-300 shrink-0" style="width: 110px;"></div>
+            <div class="shrink-0 flex sticky top-0 z-30 bg-black border-b-2 border-white">
+                <div class="sticky left-0 z-40 bg-black border-r-2 border-white shrink-0" style="width: 110px;"></div>
                 <div class="relative shrink-0" style="width: {{ $totalWidth }}px; height: 28px;">
                     @for ($t = $dayStart; $t < $timelineEnd; $t += 60)
-                        <div class="absolute top-0 h-full border-l border-slate-200 flex items-center text-[10px] text-slate-500 font-semibold pl-1"
+                        <div class="absolute top-0 h-full border-l border-white/10 flex items-center text-[10px] text-slate-300 font-semibold pl-1"
                              style="left: {{ ($t - $dayStart) * $pxPerMinute }}px;">
                             {{ sprintf('%02d:00', floor($t / 60) % 24) }}
                         </div>
@@ -58,10 +58,10 @@
                 @endforeach
 
                 @foreach ($rows as $row)
-                    <div class="flex border-b border-slate-200 {{ $loop->even ? 'bg-slate-50/60' : 'bg-white' }}" style="height: {{ $rowHeight }}px;">
-                        <div class="sticky left-0 z-20 flex items-center px-3 border-r border-slate-300 shrink-0"
-                             style="width: 110px; background: inherit; background-color: {{ $loop->even ? '#f8fafc' : '#ffffff' }};">
-                            <span class="font-bold text-slate-700 text-xs truncate">{{ $row['machine']->name }}</span>
+                    <div class="flex border-b border-white/10 {{ $loop->even ? 'bg-white/5' : 'bg-black' }}" style="height: {{ $rowHeight }}px;">
+                        <div class="sticky left-0 z-20 flex items-center px-3 border-r-2 border-white shrink-0"
+                             style="width: 110px; background: inherit; background-color: {{ $loop->even ? '#0f0f0f' : '#000000' }};">
+                            <span class="font-bold text-white text-xs truncate">{{ $row['machine']->name }}</span>
                         </div>
                         <div class="relative shrink-0" style="width: {{ $totalWidth }}px;">
                             @php $packedCursor = null; $prevBlockEnd = null; @endphp

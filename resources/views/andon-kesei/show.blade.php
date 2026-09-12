@@ -7,52 +7,56 @@
     <title>{{ $boardTitle ?? "KESEI KANBAN LINE 9" }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
-        body { background: #f1f5f9; }
+        body { background: #000; }
         .andon-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
-        .andon-scroll::-webkit-scrollbar-track { background: #e2e8f0; }
-        .andon-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .grid-line { position: absolute; top: 0; bottom: 0; width: 1px; background: #e2e8f0; }
-        .closing-time-marker { width: 0; border-left: 2px dashed #16a34a; }
+        .andon-scroll::-webkit-scrollbar-track { background: #1e293b; }
+        .andon-scroll::-webkit-scrollbar-thumb { background: #475569; }
+        .grid-line-dark { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.1); }
+        .closing-time-marker { width: 0; border-left: 2px dashed #22c55e; filter: drop-shadow(0 0 3px rgba(34,197,94,0.7)); }
     </style>
 </head>
-<body class="h-screen overflow-hidden font-sans antialiased text-slate-800">
-    <div class="h-screen flex flex-col px-4 sm:px-6 py-5">
+<body class="h-screen w-screen overflow-hidden bg-black font-sans antialiased text-white">
+    <div class="h-screen flex flex-col">
 
-        <div class="shrink-0 flex items-center justify-between gap-4 mb-5">
-            <div class="flex items-center gap-3 text-sm text-slate-500 font-medium">
-                <div class="inline-flex items-baseline gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 shadow-sm">
-                    <span class="text-lg font-extrabold uppercase tracking-wide text-brand-500">{{ __('Pattern') }}</span>
-                    <span class="text-lg font-extrabold uppercase text-brand-700">{{ $currentPattern ?? '—' }}</span>
-                </div>
+        <div class="shrink-0 flex items-stretch border-b-2 border-white">
+            <div class="flex shrink-0 items-center justify-center border-r-2 border-white px-4" style="width: 170px;">
+                <img src="{{ asset('images/logo_step.png') }}" alt="STEP" class="h-14 w-auto object-contain">
             </div>
-            <h1 class="text-xl sm:text-2xl font-extrabold tracking-wide text-brand-900 whitespace-nowrap">{{ $boardTitle ?? "KESEI KANBAN LINE 9" }}</h1>
-            <div class="flex items-center gap-4 text-sm">
-                <div class="flex items-center gap-1.5">
-                    <span class="flex items-center gap-px h-3">
-                        <span class="block w-0.5 h-full bg-red-500 rounded-sm"></span>
-                        <span class="block w-0.5 h-full bg-red-500 rounded-sm"></span>
-                    </span>
-                    <span class="text-slate-500">Stok Turun (kanban)</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                    <span class="w-0 h-3 border-l-2 border-dashed" style="border-color:#16a34a;"></span>
-                    <span class="text-slate-500">Closing Time</span>
-                </div>
-                <div class="flex items-center gap-1.5">
-                    <span class="w-0 h-3 border-l-2" style="border-color:#2563eb;"></span>
-                    <span class="text-slate-500">Now</span>
-                </div>
-                <div id="andon-clock" class="font-mono text-brand-800 text-base font-semibold tabular-nums" data-server-time="{{ now()->format('H:i:s') }}"></div>
+            <div class="flex flex-1 items-center justify-center py-3">
+                <h1 class="text-2xl sm:text-4xl font-extrabold uppercase tracking-wide text-white">{{ $boardTitle ?? "KESEI KANBAN LINE 9" }}</h1>
+            </div>
+            <div class="flex shrink-0 flex-col items-center justify-center border-l-2 border-white px-6 font-bold" style="width: 190px;">
+                <div class="text-lg">{{ now()->format('d/m/Y') }}</div>
+                <div id="andon-clock" class="text-lg tabular-nums" data-server-time="{{ now()->format('H:i:s') }}"></div>
             </div>
         </div>
 
-        <div class="flex-1 min-h-0 flex flex-col rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden">
-            <!-- <div class="shrink-0 flex items-center px-4 py-2 border-b border-slate-300 bg-slate-50">
-                <span class="font-bold text-slate-700 text-sm tracking-wide">KESEI</span>
-            </div> -->
-            <div class="flex-1 min-h-0 p-3">
-                @include('andon-kesei._board')
+        <div class="shrink-0 flex items-center justify-between gap-4 border-b-2 border-white px-4 py-2">
+            <div class="inline-flex items-baseline gap-2">
+                <span class="text-base font-extrabold uppercase tracking-wide text-slate-400">{{ __('Pattern') }}</span>
+                <span class="text-base font-extrabold uppercase text-white">{{ $currentPattern ?? '—' }}</span>
             </div>
+            <div class="flex items-center gap-4 text-xs text-slate-300">
+                <div class="flex items-center gap-1.5">
+                    <span class="flex items-center gap-px h-3">
+                        <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b;"></span>
+                        <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b;"></span>
+                    </span>
+                    <span>{{ __('Stok Turun (kanban)') }}</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span class="w-0 h-3 border-l-2 border-dashed" style="border-color:#22c55e;"></span>
+                    <span>{{ __('Closing Time') }}</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span class="w-0 h-3 border-l-2" style="border-color:#3b82f6;"></span>
+                    <span>{{ __('Now') }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex-1 min-h-0">
+            @include('andon-kesei._board-dark')
         </div>
     </div>
 

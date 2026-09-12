@@ -150,10 +150,11 @@ class AndonController extends Controller
         // closing-time line, with the folded-in red ticks then hidden.
         $closingKanban = $this->buildClosingTimeKanban($closingTimeMarkers, $windowStart, $decreaseEvents);
 
-        // The KESEI card renders the same standalone Kesei board component,
-        // pre-rendered to HTML so its own view data can't collide with the
-        // pattern board's ($timelineEnd, $stockDecreaseEvents, …).
-        $keseiBoardHtml = view('andon-kesei._board', app(KeseiBoard::class)->data())->render();
+        // The KESEI card renders the same standalone Kesei board component
+        // (dark variant — this whole page is dark now), pre-rendered to HTML
+        // so its own view data can't collide with the pattern board's
+        // ($timelineEnd, $stockDecreaseEvents, …).
+        $keseiBoardHtml = view('andon-kesei._board-dark', app(KeseiBoard::class)->data())->render();
 
         $viewData = [
             'patternBoard' => $patternBoard,

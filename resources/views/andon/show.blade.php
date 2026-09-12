@@ -7,43 +7,43 @@
     <title>Andon {{ $patternBoard?->name ?? 'Auto' }} — {{ config('app.name', 'Laravel') }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
-        body { background: #f1f5f9; }
+        body { background: #000; }
 
         .andon-scroll::-webkit-scrollbar { height: 10px; }
-        .andon-scroll::-webkit-scrollbar-track { background: #e2e8f0; }
-        .andon-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .andon-scroll::-webkit-scrollbar-track { background: #1e293b; }
+        .andon-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 10px; }
 
         .block-loading {
-            background-color: #f59e0b;
             border: 1px solid #ffffff;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.5);
         }
         .block-dandori {
-            background-color: #1e293b;
+            background-color: #334155;
             border: 1px solid #ffffff;
         }
         .rest-band {
-            background-image: repeating-linear-gradient(135deg, #93c5fd 0 8px, #bfdbfe 8px 16px);
-            border-left: 1px solid #60a5fa;
-            border-right: 1px solid #60a5fa;
+            background-image: repeating-linear-gradient(135deg, #1d4ed8 0 8px, #1e3a8a 8px 16px);
+            border-left: 1px solid #3b82f6;
+            border-right: 1px solid #3b82f6;
         }
         .grid-line {
             position: absolute;
             top: 0;
             bottom: 0;
             width: 1px;
-            background: #e2e8f0;
+            background: rgba(255,255,255,0.1);
         }
         .closing-time-marker {
             width: 0;
-            border-left: 2px dashed #16a34a;
+            border-left: 2px dashed #22c55e;
+            filter: drop-shadow(0 0 3px rgba(34,197,94,0.7));
         }
         /* Closing time that really sits before 07:00 — pinned to the left edge
            so it's never lost. Solid + a small marker so it reads as "off to
            the left", not an exact-position tick. */
         .closing-time-marker--pinned {
             border-left-style: solid;
-            box-shadow: 3px 0 4px -1px rgba(22, 163, 74, 0.55);
+            box-shadow: 3px 0 4px -1px rgba(34, 197, 94, 0.7);
         }
         .closing-time-marker--pinned::after {
             content: '\00AB';
@@ -53,7 +53,7 @@
             font-size: 11px;
             line-height: 1;
             font-weight: 700;
-            color: #16a34a;
+            color: #22c55e;
         }
         .andon-cards-stack {
             display: flex;
@@ -61,41 +61,33 @@
         }
         .andon-card-drag-handle { cursor: grab; }
         .andon-card-drag-handle:active { cursor: grabbing; }
-        .andon-card-drop-target { outline: 2px dashed #b45309; outline-offset: -2px; }
+        .andon-card-drop-target { outline: 2px dashed #f59e0b; outline-offset: -2px; }
     </style>
 </head>
-<body class="h-screen overflow-hidden font-sans antialiased text-slate-800">
+<body class="h-screen w-screen overflow-hidden bg-black font-sans antialiased text-white">
     <div class="h-screen flex flex-col px-4 sm:px-6 py-5" x-data="andonPanels()">
 
         <!-- Header -->
         <div class="shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-4 mb-5">
             <div class="flex flex-wrap items-center gap-2">
-                @foreach ($patternBoards as $board)
-                    <a href="{{ route('andon.show', $board) }}"
-                       class="px-5 py-2 rounded-lg text-sm font-bold border transition shadow-sm
-                              {{ $board->id === $patternBoard?->id
-                                    ? 'bg-brand-800 text-white border-brand-800'
-                                    : 'bg-white text-slate-600 border-slate-200 hover:border-brand-400 hover:text-brand-800' }}">
-                        {{ $board->name }}
-                    </a>
-                @endforeach
-
-                @unless ($auto ?? true)
-                    <a href="{{ route('andon.index') }}"
-                       class="px-4 py-2 rounded-lg text-sm font-bold border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 transition shadow-sm">
-                        &#8635; {{ __('Auto') }}
-                    </a>
-                @endunless
+                <select onchange="if (this.value) window.location.href = this.value;"
+                        class="px-3 py-2 text-sm font-bold border border-white bg-black text-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    @foreach ($patternBoards as $board)
+                        <option value="{{ route('andon.show', $board) }}" @selected($board->id === $patternBoard?->id)>
+                            {{ $board->name }}
+                        </option>
+                    @endforeach
+                </select>
 
                 @unless (empty($rows))
-                    <span class="w-px h-6 bg-slate-300 mx-1"></span>
+                    <span class="w-px h-6 bg-white/30 mx-1"></span>
 
                     @foreach (['andon' => 'PATTERN', 'kosei' => 'KESEI', 'planning' => 'PLANNING'] as $key => $label)
                         <button type="button" @click="collapsed.{{ $key }} ? show('{{ $key }}') : hide('{{ $key }}')"
                                 :class="collapsed.{{ $key }}
-                                    ? 'bg-white text-slate-500 border-slate-300 hover:border-brand-400 hover:text-brand-800'
+                                    ? 'bg-black text-slate-300 border-white hover:border-brand-400 hover:text-white'
                                     : 'bg-brand-800 text-white border-brand-800'"
-                                class="px-4 py-2 rounded-lg text-sm font-bold border transition shadow-sm">
+                                class="px-4 py-2 text-sm font-bold border transition">
                             {{ $label }}
                         </button>
                     @endforeach
@@ -103,30 +95,20 @@
             </div>
 
             <div class="text-center">
-                <h1 class="text-xl sm:text-2xl font-extrabold tracking-wide text-brand-900 whitespace-nowrap">ANDON MONITORING PT 9</h1>
-                <p class="mt-0.5 text-[11px] font-semibold text-slate-500 whitespace-nowrap">
-                    @if ($patternBoard)
-                        Pattern {{ $patternBoard->name }} &middot; {{ $productionLabel ?? '' }}
-                    @else
-                        {{ $productionLabel ?? '' }}
-                    @endif
-                    @unless ($auto ?? true)
-                        <span class="ml-1 inline-block px-1.5 py-px rounded bg-amber-100 text-amber-700 uppercase tracking-wide">{{ __('Manual') }}</span>
-                    @endunless
-                </p>
+                <h1 class="text-xl sm:text-2xl font-extrabold tracking-wide text-white whitespace-nowrap">ANDON MONITORING PT 9</h1>
             </div>
 
             <div class="flex flex-wrap items-center justify-end gap-4 text-sm">
-                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm border border-white bg-slate-900"></span><span class="text-slate-500">Dandori</span></div>
-                <div class="flex items-center gap-1.5"><span class="w-3 h-3 rounded-sm border border-blue-400" style="background-image:repeating-linear-gradient(135deg,#93c5fd 0 3px,#bfdbfe 3px 6px)"></span><span class="text-slate-500">Rest</span></div>
-                <div class="flex items-center gap-1.5"><span class="flex items-center gap-px h-3"><span class="block w-0.5 h-full bg-red-500 rounded-sm"></span><span class="block w-0.5 h-full bg-red-500 rounded-sm"></span></span><span class="text-slate-500">Stok Turun (kanban)</span></div>
-                <div class="flex items-center gap-1.5"><span class="w-0 h-3 border-l-2 border-dashed" style="border-color:#16a34a;"></span><span class="text-slate-500">Closing Time</span></div>
-                <div id="andon-clock" class="font-mono text-brand-800 text-base font-semibold tabular-nums ml-2" data-server-time="{{ now()->format('H:i:s') }}"></div>
+                <div class="flex items-center gap-1.5"><span class="w-3 h-3 border border-white bg-slate-700"></span><span class="text-slate-300">Dandori</span></div>
+                <div class="flex items-center gap-1.5"><span class="w-3 h-3 border border-blue-500" style="background-image:repeating-linear-gradient(135deg,#1d4ed8 0 3px,#1e3a8a 3px 6px)"></span><span class="text-slate-300">Rest</span></div>
+                <div class="flex items-center gap-1.5"><span class="flex items-center gap-px h-3"><span class="block w-0.5 h-full rounded-sm" style="background-color:#ff3b3b;"></span><span class="block w-0.5 h-full rounded-sm" style="background-color:#ff3b3b;"></span></span><span class="text-slate-300">Stok Turun (kanban)</span></div>
+                <div class="flex items-center gap-1.5"><span class="w-0 h-3 border-l-2 border-dashed" style="border-color:#22c55e;"></span><span class="text-slate-300">Closing Time</span></div>
+                <div id="andon-clock" class="font-mono text-white text-base font-semibold tabular-nums ml-2" data-server-time="{{ now()->format('H:i:s') }}"></div>
             </div>
         </div>
 
         @if (empty($rows))
-            <div class="flex-1 min-h-0 flex items-center justify-center rounded-xl border border-slate-200 bg-white text-center text-slate-400 shadow-sm px-6">
+            <div class="flex-1 min-h-0 flex items-center justify-center border-2 border-white bg-black text-center text-slate-400 px-6">
                 {{ $noBoardMessage ?? __('Belum ada pattern yang di-assign ke mesin untuk board ini.') }}
             </div>
         @else
@@ -140,15 +122,15 @@
                 <div class="andon-cards-stack flex-1 min-h-0 gap-3">
 
                     <!-- Card: Pattern -->
-                    <div class="flex flex-col min-h-0 flex-1 rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden"
+                    <div class="flex flex-col min-h-0 flex-1 border-2 border-white bg-black overflow-hidden"
                          x-show="!collapsed.andon" :class="cardClass('andon')" :style="cardStyle('andon')"
                          @dragover.prevent="dragOver = 'andon'" @dragleave="dragOver = null"
                          @drop.prevent="drop('andon')">
-                        <div class="andon-card-drag-handle shrink-0 flex items-center justify-between px-4 py-2 border-b border-slate-300 bg-slate-50"
+                        <div class="andon-card-drag-handle shrink-0 flex items-center justify-between px-4 py-2 border-b-2 border-white bg-black"
                              draggable="true" @dragstart="dragging = 'andon'" @dragend="dragging = null; dragOver = null">
-                            <span class="font-bold text-slate-700 text-sm tracking-wide select-none">⠿ {{ __('PATTERN') }}</span>
+                            <span class="font-bold text-white text-sm tracking-wide select-none">⠿ {{ __('PATTERN') }}</span>
                             <button type="button" @click="hide('andon')"
-                                    class="w-6 h-6 flex items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 transition">
+                                    class="w-6 h-6 flex items-center justify-center border border-white bg-black text-white hover:bg-white/10 transition">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M20 12H4"/>
                                 </svg>
@@ -160,38 +142,38 @@
                     </div>
 
                     <!-- Card: Kesei -->
-                    <div class="flex flex-col min-h-0 flex-1 rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden"
+                    <div class="flex flex-col min-h-0 flex-1 border-2 border-white bg-black overflow-hidden"
                          x-show="!collapsed.kosei" :class="cardClass('kosei')" :style="cardStyle('kosei')"
                          @dragover.prevent="dragOver = 'kosei'" @dragleave="dragOver = null"
                          @drop.prevent="drop('kosei')">
-                        <div class="andon-card-drag-handle shrink-0 flex items-center justify-between px-4 py-2 border-b border-slate-300 bg-slate-50"
+                        <div class="andon-card-drag-handle shrink-0 flex items-center justify-between px-4 py-2 border-b-2 border-white bg-black"
                              draggable="true" @dragstart="dragging = 'kosei'" @dragend="dragging = null; dragOver = null">
-                            <span class="font-bold text-slate-700 text-sm tracking-wide select-none">⠿ {{ __('KESEI') }}</span>
+                            <span class="font-bold text-white text-sm tracking-wide select-none">⠿ {{ __('KESEI') }}</span>
                             <button type="button" @click="hide('kosei')"
-                                    class="w-6 h-6 flex items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 transition">
+                                    class="w-6 h-6 flex items-center justify-center border border-white bg-black text-white hover:bg-white/10 transition">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M20 12H4"/>
                                 </svg>
                             </button>
                         </div>
-                        <div id="andon-panel-kosei" class="flex-1 min-h-0 p-3">
+                        <div id="andon-panel-kosei" class="flex-1 min-h-0">
                             {!! $keseiBoardHtml !!}
                         </div>
                     </div>
 
                     <!-- Card: Planning -->
-                    <div class="flex flex-col min-h-0 flex-1 rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden"
+                    <div class="flex flex-col min-h-0 flex-1 border-2 border-white bg-black overflow-hidden"
                          x-show="!collapsed.planning" :class="cardClass('planning')" :style="cardStyle('planning')"
                          @dragover.prevent="dragOver = 'planning'" @dragleave="dragOver = null"
                          @drop.prevent="drop('planning')">
-                        <div class="andon-card-drag-handle shrink-0 flex items-center justify-between px-4 py-2 border-b border-slate-300 bg-slate-50"
+                        <div class="andon-card-drag-handle shrink-0 flex items-center justify-between px-4 py-2 border-b-2 border-white bg-black"
                              draggable="true" @dragstart="dragging = 'planning'" @dragend="dragging = null; dragOver = null">
                             <div class="select-none">
-                                <span class="font-bold text-slate-700 text-sm tracking-wide">⠿ {{ __('PLANNING') }}</span>
+                                <span class="font-bold text-white text-sm tracking-wide">⠿ {{ __('PLANNING') }}</span>
                                 <p class="text-[11px] text-slate-400">{{ __('Kanban = demand Kesei pada closing time (H-4 jam dari mulai produksi)') }}</p>
                             </div>
                             <button type="button" @click="hide('planning')"
-                                    class="w-6 h-6 flex items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 transition shrink-0">
+                                    class="w-6 h-6 flex items-center justify-center border border-white bg-black text-white hover:bg-white/10 transition shrink-0">
                                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M20 12H4"/>
                                 </svg>
@@ -207,12 +189,15 @@
     </div>
 
     <script>
-        // The auto (Calendar-driven) endpoint every refresh polls, plus the
-        // board this page is currently rendering — so the browser can tell a
-        // Calendar rollover / manual-override from an ordinary tick.
+        // The auto (Calendar-driven) /andon page polls itself and still
+        // follows the Calendar (a rollover, or a board appearing for a
+        // previously-empty day). A board picked from the dropdown is a
+        // deliberate, lasting choice — it polls its OWN endpoint and never
+        // gets redirected back to whatever the Calendar says today.
         window.__ANDON = {
-            refreshUrl: @json(route('andon.index')),
+            refreshUrl: @json($auto ?? true ? route('andon.index') : route('andon.show', $patternBoard)),
             boardId: @json($patternBoard?->id),
+            auto: @json($auto ?? true),
         };
 
         // Drag-and-drop card arrangement: 3 cards, up to 2 per row. Order and
@@ -398,10 +383,12 @@
                     if (!res.ok) return;
                     const data = await res.json();
 
-                    // Calendar rollover, override snap-back, or a board just got
-                    // assigned to a previously-empty day — re-resolve the whole
-                    // page from the auto URL, header and all.
-                    if (data.reload || (data.boardId ?? null) !== currentBoardId) {
+                    // Only the auto page re-resolves itself on a Calendar
+                    // rollover or a board just getting assigned to a
+                    // previously-empty day — a dropdown-picked board polls
+                    // its own endpoint (so boardId always matches itself) and
+                    // is never redirected away from what was picked.
+                    if (window.__ANDON.auto && (data.reload || (data.boardId ?? null) !== currentBoardId)) {
                         window.location.assign(refreshUrl);
                         return;
                     }

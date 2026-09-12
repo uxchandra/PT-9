@@ -8,8 +8,11 @@ use Illuminate\Http\Request;
 use Illuminate\View\View;
 
 /**
- * Standalone Kesei board. All the data is built by {@see KeseiBoard} so the
- * same component can also be embedded in the pattern-driven Andon board.
+ * Standalone Kesei board — dark, full-bleed theme. Data is built by
+ * {@see KeseiBoard}; the light andon-kesei._board/_timeline/etc. partials
+ * are a separate set used only for the KESEI card embedded in the
+ * pattern-driven /andon board, so this page's dark styling never bleeds
+ * into that one.
  *
  * Two flavours, identical except for where the red ticks come from:
  *  - show()     — ticks from the Stock Part All API feed
@@ -37,9 +40,9 @@ class AndonKeseiController extends Controller
 
         if ($request->ajax()) {
             return response()->json([
-                'timeline' => view('andon-kesei._timeline', $viewData)->render(),
-                'closingTable' => view('andon-kesei._closing-table', $viewData)->render(),
-                'stockTimeline' => view('andon-kesei._stock-timeline', $viewData)->render(),
+                'timeline' => view('andon-kesei._timeline-dark', $viewData)->render(),
+                'closingTable' => view('andon-kesei._closing-table-dark', $viewData)->render(),
+                'stockTimeline' => view('andon-kesei._stock-timeline-dark', $viewData)->render(),
                 'serverTime' => now()->format('H:i:s'),
             ]);
         }
