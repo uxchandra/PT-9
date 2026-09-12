@@ -77,16 +77,39 @@ class AndonLotMakingTest extends TestCase
         $this->assertSeeInOrder($html, ['PART-A', 'PART-B', 'PART-C']);
     }
 
-    public function test_rows_are_ordered_by_their_lowest_no(): void
+    public function test_rows_are_ordered_by_row_number_not_by_no(): void
     {
-        $a = Part::create(['part_no' => 'ROW-28']);
-        $b = Part::create(['part_no' => 'ROW-1']);
-        LotMaking::create(['no' => 28, 'row' => '28', 'part_id' => $a->id]);
-        LotMaking::create(['no' => 1, 'row' => '1', 'part_id' => $b->id]);
+        // `no` is a free-form per-part label — it's explicitly allowed to be
+        // scrambled and must never decide where a row band lands. Row 3
+        // carries a high `no` and row 4 a low one; row 3 must still render
+        // first, purely because "3" < "4".
+        $row3 = Part::create(['part_no' => 'ROW-3']);
+        $row4 = Part::create(['part_no' => 'ROW-4']);
+        LotMaking::create(['no' => 99, 'row' => '3', 'kolom' => '3', 'part_id' => $row3->id]);
+        LotMaking::create(['no' => 1, 'row' => '4', 'kolom' => '3', 'part_id' => $row4->id]);
 
         $html = $this->get(route('andon-lot-making.show'))->getContent();
 
-        $this->assertSeeInOrder($html, ['ROW-1', 'ROW-28']);
+        $this->assertSeeInOrder($html, ['ROW-3', 'ROW-4']);
+    }
+
+    public function test_row_and_kolom_sort_numerically_not_alphabetically(): void
+    {
+        // Plain string order would put "10" before "2" — row/kolom are
+        // free-text, so this has to be a natural (numeric-aware) comparison.
+        $row2 = Part::create(['part_no' => 'ROW-2']);
+        $row10 = Part::create(['part_no' => 'ROW-10']);
+        $kolom2 = Part::create(['part_no' => 'KOLOM-2']);
+        $kolom10 = Part::create(['part_no' => 'KOLOM-10']);
+        LotMaking::create(['row' => '10', 'part_id' => $row10->id]);
+        LotMaking::create(['row' => '2', 'part_id' => $row2->id]);
+        LotMaking::create(['row' => 'SAMEROW', 'kolom' => '10', 'part_id' => $kolom10->id]);
+        LotMaking::create(['row' => 'SAMEROW', 'kolom' => '2', 'part_id' => $kolom2->id]);
+
+        $html = $this->get(route('andon-lot-making.show'))->getContent();
+
+        $this->assertSeeInOrder($html, ['ROW-2', 'ROW-10']);
+        $this->assertSeeInOrder($html, ['KOLOM-2', 'KOLOM-10']);
     }
 
     public function test_parts_without_a_row_each_get_their_own_band_instead_of_merging(): void

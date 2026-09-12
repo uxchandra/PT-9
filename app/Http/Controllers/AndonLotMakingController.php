@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\LotMakingBoard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\View\View;
+use Illuminate\Http\Response;
 
 /**
  * Standalone Andon Lot Making board: the 75% window is the row/kolom/slot
@@ -14,7 +14,7 @@ use Illuminate\View\View;
  */
 class AndonLotMakingController extends Controller
 {
-    public function show(Request $request, LotMakingBoard $board): View|JsonResponse
+    public function show(Request $request, LotMakingBoard $board): Response|JsonResponse
     {
         $viewData = $board->data();
 
@@ -26,9 +26,13 @@ class AndonLotMakingController extends Controller
                 'grid' => view('andon-lot-making._grid', $viewData)->render(),
                 'roller' => view('andon-lot-making._roller', $viewData)->render(),
                 'serverTime' => now()->format('H:i:s'),
-            ]);
+            ])->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
         }
 
-        return view('andon-lot-making.show', $viewData);
+        // A wall-mounted board left open for days must never be served from a
+        // proxy/browser cache — every load (and every poll) has to hit the DB.
+        return response()
+            ->view('andon-lot-making.show', $viewData)
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     }
 }

@@ -30,25 +30,35 @@ class LotMakingBoard
      */
     public function data(): array
     {
-        // `kolom` decides left-to-right order WITHIN a row band; `no` decides
-        // where the band itself lands relative to other bands (the same
-        // "manual position" role it plays on the plain Lot Making listing).
-        $lotMakings = LotMaking::with('part')
-            ->orderByRaw('`row` IS NULL, `row`')
-            ->orderByRaw('`kolom` IS NULL, `kolom`')
-            ->orderBy('id')
-            ->get();
+        // `row`/`kolom` are free-text (not necessarily numeric-padded or even
+        // sequential), so ordering is done in PHP with a natural comparison —
+        // "10" must sort after "2", not before it. `no` plays no part in
+        // where a band lands: it's a free-form per-part label (see
+        // LotMakingController's listing for its one actual ordering role) and
+        // is explicitly allowed to be set in any order.
+        $lotMakings = LotMaking::with('part')->orderBy('id')->get();
 
         $partNos = $lotMakings->map(fn (LotMaking $lm) => $lm->part?->part_no)->filter()->unique()->values()->all();
         $ticksByPart = $this->ticksSinceLastCycle($partNos);
 
         $rows = $lotMakings
             ->groupBy(fn (LotMaking $lm) => $lm->row !== null ? 'row:'.$lm->row : 'solo:'.$lm->id)
-            ->sortBy(fn (Collection $parts) => $parts->pluck('no')->filter()->min() ?? PHP_INT_MAX)
             ->map(fn (Collection $parts) => [
                 'row' => $parts->first()->row,
-                'parts' => $parts->map(fn (LotMaking $lm) => $this->partBlock($lm, $ticksByPart))->values()->all(),
+                'parts' => $parts
+                    ->sortBy(fn (LotMaking $lm) => $lm->kolom, SORT_NATURAL | SORT_FLAG_CASE)
+                    ->map(fn (LotMaking $lm) => $this->partBlock($lm, $ticksByPart))
+                    ->values()
+                    ->all(),
             ])
+            ->sort(function (array $a, array $b) {
+                // Bands with no row set always sort after every numbered one.
+                if ($a['row'] === null || $b['row'] === null) {
+                    return $a['row'] === $b['row'] ? 0 : ($a['row'] === null ? 1 : -1);
+                }
+
+                return strnatcasecmp($a['row'], $b['row']);
+            })
             ->values()
             ->all();
 
