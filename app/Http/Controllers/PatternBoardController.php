@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Machine;
+use App\Models\Part;
 use App\Models\PatternBoard;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -22,6 +24,8 @@ class PatternBoardController extends Controller
         $groupItems = collect();
         $patterns = collect();
         $groupItemsByPart = collect();
+        $editMachines = collect();
+        $editAvailableParts = collect();
 
         if ($selectedBoard) {
             $groupItemsQuery = $selectedBoard->groupItems()->with('part');
@@ -45,13 +49,20 @@ class PatternBoardController extends Controller
             // Keyed by part_id+shift since a part can have a separate item per shift.
             $groupItemsByPart = $selectedBoard->groupItems()->get()
                 ->keyBy(fn ($item) => $item->part_id.'-'.$item->shift);
+
+            // Every row in the Assignment Mesin table gets its own edit modal
+            // (see patterns/_edit-modal.blade.php) — they all share the same
+            // Machine/Part option lists, so these are built once here rather
+            // than once per row.
+            $editMachines = Machine::orderBy('name')->get();
+            $editAvailableParts = Part::whereIn('id', $selectedBoard->groupItems()->pluck('part_id'))->orderBy('part_no')->get();
         }
 
         if ($request->ajax()) {
-            return view('pattern-boards._results', compact('selectedBoard', 'groupItems', 'patterns', 'groupItemsByPart', 'search'));
+            return view('pattern-boards._results', compact('selectedBoard', 'groupItems', 'patterns', 'groupItemsByPart', 'search', 'editMachines', 'editAvailableParts'));
         }
 
-        return view('pattern-boards.index', compact('patternBoards', 'selectedBoard', 'groupItems', 'patterns', 'groupItemsByPart', 'search'));
+        return view('pattern-boards.index', compact('patternBoards', 'selectedBoard', 'groupItems', 'patterns', 'groupItemsByPart', 'search', 'editMachines', 'editAvailableParts'));
     }
 
     public function create(): View

@@ -889,7 +889,13 @@ class AndonController extends Controller
                 }
             }
 
-            [$segments, $cursor] = $this->placeSegment($cursor, $groupItem->loading_time, $pauseIntervals);
+            // Visualized rounded up to the nearest 5 minutes — a 121-minute
+            // loading time reads as "125" wide on the board, 87 reads as "90"
+            // — matching how the floor reads block widths. The stored value
+            // itself, used for every real calculation, is untouched.
+            $visualLoadingTime = (int) (ceil($groupItem->loading_time / 5) * 5);
+
+            [$segments, $cursor] = $this->placeSegment($cursor, $visualLoadingTime, $pauseIntervals);
             foreach ($segments as $i => [$start, $end]) {
                 $blocks[] = [
                     'type' => 'loading',

@@ -12,11 +12,11 @@
                             $slotCount = max(count($part['slots']), 1);
                             $cellWidth = 46;
                         @endphp
-                        {{-- The "no" badge — one per part, same width whether
-                             it's the first in the row band or a divider
-                             before a later one. --}}
+                        {{-- The "no" badge — one per part, same width as a
+                             single slot column, whether it's the first in
+                             the row band or a divider before a later one. --}}
                         <div class="flex shrink-0 items-center justify-center border border-white text-sm font-bold text-white"
-                             style="width: 34px; background-color: #0d6efd;">
+                             style="width: {{ $cellWidth }}px; background-color: #0d6efd;">
                             {{ $part['no'] ?? '—' }}
                         </div>
 

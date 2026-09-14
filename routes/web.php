@@ -131,8 +131,10 @@ Route::middleware('auth')->group(function () {
         Route::resource('pattern-boards.group-items', PatternGroupItemController::class)
             ->parameters(['group-items' => 'patternGroupItem'])
             ->except(['index', 'show'])->shallow();
+        // 'edit' is excluded — Pattern editing is a modal on the board index
+        // page now (see patterns/_edit-modal.blade.php), not a standalone page.
         Route::resource('pattern-boards.patterns', PatternController::class)
-            ->except(['index', 'show'])->shallow();
+            ->except(['index', 'show', 'edit'])->shallow();
 
         Route::get('pattern-boards/import-template', [PatternImportController::class, 'template'])
             ->name('pattern-boards.import.template');

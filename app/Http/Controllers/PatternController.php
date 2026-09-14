@@ -33,14 +33,6 @@ class PatternController extends Controller
             ->with('status', 'Assignment mesin berhasil ditambahkan.');
     }
 
-    public function edit(Pattern $pattern): View
-    {
-        $machines = Machine::orderBy('name')->get();
-        $parts = $this->availableParts($pattern->patternBoard);
-
-        return view('patterns.edit', compact('pattern', 'machines', 'parts'));
-    }
-
     public function update(Request $request, Pattern $pattern): RedirectResponse
     {
         $validated = $this->validated($request, $pattern->patternBoard);

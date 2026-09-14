@@ -116,7 +116,8 @@
                             </td>
                             <td class="px-6 py-3 text-gray-600">{{ $pattern->proses }}/{{ $groupItem?->jumlah_proses ?? '?' }}</td>
                             <td class="px-6 py-3 text-right whitespace-nowrap">
-                                <a href="{{ route('patterns.edit', $pattern) }}" class="text-brand-700 hover:text-brand-900 font-medium">{{ __('Edit') }}</a>
+                                <button type="button" x-data="" x-on:click="$dispatch('open-modal', 'pattern-edit-{{ $pattern->id }}')"
+                                        class="text-brand-700 hover:text-brand-900 font-medium">{{ __('Edit') }}</button>
                                 <form action="{{ route('patterns.destroy', $pattern) }}" method="POST" class="inline" onsubmit="return confirm('{{ __('Hapus assignment ini?') }}');">
                                     @csrf
                                     @method('DELETE')
@@ -141,4 +142,8 @@
             </div>
         @endif
     </div>
+
+    @foreach ($patterns as $pattern)
+        @include('patterns._edit-modal', ['pattern' => $pattern, 'editMachines' => $editMachines, 'editAvailableParts' => $editAvailableParts])
+    @endforeach
 </div>

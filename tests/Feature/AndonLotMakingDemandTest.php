@@ -24,7 +24,7 @@ class AndonLotMakingDemandTest extends TestCase
     {
         $this->get(route('andon-lot-making.demand'))
             ->assertOk()
-            ->assertSee('LOT MAKING  LINE 9');
+            ->assertSee('LOT MAKING REALTIME SOS LINE 9');
     }
 
     public function test_ticks_come_straight_from_stock_decrease_with_no_scan_involved(): void

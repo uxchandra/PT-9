@@ -98,6 +98,41 @@ class AndonTest extends TestCase
         $response->assertDontSee('FREE TIME');
     }
 
+    public function test_andon_show_visualizes_loading_time_rounded_up_to_the_nearest_5_minutes(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $partA = Part::create(['part_no' => 'P1']);
+        $partB = Part::create(['part_no' => 'P2']);
+
+        // 61 -> visualized as 65 (61 * 1.8px/min = 109.8px would be the
+        // unrounded width; 65 * 1.8 = 117px is what must actually render).
+        // Dandori is a plain 7 -> 12.6px, untouched by the rounding.
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id, 'part_id' => $partA->id, 'urutan' => 1,
+            'loading_time' => 61, 'jumlah_proses' => 1, 'total_kanban' => 1, 'dandori' => 7,
+        ]);
+        // 87 -> visualized as 90 (90 * 1.8 = 162px) — and because blocks are
+        // placed back to back, this part's block must also START where the
+        // FIRST part's rounded (not raw) block actually ends.
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id, 'part_id' => $partB->id, 'urutan' => 2,
+            'loading_time' => 87, 'jumlah_proses' => 1, 'total_kanban' => 1, 'dandori' => 0,
+        ]);
+
+        Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $partA->id, 'proses' => 1]);
+        Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $partB->id, 'proses' => 1]);
+
+        $html = $this->get("/andon/{$board->id}")->getContent();
+
+        $this->assertStringContainsString('width: 12.6px', $html); // dandori, unrounded
+        $this->assertStringContainsString('width: 117px', $html); // 65min loading block
+        $this->assertStringContainsString('width: 162px', $html); // 90min loading block
+        // The raw (unrounded) widths must never appear.
+        $this->assertStringNotContainsString('width: 109.8px', $html);
+        $this->assertStringNotContainsString('width: 156.6px', $html);
+    }
+
     public function test_andon_show_orders_machine_rows_naturally_by_name(): void
     {
         $board = PatternBoard::create(['name' => 'TestBoard']);
