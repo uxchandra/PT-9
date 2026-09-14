@@ -26,6 +26,7 @@ class PatternBoardController extends Controller
         $groupItemsByPart = collect();
         $editMachines = collect();
         $editAvailableParts = collect();
+        $editParts = collect();
 
         if ($selectedBoard) {
             $groupItemsQuery = $selectedBoard->groupItems()->with('part');
@@ -56,13 +57,20 @@ class PatternBoardController extends Controller
             // than once per row.
             $editMachines = Machine::orderBy('name')->get();
             $editAvailableParts = Part::whereIn('id', $selectedBoard->groupItems()->pluck('part_id'))->orderBy('part_no')->get();
+
+            // Every row in the Kelompok Pattern table gets its own edit modal
+            // too (see pattern-group-items/_edit-modal.blade.php) — its Part
+            // dropdown intentionally lists every part in Part List, not just
+            // ones already on this board, since that's how a part gets added
+            // to Kelompok Pattern in the first place.
+            $editParts = Part::orderBy('part_no')->get();
         }
 
         if ($request->ajax()) {
-            return view('pattern-boards._results', compact('selectedBoard', 'groupItems', 'patterns', 'groupItemsByPart', 'search', 'editMachines', 'editAvailableParts'));
+            return view('pattern-boards._results', compact('selectedBoard', 'groupItems', 'patterns', 'groupItemsByPart', 'search', 'editMachines', 'editAvailableParts', 'editParts'));
         }
 
-        return view('pattern-boards.index', compact('patternBoards', 'selectedBoard', 'groupItems', 'patterns', 'groupItemsByPart', 'search', 'editMachines', 'editAvailableParts'));
+        return view('pattern-boards.index', compact('patternBoards', 'selectedBoard', 'groupItems', 'patterns', 'groupItemsByPart', 'search', 'editMachines', 'editAvailableParts', 'editParts'));
     }
 
     public function create(): View

@@ -52,7 +52,8 @@
                             <td class="px-6 py-3 text-gray-600">{{ $item->total_kanban }}</td>
                             <td class="px-6 py-3 text-gray-600">{{ $item->dandori }} {{ __('menit') }}</td>
                             <td class="px-6 py-3 text-right whitespace-nowrap">
-                                <a href="{{ route('group-items.edit', $item) }}" class="text-brand-700 hover:text-brand-900 font-medium">{{ __('Edit') }}</a>
+                                <button type="button" x-data="" x-on:click="$dispatch('open-modal', 'group-item-edit-{{ $item->id }}')"
+                                        class="text-brand-700 hover:text-brand-900 font-medium">{{ __('Edit') }}</button>
                                 <form action="{{ route('group-items.destroy', $item) }}" method="POST" class="inline" onsubmit="return confirm('{{ __('Hapus item ini?') }}');">
                                     @csrf
                                     @method('DELETE')
@@ -142,6 +143,10 @@
             </div>
         @endif
     </div>
+
+    @foreach ($groupItems as $item)
+        @include('pattern-group-items._edit-modal', ['item' => $item, 'editParts' => $editParts])
+    @endforeach
 
     @foreach ($patterns as $pattern)
         @include('patterns._edit-modal', ['pattern' => $pattern, 'editMachines' => $editMachines, 'editAvailableParts' => $editAvailableParts])

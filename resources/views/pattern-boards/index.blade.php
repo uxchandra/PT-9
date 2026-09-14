@@ -195,6 +195,35 @@
 
                     initKpSortable();
                 })();
+
+                // Live "Total Kanban" preview inside every Kelompok Pattern edit
+                // modal (see pattern-group-items/_edit-modal.blade.php) — one
+                // delegated listener instead of one per modal, so it also covers
+                // modals swapped in by an AJAX search refresh for free.
+                (function () {
+                    function updatePreview(form) {
+                        if (!form) return;
+                        const partSelect = form.querySelector('.gi-part-select');
+                        const lotInput = form.querySelector('.gi-lot-input');
+                        const preview = form.querySelector('.gi-total-kanban-preview');
+                        if (!partSelect || !lotInput || !preview) return;
+
+                        const option = partSelect.options[partSelect.selectedIndex];
+                        const qtyKbn = option ? parseFloat(option.dataset.qtyKbn) : NaN;
+                        const lot = parseFloat(lotInput.value);
+
+                        preview.textContent = (!option || !option.value || isNaN(qtyKbn) || qtyKbn <= 0 || isNaN(lot))
+                            ? '—'
+                            : Math.ceil(lot / qtyKbn);
+                    }
+
+                    document.addEventListener('change', (e) => {
+                        if (e.target.matches('.gi-part-select')) updatePreview(e.target.closest('form'));
+                    });
+                    document.addEventListener('input', (e) => {
+                        if (e.target.matches('.gi-lot-input')) updatePreview(e.target.closest('form'));
+                    });
+                })();
             </script>
         @endpush
     @endif

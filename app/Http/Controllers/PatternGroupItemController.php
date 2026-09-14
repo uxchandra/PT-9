@@ -35,13 +35,6 @@ class PatternGroupItemController extends Controller
             ->with('status', 'Item kelompok pattern berhasil ditambahkan.');
     }
 
-    public function edit(PatternGroupItem $patternGroupItem): View
-    {
-        $parts = Part::orderBy('part_no')->get();
-
-        return view('pattern-group-items.edit', compact('patternGroupItem', 'parts'));
-    }
-
     public function update(Request $request, PatternGroupItem $patternGroupItem): RedirectResponse
     {
         $validated = $this->validated($request, $patternGroupItem->patternBoard, $patternGroupItem);

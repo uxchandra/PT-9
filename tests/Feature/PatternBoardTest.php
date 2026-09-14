@@ -72,7 +72,7 @@ class PatternBoardTest extends TestCase
         // Scoped to the table rows: each row's edit modal (appended after the
         // tables) legitimately lists every part on the board — search-filtering
         // it too would make editing a filtered-out row's part impossible.
-        $tablesHtml = substr($html, 0, strpos($html, '_pattern_edit_id'));
+        $tablesHtml = $this->tablesOnly($html);
 
         $this->assertStringContainsString('ALPHA-1', $tablesHtml);
         $this->assertStringNotContainsString('BETA-2', $tablesHtml);
@@ -90,7 +90,7 @@ class PatternBoardTest extends TestCase
         // Scoped to the table rows: each row's edit modal (appended after the
         // tables) legitimately lists every machine on the board — search-filtering
         // it too would make re-assigning a filtered-out row's machine impossible.
-        $tablesHtml = substr($html, 0, strpos($html, '_pattern_edit_id'));
+        $tablesHtml = $this->tablesOnly($html);
 
         // PT92 runs BETA-2 — the assignment row for it must survive the filter.
         $this->assertStringContainsString('PT92', $tablesHtml);
@@ -189,6 +189,78 @@ class PatternBoardTest extends TestCase
         $this->assertStringContainsString('display: none', substr($followUp, $patternBModalStart, 800));
     }
 
+    public function test_group_item_rows_render_an_edit_modal_trigger_not_a_page_link(): void
+    {
+        $board = $this->seedBoard();
+        $item = PatternGroupItem::where('pattern_board_id', $board->id)->first();
+
+        $html = $this->actingAs($this->authorizedUser())
+            ->get(route('pattern-boards.index', ['board' => $board->id]))
+            ->assertOk()
+            ->getContent();
+
+        // Opens a modal (Alpine dispatch) instead of navigating to a page.
+        $this->assertStringContainsString("open-modal', 'group-item-edit-{$item->id}'", $html);
+        $this->assertStringContainsString('_group_item_edit_id', $html);
+        $this->assertStringContainsString(route('group-items.update', $item), $html);
+    }
+
+    public function test_the_standalone_group_item_edit_page_route_no_longer_exists(): void
+    {
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('group-items.edit'));
+    }
+
+    public function test_updating_a_group_item_via_the_modal_form_persists_and_redirects_back_to_the_board(): void
+    {
+        $board = $this->seedBoard();
+        $item = PatternGroupItem::where('pattern_board_id', $board->id)->first();
+
+        $this->actingAs($this->authorizedUser())
+            ->put(route('group-items.update', $item), [
+                '_group_item_edit_id' => $item->id,
+                'part_id' => $item->part_id,
+                'shift' => $item->shift,
+                'urutan' => $item->urutan,
+                'lot' => 500,
+                'loading_time' => $item->loading_time,
+                'jumlah_proses' => $item->jumlah_proses,
+                'dandori' => $item->dandori,
+            ])
+            ->assertRedirect(route('pattern-boards.index', ['board' => $board->id]));
+
+        $this->assertSame(500, $item->fresh()->lot);
+    }
+
+    public function test_an_invalid_group_item_update_reopens_only_that_rows_modal_with_errors(): void
+    {
+        $board = $this->seedBoard();
+        [$itemA, $itemB] = PatternGroupItem::where('pattern_board_id', $board->id)->orderBy('id')->get()->all();
+
+        $this->actingAs($this->authorizedUser())
+            ->from(route('pattern-boards.index', ['board' => $board->id]))
+            ->put(route('group-items.update', $itemA), [
+                '_group_item_edit_id' => $itemA->id,
+                'part_id' => $itemA->part_id,
+                'shift' => $itemA->shift,
+                'urutan' => $itemA->urutan,
+                // 'lot' intentionally omitted — required, fails validation
+                'loading_time' => $itemA->loading_time,
+                'jumlah_proses' => $itemA->jumlah_proses,
+                'dandori' => $itemA->dandori,
+            ])
+            ->assertRedirect(route('pattern-boards.index', ['board' => $board->id]));
+
+        // Same test-session — no second actingAs()/assertSessionHasErrors()
+        // call, either of which would age away the flashed errors/old input
+        // before this follow-up request needs them.
+        $followUp = $this->get(route('pattern-boards.index', ['board' => $board->id]))->getContent();
+
+        $itemAModalStart = strpos($followUp, "open-modal.window=\"\$event.detail == 'group-item-edit-{$itemA->id}'");
+        $itemBModalStart = strpos($followUp, "open-modal.window=\"\$event.detail == 'group-item-edit-{$itemB->id}'");
+        $this->assertStringContainsString('display: block', substr($followUp, $itemAModalStart, 800));
+        $this->assertStringContainsString('display: none', substr($followUp, $itemBModalStart, 800));
+    }
+
     public function test_ajax_partial_marks_the_reorder_table_locked_while_searching(): void
     {
         $board = $this->seedBoard();
@@ -203,5 +275,22 @@ class PatternBoardTest extends TestCase
             ->get(route('pattern-boards.index', ['board' => $board->id, 'q' => 'ALPHA']), ['X-Requested-With' => 'XMLHttpRequest'])
             ->getContent();
         $this->assertStringContainsString('data-locked="1"', $filtered);
+    }
+
+    /**
+     * Cuts $html down to just the two tables — every row's edit modal (both
+     * Kelompok Pattern's and Assignment Mesin's, appended after the tables)
+     * intentionally lists every part/machine/part on the board unfiltered by
+     * search, so a raw substring check against the full page would false-
+     * positive on rows the search filtered out of the visible tables.
+     */
+    private function tablesOnly(string $html): string
+    {
+        $markers = array_filter([
+            strpos($html, '_group_item_edit_id'),
+            strpos($html, '_pattern_edit_id'),
+        ], fn ($pos) => $pos !== false);
+
+        return substr($html, 0, min($markers));
     }
 }
