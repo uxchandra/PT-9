@@ -3,7 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\LotMaking;
+use App\Models\LotMakingAssignment;
+use App\Models\LotMakingCycle;
+use App\Models\LotMakingPlanning;
+use App\Models\Machine;
 use App\Models\Part;
+use App\Models\Pattern;
+use App\Models\PatternBoard;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -16,6 +22,100 @@ class AndonLotMakingTest extends TestCase
         $this->get(route('andon-lot-making.show'))
             ->assertOk()
             ->assertSee('LOT MAKING BY SCAN LINE 9');
+    }
+
+    public function test_the_planning_roller_shows_the_machine_for_an_in_progress_cycle(): void
+    {
+        // Status itself is no longer printed per-row — which section (Open
+        // vs In Progress) a cycle lands in already says that.
+        $part = Part::create(['part_no' => 'P1']);
+        $board = PatternBoard::create(['name' => 'A']);
+        $machine = Machine::create(['name' => 'PT91']);
+        $pattern = Pattern::create([
+            'pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $part->id,
+            'shift' => 1, 'proses' => 1, 'loading_time' => 30, 'jumlah_proses' => 1, 'dandori' => 0, 'total_kanban' => 1,
+        ]);
+        $cycle = LotMakingCycle::create([
+            'part_no' => 'P1', 'lot_produksi' => 50, 'source' => 'scan', 'completed_at' => now(),
+        ]);
+        LotMakingPlanning::create([
+            'part_id' => $part->id, 'lot' => 50, 'lot_making_cycle_id' => $cycle->id,
+            'machine_id' => $machine->id, 'pattern_id' => $pattern->id,
+        ]);
+
+        $html = $this->get(route('andon-lot-making.show'))->getContent();
+
+        $this->assertStringContainsString('PT91', $html);
+    }
+
+    public function test_the_planning_roller_lists_every_registered_machine_for_an_open_cycle(): void
+    {
+        $part = Part::create(['part_no' => 'P1']);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 50, 'slot' => 1]);
+        $machineA = Machine::create(['name' => 'PT91']);
+        $machineB = Machine::create(['name' => 'PT92']);
+        LotMakingAssignment::create(['part_id' => $part->id, 'machine_id' => $machineA->id, 'proses' => 1]);
+        LotMakingAssignment::create(['part_id' => $part->id, 'machine_id' => $machineB->id, 'proses' => 2]);
+
+        $cycle = LotMakingCycle::create(['part_no' => 'P1', 'lot_produksi' => 50, 'source' => 'scan', 'completed_at' => now()]);
+        LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 50, 'lot_making_cycle_id' => $cycle->id]);
+
+        $html = $this->get(route('andon-lot-making.show'))->getContent();
+
+        $this->assertStringContainsString('PT91, PT92', $html);
+    }
+
+    public function test_the_planning_roller_drops_a_cycle_once_its_planning_is_closed(): void
+    {
+        // The roller is the active Kanban queue, not a history log — once
+        // closed, a planning row is done and no longer belongs there.
+        $part = Part::create(['part_no' => 'P1']);
+        $machine = Machine::create(['name' => 'PT91']);
+        $cycle = LotMakingCycle::create([
+            'part_no' => 'P1', 'lot_produksi' => 50, 'source' => 'scan', 'completed_at' => now(),
+        ]);
+        LotMakingPlanning::create([
+            'part_id' => $part->id, 'lot' => 50, 'lot_making_cycle_id' => $cycle->id,
+            'machine_id' => $machine->id, 'finished_at' => now(),
+        ]);
+
+        $html = $this->get(route('andon-lot-making.show'))->getContent();
+
+        $this->assertStringNotContainsString('Lot 50', $html);
+    }
+
+    public function test_the_planning_roller_shows_open_and_in_progress_as_separate_sections(): void
+    {
+        $part = Part::create(['part_no' => 'P1']);
+        $board = PatternBoard::create(['name' => 'A']);
+        $machine = Machine::create(['name' => 'PT91']);
+        $pattern = Pattern::create([
+            'pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $part->id,
+            'shift' => 1, 'proses' => 1, 'loading_time' => 30, 'jumlah_proses' => 1, 'dandori' => 0, 'total_kanban' => 1,
+        ]);
+        $openCycle = LotMakingCycle::create(['part_no' => 'OPEN-1', 'lot_produksi' => 10, 'source' => 'scan', 'completed_at' => now()]);
+        LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10, 'lot_making_cycle_id' => $openCycle->id]);
+        $progressCycle = LotMakingCycle::create(['part_no' => 'PROGRESS-1', 'lot_produksi' => 20, 'source' => 'scan', 'completed_at' => now()]);
+        LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 20, 'lot_making_cycle_id' => $progressCycle->id, 'machine_id' => $machine->id, 'pattern_id' => $pattern->id]);
+
+        $html = $this->get(route('andon-lot-making.show'))->getContent();
+
+        $this->assertStringContainsString('ANTRIAN KANBAN', $html);
+        $this->assertStringContainsString('OPEN', $html);
+        $this->assertStringContainsString('IN PROGRESS', $html);
+        // The Open header must come before the In Progress one in the markup.
+        $this->assertLessThan(strpos($html, 'IN PROGRESS'), strpos($html, '>'.__('OPEN').'<'));
+    }
+
+    public function test_the_planning_roller_shows_nothing_extra_for_a_cycle_without_a_planning_row(): void
+    {
+        // A cycle logged before Lot Making Planning existed has no linked
+        // row — treated as still-open, same as a fresh one.
+        LotMakingCycle::create(['part_no' => 'P1', 'lot_produksi' => 50, 'source' => 'scan', 'completed_at' => now()]);
+
+        $this->get(route('andon-lot-making.show'))
+            ->assertOk()
+            ->assertSee('P1');
     }
 
     public function test_it_shows_a_placeholder_when_there_is_no_data(): void

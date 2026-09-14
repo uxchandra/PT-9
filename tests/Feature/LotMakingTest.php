@@ -62,6 +62,25 @@ class LotMakingTest extends TestCase
         $this->assertSame(40, $lm->slot);
     }
 
+    public function test_loading_time_and_dandori_can_be_set_and_are_read_by_lot_making_planning(): void
+    {
+        $part = Part::create(['part_no' => 'P1']);
+
+        $this->actingAs($this->authorizedUser())
+            ->post(route('lot-makings.store'), [
+                'part_id' => $part->id,
+                'lot_produksi' => 100,
+                'slot' => 10,
+                'loading_time' => 45,
+                'dandori' => 7,
+            ])
+            ->assertRedirect(route('lot-makings.index'));
+
+        $lm = LotMaking::first();
+        $this->assertSame(45, $lm->loading_time);
+        $this->assertSame(7, $lm->dandori);
+    }
+
     public function test_no_is_the_manually_set_position_that_drives_listing_order(): void
     {
         $partA = Part::create(['part_no' => 'AAA-111']);
@@ -121,6 +140,22 @@ class LotMakingTest extends TestCase
         $this->assertNull($noSlot->slot_fix);
     }
 
+    public function test_create_and_edit_are_both_modals_on_the_index_page_not_standalone_pages(): void
+    {
+        $part = Part::create(['part_no' => 'P1']);
+        $lm = LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 100]);
+
+        $html = $this->actingAs($this->authorizedUser())->get(route('lot-makings.index'))->getContent();
+
+        // The "Tambah" button opens a modal instead of linking to a create page.
+        $this->assertStringContainsString("open-modal', 'lot-making-create'", $html);
+        $this->assertStringContainsString("== 'lot-making-create'", $html);
+
+        // Each row's Edit opens its own modal instead of linking to an edit page.
+        $this->assertStringContainsString("open-modal', 'lot-making-edit-{$lm->id}'", $html);
+        $this->assertStringContainsString("== 'lot-making-edit-{$lm->id}'", $html);
+    }
+
     public function test_a_lot_making_can_be_updated_and_deleted(): void
     {
         $part = Part::create(['part_no' => 'P1']);
@@ -142,6 +177,21 @@ class LotMakingTest extends TestCase
             ->assertRedirect(route('lot-makings.index'));
 
         $this->assertSame(0, LotMaking::count());
+    }
+
+    public function test_index_defaults_to_10_rows_per_page(): void
+    {
+        foreach (range(1, 12) as $i) {
+            $part = Part::create(['part_no' => "P{$i}"]);
+            LotMaking::create(['part_id' => $part->id, 'no' => $i]);
+        }
+
+        $lotMakings = $this->actingAs($this->authorizedUser())
+            ->get(route('lot-makings.index'))
+            ->viewData('lotMakings');
+
+        $this->assertSame(10, $lotMakings->perPage());
+        $this->assertTrue($lotMakings->hasPages());
     }
 
     public function test_index_search_filters_by_row_kolom_and_part_no(): void
@@ -196,6 +246,22 @@ class LotMakingTest extends TestCase
 
         $this->assertSame(2, LotMaking::count());
         $this->assertSame(999, $row1->fresh()->lot_produksi);
+    }
+
+    public function test_import_reads_loading_time_and_dandori_columns(): void
+    {
+        $csv = implode("\n", [
+            'no,row,kolom,part_no,lot_produksi,slot,loading_time,dandori',
+            '1,A,1,NEW-PART,200,40,45,7',
+        ]);
+
+        $this->actingAs($this->authorizedUser())
+            ->post(route('lot-makings.import.store'), ['file' => $this->csvUpload($csv)])
+            ->assertRedirect(route('lot-makings.index'));
+
+        $lm = LotMaking::whereHas('part', fn ($q) => $q->where('part_no', 'NEW-PART'))->first();
+        $this->assertSame(45, $lm->loading_time);
+        $this->assertSame(7, $lm->dandori);
     }
 
     public function test_import_template_downloads_an_xlsx(): void

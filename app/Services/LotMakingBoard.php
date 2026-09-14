@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\LotMaking;
+use App\Models\LotMakingAssignment;
 use App\Models\LotMakingCycle;
 use App\Models\LotMakingScan;
 use Illuminate\Support\Carbon;
@@ -76,18 +77,49 @@ class LotMakingBoard
             ->values()
             ->all();
 
-        // Oldest first — rendered top-to-bottom, so the newest completion
-        // naturally ends up at the bottom of the panel. Scoped to this
-        // board's own source so a scan completion never shows up on the
-        // demand board's roller or vice versa.
+        // The roller is the active Kanban queue, not a full history — once a
+        // planning row is closed it's done and drops off here entirely (see
+        // LotMakingPlanningController::finish). A cycle with no planning row
+        // at all (logged before Lot Making Planning existed) is treated as
+        // still-open, same as a fresh one. Oldest first — rendered
+        // top-to-bottom, so the newest completion naturally ends up at the
+        // bottom of each section. Scoped to this board's own source so a scan
+        // completion never shows up on the demand board's roller or vice
+        // versa.
         $cycles = LotMakingCycle::where('source', $cycleSource)
+            ->where(function ($query) {
+                $query->whereDoesntHave('planning')
+                    ->orWhereHas('planning', fn ($q) => $q->whereNull('finished_at'));
+            })
+            ->with('planning.machine')
             ->orderByDesc('completed_at')
             ->limit(self::ROLLER_LIMIT)
             ->get()
             ->sortBy('completed_at')
             ->values();
 
-        return ['rows' => $rows, 'cycles' => $cycles];
+        $openCycles = $cycles->filter(fn (LotMakingCycle $c) => $c->planning === null || $c->planning->pattern_id === null)->values();
+        $inProgressCycles = $cycles->filter(fn (LotMakingCycle $c) => $c->planning !== null && $c->planning->pattern_id !== null)->values();
+
+        // An Open row has no machine yet — list every machine it's actually
+        // registered against (see Assignment Machine) instead of leaving it
+        // blank, so the floor can see where it's likely headed. Matched by
+        // part_no (not part_id) so it still works for a legacy cycle with no
+        // linked planning row.
+        $openPartNos = $openCycles->pluck('part_no')->unique()->values()->all();
+        $assignmentMachinesByPartNo = LotMakingAssignment::whereHas('part', fn ($q) => $q->whereIn('part_no', $openPartNos))
+            ->with(['part', 'machine'])
+            ->orderBy('proses')
+            ->get()
+            ->groupBy(fn (LotMakingAssignment $a) => $a->part->part_no)
+            ->map(fn (Collection $assignments) => $assignments->pluck('machine.name')->filter()->unique()->values());
+
+        return [
+            'rows' => $rows,
+            'openCycles' => $openCycles,
+            'inProgressCycles' => $inProgressCycles,
+            'assignmentMachinesByPartNo' => $assignmentMachinesByPartNo,
+        ];
     }
 
     /**

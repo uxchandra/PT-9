@@ -57,11 +57,13 @@
             let lastGrid = document.getElementById('lot-making-panel-grid').innerHTML;
             let lastRoller = document.getElementById('lot-making-panel-roller').innerHTML;
 
-            // The roller list is flex-col-reverse, so scrollTop 0 is the
-            // "newest" end — no scrollHeight math needed.
+            // Each roller section (Open, In Progress) is flex-col-reverse, so
+            // scrollTop 0 is the "newest" end — no scrollHeight math needed.
             function scrollRollerToNewest() {
-                const roller = document.getElementById('lot-making-roller');
-                if (roller) roller.scrollTop = 0;
+                ['lot-making-roller-open', 'lot-making-roller-progress'].forEach((id) => {
+                    const roller = document.getElementById(id);
+                    if (roller) roller.scrollTop = 0;
+                });
             }
 
             async function refresh() {

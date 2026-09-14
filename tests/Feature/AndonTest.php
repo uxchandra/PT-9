@@ -94,8 +94,9 @@ class AndonTest extends TestCase
         // If this were split around the rest it would be 3+ (regression guard).
         $this->assertSame(2, substr_count($patternCardHtml, 'P1 1/2'));
 
-        // Free time blocks are hidden for now.
-        $response->assertDontSee('FREE TIME');
+        // Idle time on M1 after the loading block (and the shift-2 stretch)
+        // shows as FREE TIME instead of being left blank.
+        $response->assertSee('FREE TIME');
     }
 
     public function test_andon_show_visualizes_loading_time_rounded_up_to_the_nearest_5_minutes(): void
@@ -131,6 +132,45 @@ class AndonTest extends TestCase
         // The raw (unrounded) widths must never appear.
         $this->assertStringNotContainsString('width: 109.8px', $html);
         $this->assertStringNotContainsString('width: 156.6px', $html);
+    }
+
+    public function test_andon_show_still_lists_a_machine_with_no_pattern_assigned_at_all(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        Machine::create(['name' => 'PT91']);
+        $idle = Machine::create(['name' => 'PT99']); // no Pattern ever created for this one
+
+        $part = Part::create(['part_no' => 'P1']);
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id, 'part_id' => $part->id, 'urutan' => 1,
+            'loading_time' => 30, 'jumlah_proses' => 1, 'total_kanban' => 1, 'dandori' => 0,
+        ]);
+        Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => Machine::where('name', 'PT91')->first()->id, 'part_id' => $part->id, 'proses' => 1]);
+
+        $html = $this->get("/andon/{$board->id}")->getContent();
+
+        $this->assertStringContainsString('PT99', $html);
+        // PT99's whole row is just FREE TIME — at least 2 occurrences overall
+        // (PT91's post-loading idle time plus PT99's entire row).
+        $this->assertGreaterThanOrEqual(2, substr_count($html, 'FREE TIME'));
+        $this->assertNotNull($idle);
+    }
+
+    public function test_andon_show_labels_idle_gaps_as_free_time(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $part = Part::create(['part_no' => 'P1']);
+
+        // Loading time (30min) 07:00-07:30, leaving a real gap before the
+        // shift-change and again after shift 2 (never assigned here).
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id, 'part_id' => $part->id, 'urutan' => 1,
+            'loading_time' => 30, 'jumlah_proses' => 1, 'total_kanban' => 1, 'dandori' => 0,
+        ]);
+        Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $part->id, 'proses' => 1]);
+
+        $this->get("/andon/{$board->id}")->assertSee('FREE TIME');
     }
 
     public function test_andon_show_orders_machine_rows_naturally_by_name(): void

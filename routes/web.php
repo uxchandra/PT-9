@@ -7,9 +7,11 @@ use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\KeseiHistoryController;
 use App\Http\Controllers\KeseiImportController;
 use App\Http\Controllers\KeseiPartController;
+use App\Http\Controllers\LotMakingAssignmentController;
 use App\Http\Controllers\LotMakingController;
 use App\Http\Controllers\LotMakingHistoryController;
 use App\Http\Controllers\LotMakingImportController;
+use App\Http\Controllers\LotMakingPlanningController;
 use App\Http\Controllers\MachineController;
 use App\Http\Controllers\PartController;
 use App\Http\Controllers\PartImportController;
@@ -117,7 +119,23 @@ Route::middleware('auth')->group(function () {
         Route::post('lot-makings/import', [LotMakingImportController::class, 'store'])->name('lot-makings.import.store');
         Route::get('lot-makings/history-scan', [LotMakingHistoryController::class, 'scans'])->name('lot-making-scans.index');
 
-        Route::resource('lot-makings', LotMakingController::class)->except(['show']);
+        Route::get('lot-making-plannings', [LotMakingPlanningController::class, 'index'])->name('lot-making-plannings.index');
+        Route::put('lot-making-plannings/{planning}/assign', [LotMakingPlanningController::class, 'assign'])->name('lot-making-plannings.assign');
+        Route::post('lot-making-plannings/{planning}/finish', [LotMakingPlanningController::class, 'finish'])->name('lot-making-plannings.finish');
+        Route::post('lot-making-plannings/{planning}/cancel', [LotMakingPlanningController::class, 'cancel'])->name('lot-making-plannings.cancel');
+
+        // "Assignment Machine" — a second table under the Lot Making listing,
+        // mirroring Assignment Mesin on the Pattern page (see
+        // LotMakingAssignmentController). Both create and edit are modals
+        // there, so only store/update/destroy need routes — no standalone
+        // create/edit pages.
+        Route::post('lot-making-assignments', [LotMakingAssignmentController::class, 'store'])->name('lot-making-assignments.store');
+        Route::put('lot-making-assignments/{lotMakingAssignment}', [LotMakingAssignmentController::class, 'update'])->name('lot-making-assignments.update');
+        Route::delete('lot-making-assignments/{lotMakingAssignment}', [LotMakingAssignmentController::class, 'destroy'])->name('lot-making-assignments.destroy');
+
+        // Create and edit are both modals on the index page — no standalone
+        // create/edit pages (same as the import form above).
+        Route::resource('lot-makings', LotMakingController::class)->except(['show', 'create', 'edit']);
     });
 
     Route::middleware('can:manage patterns')->group(function () {

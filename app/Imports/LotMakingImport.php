@@ -9,7 +9,7 @@ use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
 /**
- * Imports rows shaped like the template: no | row | kolom | part_no | lot_produksi | slot.
+ * Imports rows shaped like the template: no | row | kolom | part_no | lot_produksi | slot | loading_time | dandori.
  *
  * Each row is one Lot Making record, keyed by part (one part = one row). The
  * part is matched by part_no (created automatically if it doesn't exist yet).
@@ -18,7 +18,8 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
  * columns that are blank or non-numeric are stored as null. avg_slot/slot_fix
  * are never imported — they're always computed from lot_produksi and slot.
  * `no` is a manually-set position (for arranging rows later), not a row count
- * — it's stored as-is, gaps and all.
+ * — it's stored as-is, gaps and all. loading_time/dandori are read by Lot
+ * Making Planning when this part gets assigned outside Kelompok Pattern.
  */
 class LotMakingImport implements ToCollection, WithHeadingRow
 {
@@ -54,6 +55,8 @@ class LotMakingImport implements ToCollection, WithHeadingRow
                     'kolom' => $this->str($row['kolom'] ?? null),
                     'lot_produksi' => $this->int($row['lot_produksi'] ?? null),
                     'slot' => $this->int($row['slot'] ?? null),
+                    'loading_time' => $this->int($row['loading_time'] ?? null),
+                    'dandori' => $this->int($row['dandori'] ?? null),
                 ]
             );
 

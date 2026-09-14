@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * One completed Lot Making cycle — logged the instant a part's slot columns
@@ -33,5 +34,16 @@ class LotMakingCycle extends Model
         return [
             'completed_at' => 'datetime',
         ];
+    }
+
+    /**
+     * The Lot Making Planning row this completion was thrown into (see
+     * LotMakingCycleTracker/LotMakingDemandCycleTracker) — null for a cycle
+     * logged before that queue existed. Lets the Andon roller show the
+     * machine/status a completed lot has progressed to.
+     */
+    public function planning(): HasOne
+    {
+        return $this->hasOne(LotMakingPlanning::class);
     }
 }

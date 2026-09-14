@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable([
     'part_no', 'part_no_fg', 'import_order', 'level', 'customer_code', 'model', 'job_no', 'part_name', 'type_box',
@@ -18,5 +19,10 @@ class Part extends Model
     public function patterns(): HasMany
     {
         return $this->hasMany(Pattern::class);
+    }
+
+    public function lotMaking(): HasOne
+    {
+        return $this->hasOne(LotMaking::class);
     }
 }

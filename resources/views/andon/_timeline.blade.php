@@ -66,10 +66,26 @@
                         <div class="relative shrink-0" style="width: {{ $totalWidth }}px;">
                             @php $packedCursor = null; $prevBlockEnd = null; @endphp
                             @foreach ($row['blocks'] as $block)
-                                @continue($block['type'] === 'free')
                                 @php
                                     $left = ($block['start'] - $dayStart) * $pxPerMinute;
                                     $width = max(($block['end'] - $block['start']) * $pxPerMinute, 2);
+                                @endphp
+
+                                @if ($block['type'] === 'free')
+                                    {{-- Same vertical sizing as a real block: the full
+                                         rencana+aktual stack in Planning mode, or the
+                                         plain top-1.5/bottom-1.5 inset otherwise — so a
+                                         FREE TIME bar lines up flush with its neighbors
+                                         instead of looking shorter/taller than them. --}}
+                                    <div class="absolute z-10 flex items-center justify-center overflow-hidden border border-slate-300 bg-white {{ $isPlanning ? '' : 'top-1.5 bottom-1.5' }}"
+                                         style="left: {{ $left }}px; width: {{ $width }}px;
+                                                @if ($isPlanning) top: {{ $blockTop }}px; height: {{ $stackHeight }}px; @endif">
+                                        <span class="text-[10px] font-bold text-slate-400 tracking-wide truncate w-full text-center">{{ __('FREE TIME') }}</span>
+                                    </div>
+                                    @continue
+                                @endif
+
+                                @php
                                     // Not yet "released" from Kesei (closing time hasn't produced a
                                     // decrease event yet) — showing "KB 0" would read as a real plan
                                     // of zero, so the caption is left off entirely instead.

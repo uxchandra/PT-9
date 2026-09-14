@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['no', 'part_id', 'row', 'kolom', 'lot_produksi', 'slot'])]
+#[Fillable(['no', 'part_id', 'row', 'kolom', 'lot_produksi', 'slot', 'loading_time', 'dandori', 'jumlah_proses'])]
 class LotMaking extends Model
 {
     protected function casts(): array
@@ -16,6 +16,9 @@ class LotMaking extends Model
             'no' => 'integer',
             'lot_produksi' => 'integer',
             'slot' => 'integer',
+            'loading_time' => 'integer',
+            'dandori' => 'integer',
+            'jumlah_proses' => 'integer',
         ];
     }
 

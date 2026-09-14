@@ -1,26 +1,42 @@
-{{-- Completed lot cycles. flex-col-reverse (with the DOM still in oldest-
-     first order) is the standard chat-log trick: the newest entry (last in
-     the DOM) renders at the bottom, the list hugs the bottom of the panel
-     even when it's shorter than the panel, and — once it overflows —
-     scrollTop 0 always shows the newest without any JS scroll-to-bottom
-     hack. --}}
+{{-- The active Kanban queue: Open (not yet assigned to a machine) on top,
+     In Progress (assigned, running) below — closed items drop off entirely
+     (see LotMakingBoard::data). Each section keeps the standard chat-log
+     trick (flex-col-reverse with the DOM in oldest-first order) so its
+     newest entry hugs the bottom and scrollTop 0 always shows the newest. --}}
 <div class="h-full flex flex-col bg-black">
     <div class="shrink-0 border-b-2 border-white px-3 py-2">
-        <span class="text-sm font-bold tracking-wide text-white">{{ __('PLANNING') }}</span>
+        <span class="text-sm font-bold tracking-wide text-white">{{ __('ANTRIAN KANBAN') }}</span>
     </div>
-    <div id="lot-making-roller" class="andon-scroll flex flex-1 min-h-0 flex-col-reverse overflow-y-auto px-3">
-        @forelse ($cycles as $cycle)
-            <div class="border-t border-white py-2">
-                <div class="flex items-center justify-between gap-2">
-                    <span class="text-sm font-bold text-white">{{ $cycle->part_no }}</span>
-                    <span class="text-sm text-slate-300">{{ __('Lot') }} {{ $cycle->lot_produksi }}</span>
-                </div>
-                <p class="text-xs text-slate-400">{{ __('Create') }} {{ $cycle->completed_at->format('d/m/Y H:i') }}</p>
+
+    <div class="flex flex-1 min-h-0 flex-col">
+        <div class="flex flex-1 min-h-0 flex-col border-b-2 border-white">
+            <div class="shrink-0 px-3 py-1.5 bg-white/5">
+                <span class="text-xs font-bold tracking-wide text-blue-400">{{ __('OPEN') }}</span>
             </div>
-        @empty
-            <div class="flex h-full items-center justify-center text-center text-sm text-slate-500">
-                {{ __('Belum ada siklus produksi yang selesai.') }}
+            <div id="lot-making-roller-open" class="andon-scroll flex flex-1 min-h-0 flex-col-reverse overflow-y-auto px-3">
+                @forelse ($openCycles as $cycle)
+                    @include('andon-lot-making._roller-row', ['cycle' => $cycle, 'assignmentMachinesByPartNo' => $assignmentMachinesByPartNo])
+                @empty
+                    <div class="flex h-full items-center justify-center text-center text-sm text-slate-500">
+                        {{ __('Tidak ada antrian.') }}
+                    </div>
+                @endforelse
             </div>
-        @endforelse
+        </div>
+
+        <div class="flex flex-1 min-h-0 flex-col">
+            <div class="shrink-0 px-3 py-1.5 bg-white/5">
+                <span class="text-xs font-bold tracking-wide text-yellow-400">{{ __('IN PROGRESS') }}</span>
+            </div>
+            <div id="lot-making-roller-progress" class="andon-scroll flex flex-1 min-h-0 flex-col-reverse overflow-y-auto px-3">
+                @forelse ($inProgressCycles as $cycle)
+                    @include('andon-lot-making._roller-row', ['cycle' => $cycle])
+                @empty
+                    <div class="flex h-full items-center justify-center text-center text-sm text-slate-500">
+                        {{ __('Belum ada yang sedang berjalan.') }}
+                    </div>
+                @endforelse
+            </div>
+        </div>
     </div>
 </div>

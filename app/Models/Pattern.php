@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['pattern_board_id', 'machine_id', 'part_id', 'shift', 'proses'])]
+#[Fillable(['pattern_board_id', 'machine_id', 'part_id', 'shift', 'proses', 'loading_time', 'jumlah_proses', 'dandori', 'total_kanban'])]
 class Pattern extends Model
 {
     public const SHIFT_LABELS = [
@@ -31,7 +31,10 @@ class Pattern extends Model
 
     /**
      * The board+part+shift master reference this assignment's loading_time,
-     * jumlah_proses, total_kanban, dandori and display order come from.
+     * jumlah_proses, total_kanban, dandori and display order come from — for
+     * a normal (Kelompok Pattern-backed) assignment. A Lot Making Planning
+     * assignment has no such row on purpose (see the patterns table
+     * migration) and carries this same data on itself instead.
      */
     public function groupItem(): ?PatternGroupItem
     {

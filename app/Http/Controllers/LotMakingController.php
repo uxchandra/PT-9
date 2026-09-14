@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\LotMaking;
+use App\Models\LotMakingAssignment;
+use App\Models\Machine;
 use App\Models\Part;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
@@ -16,10 +18,10 @@ class LotMakingController extends Controller
     public function index(Request $request): View
     {
         $search = trim((string) $request->query('q', ''));
-        $perPage = (int) $request->query('per_page', 15);
+        $perPage = (int) $request->query('per_page', 10);
 
         if (! in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
-            $perPage = 15;
+            $perPage = 10;
         }
 
         $query = LotMaking::query()->with('part');
@@ -38,16 +40,27 @@ class LotMakingController extends Controller
             ->paginate($perPage)
             ->withQueryString();
 
+        // Shared by both the create modal and every row's edit modal.
+        $parts = $this->partOptions();
+
         if ($request->ajax()) {
-            return view('lot-makings._results', compact('lotMakings'));
+            return view('lot-makings._results', compact('lotMakings', 'parts'));
         }
 
-        return view('lot-makings.index', compact('lotMakings', 'search', 'perPage'));
-    }
+        // "Assignment Machine" — mirrors the Pattern page's own Assignment
+        // Mesin table, just for Lot Making parts. Plainly paginated (no AJAX
+        // search) since it's a much smaller, slower-changing list.
+        $assignments = LotMakingAssignment::with(['part.lotMaking', 'machine'])
+            ->orderBy('id', 'desc')
+            ->paginate(10, ['*'], 'assignments_page')
+            ->withQueryString();
 
-    public function create(): View
-    {
-        return view('lot-makings.create', ['parts' => $this->partOptions()]);
+        // Shared by the create modal and every row's edit modal — see
+        // LotMakingAssignmentController.
+        $assignmentParts = Part::whereIn('id', LotMaking::query()->select('part_id'))->orderBy('part_no')->get();
+        $assignmentMachines = Machine::orderBy('name')->get();
+
+        return view('lot-makings.index', compact('lotMakings', 'search', 'perPage', 'parts', 'assignments', 'assignmentParts', 'assignmentMachines'));
     }
 
     public function store(Request $request): RedirectResponse
@@ -55,11 +68,6 @@ class LotMakingController extends Controller
         LotMaking::create($this->validated($request));
 
         return redirect()->route('lot-makings.index')->with('status', 'Lot Making berhasil ditambahkan.');
-    }
-
-    public function edit(LotMaking $lotMaking): View
-    {
-        return view('lot-makings.edit', ['lotMaking' => $lotMaking, 'parts' => $this->partOptions()]);
     }
 
     public function update(Request $request, LotMaking $lotMaking): RedirectResponse
@@ -94,6 +102,13 @@ class LotMakingController extends Controller
             'lot_produksi' => ['nullable', 'integer', 'min:0'],
             // A divisor — 0 would make avg_slot/slot_fix meaningless.
             'slot' => ['nullable', 'integer', 'min:1'],
+            // Read by Lot Making Planning when assigning this part to a
+            // machine that isn't already registered in Kelompok Pattern.
+            'loading_time' => ['nullable', 'integer', 'min:0'],
+            'dandori' => ['nullable', 'integer', 'min:0'],
+            // The denominator in the "2/3" label on the Andon block — total
+            // process steps this part goes through.
+            'jumlah_proses' => ['nullable', 'integer', 'min:1'],
         ], [], ['part_id' => 'part']);
     }
 }

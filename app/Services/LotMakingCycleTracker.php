@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\LotMaking;
 use App\Models\LotMakingCycle;
+use App\Models\LotMakingPlanning;
 use App\Models\LotMakingScan;
 use Illuminate\Support\Carbon;
 
@@ -15,6 +16,10 @@ use Illuminate\Support\Carbon;
  * the cycle is logged as complete (feeding the Andon roller panel) and the
  * count implicitly starts over — nothing about past scans is touched, the
  * next lookup just only counts scans after the new completion.
+ *
+ * A completed cycle here is also thrown into the Lot Making Planning queue
+ * (same as LotMakingDemandCycleTracker's demand-sourced completions), so
+ * it's ready to be scheduled onto a machine's Andon timeline.
  */
 class LotMakingCycleTracker
 {
@@ -47,11 +52,17 @@ class LotMakingCycleTracker
         $ticks = $this->countSince($partNo, $this->lastCompletionAt($partNo));
 
         if ($ticks >= $lotMaking->lot_produksi) {
-            LotMakingCycle::create([
+            $cycle = LotMakingCycle::create([
                 'part_no' => $partNo,
                 'lot_produksi' => $lotMaking->lot_produksi,
                 'source' => LotMakingCycle::SOURCE_SCAN,
                 'completed_at' => now(),
+            ]);
+
+            LotMakingPlanning::create([
+                'part_id' => $lotMaking->part_id,
+                'lot' => $lotMaking->lot_produksi,
+                'lot_making_cycle_id' => $cycle->id,
             ]);
         }
     }

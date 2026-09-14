@@ -34,10 +34,10 @@
                             class="inline-flex items-center justify-center px-4 py-2.5 bg-white border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition ease-in-out duration-150 shadow-sm">
                         {{ __('Import') }}
                     </button>
-                    <a href="{{ route('lot-makings.create') }}"
-                       class="inline-flex items-center justify-center px-4 py-2.5 bg-brand-800 border border-transparent rounded-lg font-semibold text-sm text-white hover:bg-brand-900 transition ease-in-out duration-150 shadow-sm">
+                    <button type="button" x-data="" x-on:click="$dispatch('open-modal', 'lot-making-create')"
+                            class="inline-flex items-center justify-center px-4 py-2.5 bg-brand-800 border border-transparent rounded-lg font-semibold text-sm text-white hover:bg-brand-900 transition ease-in-out duration-150 shadow-sm">
                         {{ __('Tambah Lot Making') }}
-                    </a>
+                    </button>
                 </div>
             </div>
 
@@ -54,9 +54,12 @@
                 @include('lot-makings._results')
             </div>
         </div>
+
+        @include('lot-makings._assignment-results')
     </div>
 
     @include('lot-makings._import-modal')
+    @include('lot-makings._create-modal')
 
     <script>
         (function () {

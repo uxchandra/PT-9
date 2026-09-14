@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\LotMaking;
 use App\Models\LotMakingCycle;
+use App\Models\LotMakingPlanning;
 use Illuminate\Support\Carbon;
 
 /**
@@ -19,6 +20,9 @@ use Illuminate\Support\Carbon;
  * several lots' worth of demand land in one pass. It walks the pulled kanban
  * events in order and logs one completion per lot_produksi crossed, each
  * stamped with the actual event time it happened at, not "now".
+ *
+ * Each completion here is also thrown into the Lot Making Planning queue
+ * (same as the scan tracker) — see LotMakingPlanning.
  */
 class LotMakingDemandCycleTracker
 {
@@ -75,11 +79,17 @@ class LotMakingDemandCycleTracker
             $running += $event['kanban'];
 
             while ($running >= $lotMaking->lot_produksi) {
-                LotMakingCycle::create([
+                $cycle = LotMakingCycle::create([
                     'part_no' => $partNo,
                     'lot_produksi' => $lotMaking->lot_produksi,
                     'source' => LotMakingCycle::SOURCE_DEMAND,
                     'completed_at' => $event['at'],
+                ]);
+
+                LotMakingPlanning::create([
+                    'part_id' => $lotMaking->part_id,
+                    'lot' => $lotMaking->lot_produksi,
+                    'lot_making_cycle_id' => $cycle->id,
                 ]);
 
                 $running -= $lotMaking->lot_produksi;

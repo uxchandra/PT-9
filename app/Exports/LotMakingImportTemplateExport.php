@@ -17,14 +17,14 @@ class LotMakingImportTemplateExport implements FromArray, WithColumnWidths, With
 {
     public function headings(): array
     {
-        return ['no', 'row', 'kolom', 'part_no', 'lot_produksi', 'slot'];
+        return ['no', 'row', 'kolom', 'part_no', 'lot_produksi', 'slot', 'loading_time', 'dandori'];
     }
 
     public function array(): array
     {
         return [
-            [1, '1', '1', 'GA241-04750', 200, 40],
-            [2, '1', '2', '57453-BZ140', 120, 30],
+            [1, '1', '1', 'GA241-04750', 200, 40, 30, 5],
+            [2, '1', '2', '57453-BZ140', 120, 30, 20, 0],
         ];
     }
 
@@ -37,6 +37,8 @@ class LotMakingImportTemplateExport implements FromArray, WithColumnWidths, With
             'D' => 22,  // part_no
             'E' => 15,  // lot_produksi
             'F' => 10,  // slot
+            'G' => 14,  // loading_time
+            'H' => 10,  // dandori
         ];
     }
 
@@ -78,7 +80,7 @@ class LotMakingImportTemplateExport implements FromArray, WithColumnWidths, With
                 // Short/numeric columns read better centred; part_no stays
                 // left-aligned since it's the one free-text-length column.
                 $sheet->getStyle("A2:C{$lastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-                $sheet->getStyle("E2:F{$lastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("E2:H{$lastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
             },
         ];
     }
