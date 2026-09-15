@@ -3,37 +3,44 @@
 namespace App\Http\Controllers;
 
 use App\Models\CalendarEntry;
-use App\Models\LotMaking;
 use App\Models\LotMakingAssignment;
 use App\Models\LotMakingPlanning;
+use App\Models\LotMakingPlanningAssignment;
+use App\Models\Machine;
 use App\Models\Pattern;
 use App\Models\PatternGroupItem;
 use App\Services\AndonScheduleBuilder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
  * A completed Lot Making lot lands here (see LotMakingCycleTracker) waiting
- * to be scheduled onto a machine's Andon timeline. Assigning one creates a
- * real Pattern (Assignment Mesin) row — the same thing "Tambah Assignment"
- * on the Pattern page creates — so the part shows up on Andon filling a FREE
- * TIME slot with no extra rendering logic needed. Finishing one deletes that
- * Pattern row (the slot goes back to FREE TIME) but keeps this row around,
- * marked finished, as a history trail.
+ * to be scheduled onto a machine's Andon timeline, one proses step at a time
+ * (see LotMakingPlanningAssignment — a lot goes through jumlah_proses steps,
+ * each independently assignable AND independently closable). Assigning a
+ * step creates a real Pattern (Assignment Mesin) row — the same thing
+ * "Tambah Assignment" on the Pattern page creates — so the part shows up on
+ * Andon filling a FREE TIME slot with no extra rendering logic needed.
+ * Closing a step deletes its Pattern row (its slot goes back to FREE TIME)
+ * but keeps the assignment row around, marked finished, as a history trail.
  *
- * Unlike a normal Assignment Mesin, this Pattern row is NOT required to have
- * a matching Kelompok Pattern (PatternGroupItem) entry — a Lot Making part
- * floats between boards/machines day to day rather than sitting on one fixed
- * line, so it isn't forced into Kelompok Pattern's permanent-schedule model.
- * When no matching entry exists, the Pattern row carries its own
+ * Unlike a normal Assignment Mesin, these Pattern rows are NOT required to
+ * have a matching Kelompok Pattern (PatternGroupItem) entry — a Lot Making
+ * part floats between boards/machines day to day rather than sitting on one
+ * fixed line, so it isn't forced into Kelompok Pattern's permanent-schedule
+ * model. When no matching entry exists, the Pattern row carries its own
  * loading_time/jumlah_proses/total_kanban instead (see the patterns table
- * migration and AndonScheduleBuilder::buildShiftBlocks) — loading_time,
- * dandori and jumlah_proses come from the Lot Making part record itself, and
- * which machine + proses step come from Assignment Machine (see the
- * lot_making_assignments migration) — so staff never has to retype any of it
- * here; they just pick a registered machine, a shift, and an open slot.
+ * migration and AndonScheduleBuilder::buildShiftBlocks) — loading_time and
+ * dandori come from the Lot Making part record itself, jumlah_proses too, so
+ * staff never has to retype any of it here; they just pick a shift, a
+ * machine (defaulted from Assignment Machine, but freely overridable to any
+ * machine — it's a suggestion, not a requirement) and an actual open Waktu
+ * Free Time slot, all per step — two steps of the same lot can run on
+ * different shifts.
  *
  * The Pattern Board itself is never picked manually either — it's always
  * whichever board the Calendar has running right now (same resolution the
@@ -42,6 +49,8 @@ use Illuminate\View\View;
  */
 class LotMakingPlanningController extends Controller
 {
+    private const PER_PAGE = 20;
+
     public function __construct(private AndonScheduleBuilder $scheduleBuilder)
     {
     }
@@ -54,78 +63,121 @@ class LotMakingPlanningController extends Controller
             $status = LotMakingPlanning::STATUS_OPEN;
         }
 
-        $plannings = LotMakingPlanning::with(['part.lotMaking', 'patternBoard', 'machine'])
-            ->when(
-                $status === LotMakingPlanning::STATUS_CLOSE,
-                fn ($q) => $q->whereNotNull('finished_at'),
-                fn ($q) => $q->whereNull('finished_at')->when(
-                    $status === LotMakingPlanning::STATUS_IN_PROGRESS,
-                    fn ($q2) => $q2->whereNotNull('pattern_id'),
-                    fn ($q2) => $q2->whereNull('pattern_id'),
-                )
-            )
-            ->orderBy($status === LotMakingPlanning::STATUS_CLOSE ? 'finished_at' : 'created_at', $status === LotMakingPlanning::STATUS_CLOSE ? 'desc' : 'asc')
-            ->paginate(20)
-            ->withQueryString();
-
         $todaysBoard = CalendarEntry::runningPatternBoard();
-
-        // Every open FREE TIME window on today's board, up front — the
-        // "Assign ke" form picks Machine (from that part's own registered
-        // Assignment Machine rows) then Shift, and this list narrows down to
-        // whatever's actually still free for that combination.
         $freeWindows = $todaysBoard ? $this->scheduleBuilder->freeWindows($todaysBoard) : [];
+        $allMachines = Machine::orderBy('name')->get();
 
-        // Every Open row's own Assignment Machine options, batched into one
-        // query instead of one per row.
-        $partIds = $status === LotMakingPlanning::STATUS_OPEN
-            ? $plannings->pluck('part_id')->unique()->values()
-            : collect();
+        // Every step of every lot is walked in PHP (not a single SQL WHERE)
+        // because a step's state — Open/In Progress/Close — isn't a stored
+        // column, it's derived per (planning, proses) pair from whether an
+        // assignment row exists for it and whether that row is finished. A
+        // lot with 3 steps can contribute rows to 3 different tabs at once.
+        $plannings = LotMakingPlanning::with(['part.lotMaking', 'assignments.machine'])
+            ->orderBy('created_at')
+            ->get();
 
-        $assignmentsByPart = LotMakingAssignment::whereIn('part_id', $partIds)
-            ->with('machine')
-            ->orderBy('proses')
+        $groups = collect();
+
+        foreach ($plannings as $planning) {
+            $jumlahProses = $planning->part?->lotMaking?->jumlah_proses;
+
+            if ($jumlahProses === null) {
+                // No steps definable yet — always sits in Open until Jumlah
+                // Proses is filled in on the part.
+                if ($status === LotMakingPlanning::STATUS_OPEN) {
+                    $groups->push(['planning' => $planning, 'steps' => [['proses' => null, 'assignment' => null]]]);
+                }
+
+                continue;
+            }
+
+            $byProses = $planning->assignments->keyBy('proses');
+            $steps = [];
+
+            for ($n = 1; $n <= $jumlahProses; $n++) {
+                $assignment = $byProses->get($n);
+                $stepStatus = match (true) {
+                    $assignment === null => LotMakingPlanning::STATUS_OPEN,
+                    $assignment->isFinished() => LotMakingPlanning::STATUS_CLOSE,
+                    default => LotMakingPlanning::STATUS_IN_PROGRESS,
+                };
+
+                if ($stepStatus === $status) {
+                    $steps[] = ['proses' => $n, 'jumlahProses' => $jumlahProses, 'assignment' => $assignment];
+                }
+            }
+
+            if ($steps !== []) {
+                $groups->push(['planning' => $planning, 'steps' => $steps]);
+            }
+        }
+
+        // Close reads like a history list (newest finished first); the two
+        // active tabs read like a queue (oldest waiting first).
+        $groups = $status === LotMakingPlanning::STATUS_CLOSE
+            ? $groups->sortByDesc(fn (array $g) => collect($g['steps'])->max(fn (array $s) => $s['assignment']?->finished_at))->values()
+            : $groups->values();
+
+        $page = (int) $request->query('page', 1);
+        $groupsPage = new LengthAwarePaginator(
+            $groups->forPage($page, self::PER_PAGE)->values(),
+            $groups->count(),
+            self::PER_PAGE,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
+
+        // Every listed row's own Assignment Machine defaults, batched into
+        // one query instead of one per row — keyed part_id -> proses so a
+        // pending step's dropdown can pre-select its standard machine.
+        $partIds = $groupsPage->getCollection()->pluck('planning.part_id')->unique()->values();
+        $defaultsByPart = LotMakingAssignment::whereIn('part_id', $partIds)
             ->get()
-            ->groupBy('part_id');
+            ->groupBy('part_id')
+            ->map(fn ($rows) => $rows->keyBy('proses'));
 
         return view('lot-making-plannings.index', compact(
-            'plannings', 'status', 'todaysBoard', 'freeWindows', 'assignmentsByPart'
+            'groupsPage', 'status', 'todaysBoard', 'freeWindows', 'allMachines', 'defaultsByPart'
         ));
     }
 
     public function assign(Request $request, LotMakingPlanning $planning): RedirectResponse
     {
-        if ($planning->isAssigned() || $planning->isFinished()) {
-            return back()->with('status', 'Item ini sudah di-assign atau sudah selesai.');
-        }
-
         $patternBoard = CalendarEntry::runningPatternBoard();
 
         if (! $patternBoard) {
-            return back()->withErrors(['lot_making_assignment_id' => 'Belum ada pattern yang jalan hari ini di Calendar.'])->withInput();
+            return back()->withErrors(['machine_id' => 'Belum ada pattern yang jalan hari ini di Calendar.'])->withInput();
+        }
+
+        $jumlahProses = $planning->part?->lotMaking?->jumlah_proses;
+
+        if ($jumlahProses === null) {
+            return back()->withErrors(['machine_id' => 'Jumlah Proses part ini belum diisi di menu Lot Making > Part.'])->withInput();
         }
 
         $validated = $request->validate([
-            'lot_making_assignment_id' => [
-                'required',
-                Rule::exists('lot_making_assignments', 'id')->where('part_id', $planning->part_id),
-            ],
+            'proses' => ['required', 'integer', 'min:1', "max:{$jumlahProses}"],
+            'machine_id' => ['required', 'exists:machines,id'],
             'shift' => ['required', Rule::in([1, 2])],
             // Purely a "did you actually see an open slot" confirmation —
             // the real check is the fresh freeWindows() lookup below, since
             // the schedule could have changed since the page loaded.
             'window' => ['required', 'regex:/^\d+:\d+$/'],
-        ], [
-            'lot_making_assignment_id.required' => 'Pilih machine.',
-            'lot_making_assignment_id.exists' => 'Assignment machine tidak valid untuk part ini.',
-            'window.regex' => 'Pilih slot waktu free time yang tersedia.',
-        ]);
+        ], [], ['machine_id' => 'machine']);
 
-        $assignment = LotMakingAssignment::find($validated['lot_making_assignment_id']);
+        $proses = (int) $validated['proses'];
+
+        if ($planning->assignments()->where('proses', $proses)->exists()) {
+            return back()->with('status', "Proses {$proses} sudah di-assign.");
+        }
+
         $shift = (int) $validated['shift'];
+        $machineId = (int) $validated['machine_id'];
+        [$windowStart, $windowEnd] = array_map('intval', explode(':', $validated['window']));
 
         $stillFree = collect($this->scheduleBuilder->freeWindows($patternBoard))
-            ->contains(fn (array $w) => $w['machine_id'] === $assignment->machine_id && $w['shift'] === $shift);
+            ->contains(fn (array $w) => $w['machine_id'] === $machineId && $w['shift'] === $shift
+                && $w['start'] === $windowStart && $w['end'] === $windowEnd);
 
         if (! $stillFree) {
             return back()->withErrors([
@@ -140,109 +192,89 @@ class LotMakingPlanningController extends Controller
 
         $patternData = [
             'pattern_board_id' => $patternBoard->id,
-            'machine_id' => $assignment->machine_id,
+            'machine_id' => $machineId,
             'part_id' => $planning->part_id,
             'shift' => $shift,
-            'proses' => $assignment->proses,
-        ];
-        $planningData = [
-            'pattern_board_id' => $patternBoard->id,
-            'machine_id' => $assignment->machine_id,
-            'shift' => $shift,
-            'proses' => $assignment->proses,
+            'proses' => $proses,
         ];
 
-        if ($groupItem) {
-            // Genuinely registered in Kelompok Pattern for this exact
-            // board+shift — its own numbers take precedence, same as a
-            // normal Assignment Mesin.
-            if ($assignment->proses > $groupItem->jumlah_proses) {
+        if (! $groupItem) {
+            // Not registered in Kelompok Pattern — expected for a Lot Making
+            // part, which floats between boards/machines rather than
+            // sitting on one fixed line. The Pattern row carries its own
+            // scheduling data instead, read straight from the Lot Making
+            // part record so staff never has to retype any of it here.
+            $lotMaking = $planning->part->lotMaking;
+
+            if ($lotMaking?->loading_time === null) {
                 return back()->withErrors([
-                    'lot_making_assignment_id' => "Proses tidak boleh lebih dari jumlah proses part ini di Kelompok Pattern ({$groupItem->jumlah_proses}).",
+                    'machine_id' => 'Loading Time part ini belum diisi di menu Lot Making > Part — isi dulu di sana supaya baloknya bisa muncul di Andon.',
                 ])->withInput();
             }
-        } else {
-            // Not registered — expected for a Lot Making part, which floats
-            // between boards/machines rather than sitting on one fixed line.
-            // The Pattern row carries its own scheduling data instead of
-            // Kelompok Pattern's, read straight from the Lot Making part
-            // record so staff never has to retype any of it here.
-            $lotMaking = LotMaking::where('part_id', $planning->part_id)->first();
-
-            if ($lotMaking?->loading_time === null || $lotMaking?->jumlah_proses === null) {
-                return back()->withErrors([
-                    'lot_making_assignment_id' => 'Part ini belum terdaftar di Kelompok Pattern, dan Loading Time / Jumlah Proses-nya juga belum lengkap di menu Lot Making > Part — isi dulu di sana supaya baloknya bisa muncul di Andon.',
-                ])->withInput();
-            }
-
-            if ($assignment->proses > $lotMaking->jumlah_proses) {
-                return back()->withErrors([
-                    'lot_making_assignment_id' => "Proses tidak boleh lebih dari jumlah proses part ini ({$lotMaking->jumlah_proses}).",
-                ])->withInput();
-            }
-
-            $totalKanban = PatternGroupItem::calculateTotalKanban($planning->lot, $planning->part?->qty_kbn);
 
             $patternData += [
                 'loading_time' => $lotMaking->loading_time,
-                'jumlah_proses' => $lotMaking->jumlah_proses,
+                'jumlah_proses' => $jumlahProses,
                 'dandori' => $lotMaking->dandori ?? 0,
-                'total_kanban' => $totalKanban,
+                'total_kanban' => PatternGroupItem::calculateTotalKanban($planning->lot, $planning->part?->qty_kbn),
             ];
-            $planningData['loading_time'] = $lotMaking->loading_time;
         }
 
         $pattern = Pattern::create($patternData);
 
-        $planning->update($planningData + ['pattern_id' => $pattern->id]);
-
-        return redirect()->route('lot-making-plannings.index')
-            ->with('status', 'Berhasil di-assign — part akan muncul di Andon Pattern.');
-    }
-
-    public function finish(LotMakingPlanning $planning): RedirectResponse
-    {
-        if ($planning->isFinished()) {
-            return back()->with('status', 'Item ini sudah selesai.');
-        }
-
-        if ($planning->pattern_id !== null) {
-            Pattern::whereKey($planning->pattern_id)->delete();
-        }
-
-        $planning->update(['finished_at' => now(), 'pattern_id' => null]);
-
-        return redirect()->route('lot-making-plannings.index')
-            ->with('status', 'Planning diselesaikan — slot Andon kembali FREE TIME.');
-    }
-
-    /**
-     * The In Progress -> Open undo: an assignment picked in error (wrong
-     * machine/shift/slot) shouldn't have to be Closed — Close is for real
-     * completions and keeps a finished_at history trail, which a mis-assign
-     * doesn't deserve. Cancel just deletes the Pattern row (same as Finish,
-     * so the Andon slot reverts to FREE TIME) and clears every assignment
-     * field on the planning row itself, dropping it straight back into Open
-     * with no history trace, ready to be assigned again from scratch.
-     */
-    public function cancel(LotMakingPlanning $planning): RedirectResponse
-    {
-        if (! $planning->isAssigned() || $planning->isFinished()) {
-            return back()->with('status', 'Item ini belum di-assign atau sudah selesai.');
-        }
-
-        Pattern::whereKey($planning->pattern_id)->delete();
-
-        $planning->update([
-            'pattern_id' => null,
-            'pattern_board_id' => null,
-            'machine_id' => null,
-            'shift' => null,
-            'proses' => null,
-            'loading_time' => null,
+        $planning->assignments()->create([
+            'proses' => $proses,
+            'machine_id' => $machineId,
+            'shift' => $shift,
+            'pattern_id' => $pattern->id,
         ]);
 
         return redirect()->route('lot-making-plannings.index')
-            ->with('status', 'Assignment dibatalkan — item kembali ke Open, slot Andon kembali FREE TIME.');
+            ->with('status', "Proses {$proses} berhasil di-assign — part akan muncul di Andon Pattern.");
+    }
+
+    /**
+     * Undoes one proses step outright — a step assigned in error (wrong
+     * machine/slot) shouldn't leave a history trail behind; it just goes
+     * back to Open, ready to be assigned again from scratch. Only works
+     * before the step is Closed — once closed, use nothing (it's done).
+     */
+    public function cancel(LotMakingPlanningAssignment $assignment): RedirectResponse
+    {
+        if ($assignment->isFinished()) {
+            return back()->with('status', 'Proses ini sudah selesai.');
+        }
+
+        if ($assignment->pattern_id !== null) {
+            Pattern::whereKey($assignment->pattern_id)->delete();
+        }
+
+        $assignment->delete();
+
+        return redirect()->route('lot-making-plannings.index')
+            ->with('status', 'Assignment proses dibatalkan — slot Andon kembali FREE TIME.');
+    }
+
+    /**
+     * Closes one proses step — its Pattern row is deleted (its slot reverts
+     * to FREE TIME) but the assignment row stays, finished_at set, as a
+     * record of what ran where. The lot itself has no separate "closed"
+     * state: once every one of its steps is closed this way, it simply has
+     * nothing left to show on the Open or In Progress tabs.
+     */
+    public function close(LotMakingPlanningAssignment $assignment): RedirectResponse
+    {
+        if ($assignment->isFinished()) {
+            return back()->with('status', 'Proses ini sudah selesai.');
+        }
+
+        if ($assignment->pattern_id !== null) {
+            Pattern::whereKey($assignment->pattern_id)->delete();
+        }
+
+        $assignment->update(['pattern_id' => null, 'finished_at' => now()]);
+
+        return redirect()->route('lot-making-plannings.index')
+            ->with('status', 'Proses diselesaikan — slot Andon kembali FREE TIME.');
     }
 }

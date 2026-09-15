@@ -7,6 +7,7 @@ use App\Models\LotMaking;
 use App\Models\LotMakingAssignment;
 use App\Models\LotMakingCycle;
 use App\Models\LotMakingPlanning;
+use App\Models\LotMakingPlanningAssignment;
 use App\Models\LotMakingScan;
 use App\Models\Machine;
 use App\Models\Part;
@@ -55,7 +56,7 @@ class LotMakingPlanningTest extends TestCase
 
     /**
      * A real, currently-free "start:end" window value for $machine's shift
-     * 1 on $board, exactly as the Assign form's own JS would supply it.
+     * on $board, exactly as the Assign form's own JS would supply it.
      */
     private function anyFreeWindowValue(PatternBoard $board, int $machineId, int $shift): string
     {
@@ -80,7 +81,6 @@ class LotMakingPlanningTest extends TestCase
         $this->assertSame($part->id, $planning->part_id);
         $this->assertSame(2, $planning->lot);
         $this->assertFalse($planning->isAssigned());
-        $this->assertFalse($planning->isFinished());
         $this->assertNotNull($planning->lot_making_cycle_id);
         $this->assertSame(LotMakingCycle::first()->id, $planning->lot_making_cycle_id);
     }
@@ -133,27 +133,24 @@ class LotMakingPlanningTest extends TestCase
         $this->actingAs($this->authorizedUser())->get(route('lot-making-plannings.index'))->assertOk();
     }
 
-    public function test_index_defaults_to_the_open_tab_and_separates_all_3_statuses(): void
+    public function test_index_separates_open_in_progress_and_close_by_individual_proses_step(): void
     {
         $partOpen = Part::create(['part_no' => 'OPEN-1']);
         $partProgress = Part::create(['part_no' => 'PROGRESS-1']);
         $partClosed = Part::create(['part_no' => 'CLOSED-1']);
+        LotMaking::create(['part_id' => $partOpen->id, 'jumlah_proses' => 1]);
+        LotMaking::create(['part_id' => $partProgress->id, 'jumlah_proses' => 1]);
+        LotMaking::create(['part_id' => $partClosed->id, 'jumlah_proses' => 1]);
 
         $board = PatternBoard::create(['name' => 'A']);
         $machine = Machine::create(['name' => 'PT91']);
-        PatternGroupItem::create([
-            'pattern_board_id' => $board->id, 'part_id' => $partProgress->id, 'shift' => 1,
-            'urutan' => 1, 'lot' => 10, 'loading_time' => 10, 'jumlah_proses' => 1, 'total_kanban' => 1, 'dandori' => 0,
-        ]);
         $pattern = Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $partProgress->id, 'shift' => 1, 'proses' => 1]);
 
-        $open = LotMakingPlanning::create(['part_id' => $partOpen->id, 'lot' => 10]);
-        $inProgress = LotMakingPlanning::create([
-            'part_id' => $partProgress->id, 'lot' => 10,
-            'pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'shift' => 1, 'proses' => 1,
-            'pattern_id' => $pattern->id,
-        ]);
-        $closed = LotMakingPlanning::create(['part_id' => $partClosed->id, 'lot' => 10, 'finished_at' => now()]);
+        LotMakingPlanning::create(['part_id' => $partOpen->id, 'lot' => 10]);
+        $inProgress = LotMakingPlanning::create(['part_id' => $partProgress->id, 'lot' => 10]);
+        $inProgress->assignments()->create(['proses' => 1, 'machine_id' => $machine->id, 'shift' => 1, 'pattern_id' => $pattern->id]);
+        $closed = LotMakingPlanning::create(['part_id' => $partClosed->id, 'lot' => 10]);
+        $closed->assignments()->create(['proses' => 1, 'machine_id' => $machine->id, 'shift' => 1, 'pattern_id' => null, 'finished_at' => now()]);
 
         $user = $this->authorizedUser();
 
@@ -171,13 +168,38 @@ class LotMakingPlanningTest extends TestCase
         $this->assertStringContainsString('CLOSED-1', $closedHtml);
         $this->assertStringNotContainsString('OPEN-1', $closedHtml);
         $this->assertStringNotContainsString('PROGRESS-1', $closedHtml);
-
-        $this->assertSame('open', $open->status);
-        $this->assertSame('in_progress', $inProgress->fresh()->status);
-        $this->assertSame('close', $closed->status);
     }
 
-    public function test_assigning_creates_a_real_pattern_row_that_shows_up_on_andon(): void
+    public function test_a_lot_splits_independently_so_each_proses_step_lands_in_its_own_tab(): void
+    {
+        $board = $this->makeTodaysBoard();
+        $machine = Machine::create(['name' => 'PT91']);
+        $part = Part::create(['part_no' => 'MIX-1']);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 1, 'loading_time' => 30, 'jumlah_proses' => 2]);
+
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        $user = $this->authorizedUser();
+
+        // Only proses 1 assigned — proses 2 stays pending on the very same
+        // lot, yet the two must land on two different tabs.
+        $this->actingAs($user)->put(route('lot-making-plannings.assign', $planning), [
+            'proses' => 1, 'machine_id' => $machine->id, 'shift' => 1,
+            'window' => $this->anyFreeWindowValue($board, $machine->id, 1),
+        ]);
+
+        $openHtml = $this->actingAs($user)->get(route('lot-making-plannings.index'))->getContent();
+        $this->assertStringContainsString('MIX-1', $openHtml);
+        $this->assertStringContainsString('2/2', $openHtml);
+        $this->assertStringNotContainsString('1/2', $openHtml);
+
+        $progressHtml = $this->actingAs($user)->get(route('lot-making-plannings.index', ['status' => 'in_progress']))->getContent();
+        $this->assertStringContainsString('MIX-1', $progressHtml);
+        $this->assertStringContainsString('1/2', $progressHtml);
+        $this->assertStringNotContainsString('2/2', $progressHtml);
+        $this->assertStringContainsString('PT91', $progressHtml);
+    }
+
+    public function test_assigning_a_proses_step_creates_a_real_pattern_row_that_shows_up_on_andon(): void
     {
         $board = $this->makeTodaysBoard();
         $machine = Machine::create(['name' => 'PT91']);
@@ -188,13 +210,15 @@ class LotMakingPlanningTest extends TestCase
             'urutan' => 1, 'lot' => 10, 'loading_time' => 30, 'jumlah_proses' => 3,
             'total_kanban' => 1, 'dandori' => 0,
         ]);
-        $assignment = LotMakingAssignment::create(['part_id' => $part->id, 'machine_id' => $machine->id, 'proses' => 2]);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 1, 'jumlah_proses' => 3]);
+        LotMakingAssignment::create(['part_id' => $part->id, 'machine_id' => $machine->id, 'proses' => 2]);
 
         $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
 
         $this->actingAs($this->authorizedUser())
             ->put(route('lot-making-plannings.assign', $planning), [
-                'lot_making_assignment_id' => $assignment->id,
+                'proses' => 2,
+                'machine_id' => $machine->id,
                 'shift' => 1,
                 'window' => $this->anyFreeWindowValue($board, $machine->id, 1),
             ])
@@ -202,9 +226,14 @@ class LotMakingPlanningTest extends TestCase
 
         $planning->refresh();
         $this->assertTrue($planning->isAssigned());
-        $this->assertNotNull($planning->pattern_id);
 
-        $pattern = Pattern::find($planning->pattern_id);
+        $assignment = $planning->assignments()->first();
+        $this->assertSame(2, $assignment->proses);
+        $this->assertSame($machine->id, $assignment->machine_id);
+        $this->assertSame(1, $assignment->shift);
+        $this->assertNotNull($assignment->pattern_id);
+
+        $pattern = Pattern::find($assignment->pattern_id);
         $this->assertSame($part->id, $pattern->part_id);
         $this->assertSame($machine->id, $pattern->machine_id);
         $this->assertSame(2, $pattern->proses);
@@ -213,6 +242,157 @@ class LotMakingPlanningTest extends TestCase
         // Andon rendering code needed for this to show up correctly.
         $html = $this->get("/andon/{$board->id}")->getContent();
         $this->assertStringContainsString('BZ020-KK010 2/3', $html);
+    }
+
+    public function test_assigning_is_rejected_when_the_chosen_window_is_no_longer_free(): void
+    {
+        $board = $this->makeTodaysBoard();
+        $machine = Machine::create(['name' => 'PT91']);
+        $part = Part::create(['part_no' => 'P1']);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 1, 'loading_time' => 30, 'jumlah_proses' => 1]);
+
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+
+        $this->actingAs($this->authorizedUser())
+            ->put(route('lot-making-plannings.assign', $planning), [
+                'proses' => 1, 'machine_id' => $machine->id, 'shift' => 1,
+                // A window that was never real for this machine/shift.
+                'window' => '9999:10999',
+            ])
+            ->assertSessionHasErrors('window');
+
+        $this->assertSame(0, Pattern::count());
+    }
+
+    public function test_each_proses_step_has_its_own_shift_independent_of_its_siblings(): void
+    {
+        $board = $this->makeTodaysBoard();
+        $machineA = Machine::create(['name' => 'PT91']);
+        $machineB = Machine::create(['name' => 'PT92']);
+        $part = Part::create(['part_no' => 'P1']);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 1, 'loading_time' => 30, 'jumlah_proses' => 2]);
+
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        $user = $this->authorizedUser();
+
+        $this->actingAs($user)->put(route('lot-making-plannings.assign', $planning), [
+            'proses' => 1, 'machine_id' => $machineA->id, 'shift' => 2,
+            'window' => $this->anyFreeWindowValue($board, $machineA->id, 2),
+        ]);
+
+        // Second step picks a genuinely different shift — nothing locks it
+        // to whatever the first step used.
+        $this->actingAs($user)->put(route('lot-making-plannings.assign', $planning), [
+            'proses' => 2, 'machine_id' => $machineB->id, 'shift' => 1,
+            'window' => $this->anyFreeWindowValue($board, $machineB->id, 1),
+        ]);
+
+        $byProses = $planning->assignments()->get()->keyBy('proses');
+        $this->assertSame(2, $byProses->get(1)->shift);
+        $this->assertSame(1, $byProses->get(2)->shift);
+
+        $patternShifts = Pattern::where('part_id', $part->id)->orderBy('proses')->pluck('shift')->all();
+        $this->assertSame([2, 1], $patternShifts);
+    }
+
+    public function test_a_lot_can_have_more_than_one_proses_step_assigned_to_different_machines(): void
+    {
+        $board = $this->makeTodaysBoard();
+        $machineA = Machine::create(['name' => 'PT91']);
+        $machineB = Machine::create(['name' => 'PT92']);
+        $part = Part::create(['part_no' => 'MULTI-1']);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 1, 'loading_time' => 30, 'jumlah_proses' => 2]);
+
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        $user = $this->authorizedUser();
+
+        $this->actingAs($user)->put(route('lot-making-plannings.assign', $planning), [
+            'proses' => 1, 'machine_id' => $machineA->id, 'shift' => 1,
+            'window' => $this->anyFreeWindowValue($board, $machineA->id, 1),
+        ]);
+        $this->actingAs($user)->put(route('lot-making-plannings.assign', $planning), [
+            'proses' => 2, 'machine_id' => $machineB->id, 'shift' => 1,
+            'window' => $this->anyFreeWindowValue($board, $machineB->id, 1),
+        ]);
+
+        $this->assertSame(2, Pattern::where('part_id', $part->id)->count());
+
+        $html = $this->get("/andon/{$board->id}")->getContent();
+        $this->assertStringContainsString('MULTI-1 1/2', $html);
+        $this->assertStringContainsString('MULTI-1 2/2', $html);
+    }
+
+    public function test_assigning_the_same_proses_step_twice_is_rejected(): void
+    {
+        $board = $this->makeTodaysBoard();
+        $machine = Machine::create(['name' => 'PT91']);
+        $part = Part::create(['part_no' => 'P1']);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 1, 'loading_time' => 30, 'jumlah_proses' => 2]);
+
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        $user = $this->authorizedUser();
+
+        $this->actingAs($user)->put(route('lot-making-plannings.assign', $planning), [
+            'proses' => 1, 'machine_id' => $machine->id, 'shift' => 1,
+            'window' => $this->anyFreeWindowValue($board, $machine->id, 1),
+        ]);
+        $this->actingAs($user)->put(route('lot-making-plannings.assign', $planning), [
+            'proses' => 1, 'machine_id' => $machine->id, 'shift' => 1,
+            'window' => $this->anyFreeWindowValue($board, $machine->id, 1),
+        ]);
+
+        $this->assertSame(1, $planning->assignments()->count());
+        $this->assertSame(1, Pattern::where('part_id', $part->id)->count());
+    }
+
+    public function test_the_open_tab_renders_a_fallback_row_when_jumlah_proses_is_not_configured(): void
+    {
+        $part = Part::create(['part_no' => 'NO-JP-1']);
+        // No LotMaking record at all — jumlah_proses is unknown, so there's
+        // no proses count to loop over for this row.
+        LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+
+        $html = $this->actingAs($this->authorizedUser())->get(route('lot-making-plannings.index'))->getContent();
+
+        $this->assertStringContainsString('NO-JP-1', $html);
+        $this->assertStringContainsString('Jumlah Proses part ini belum diisi.', $html);
+    }
+
+    public function test_assigning_is_rejected_when_the_lot_has_no_jumlah_proses_configured(): void
+    {
+        $this->makeTodaysBoard();
+        $machine = Machine::create(['name' => 'PT91']);
+        $part = Part::create(['part_no' => 'P1']);
+        // No LotMaking record at all — jumlah_proses is unknown.
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+
+        $this->actingAs($this->authorizedUser())
+            ->put(route('lot-making-plannings.assign', $planning), [
+                'proses' => 1, 'machine_id' => $machine->id, 'shift' => 1,
+            ])
+            ->assertSessionHasErrors('machine_id');
+
+        $this->assertFalse($planning->fresh()->isAssigned());
+        $this->assertSame(0, Pattern::count());
+    }
+
+    public function test_assigning_is_rejected_when_proses_exceeds_jumlah_proses(): void
+    {
+        $board = $this->makeTodaysBoard();
+        $machine = Machine::create(['name' => 'PT91']);
+        $part = Part::create(['part_no' => 'P1']);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 1, 'loading_time' => 30, 'jumlah_proses' => 2]);
+
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+
+        $this->actingAs($this->authorizedUser())
+            ->put(route('lot-making-plannings.assign', $planning), [
+                'proses' => 5, 'machine_id' => $machine->id, 'shift' => 1,
+                'window' => $this->anyFreeWindowValue($board, $machine->id, 1),
+            ])
+            ->assertSessionHasErrors('proses');
+
+        $this->assertSame(0, Pattern::count());
     }
 
     public function test_assigning_a_part_not_registered_in_kelompok_pattern_requires_loading_time_on_its_lot_making_record(): void
@@ -224,19 +404,18 @@ class LotMakingPlanningTest extends TestCase
         $machine = Machine::create(['name' => 'PT91']);
         $part = Part::create(['part_no' => 'P1']);
         // No PatternGroupItem for this part/board/shift, and no loading_time
-        // set on its Lot Making record either.
-        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 1]);
-        $assignment = LotMakingAssignment::create(['part_id' => $part->id, 'machine_id' => $machine->id, 'proses' => 1]);
+        // set on its Lot Making record either — only jumlah_proses, so the
+        // request gets past validation and hits the loading_time check.
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 1, 'jumlah_proses' => 1]);
 
         $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
 
         $this->actingAs($this->authorizedUser())
             ->put(route('lot-making-plannings.assign', $planning), [
-                'lot_making_assignment_id' => $assignment->id,
-                'shift' => 1,
+                'proses' => 1, 'machine_id' => $machine->id, 'shift' => 1,
                 'window' => $this->anyFreeWindowValue($board, $machine->id, 1),
             ])
-            ->assertSessionHasErrors('lot_making_assignment_id');
+            ->assertSessionHasErrors('machine_id');
 
         $this->assertFalse($planning->fresh()->isAssigned());
         $this->assertSame(0, Pattern::count());
@@ -251,23 +430,20 @@ class LotMakingPlanningTest extends TestCase
         // must carry its own scheduling data instead, sourced from here —
         // staff never types loading_time/dandori into the Assign form itself.
         LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 20, 'slot' => 1, 'loading_time' => 45, 'dandori' => 7, 'jumlah_proses' => 3]);
-        $assignment = LotMakingAssignment::create(['part_id' => $part->id, 'machine_id' => $machine->id, 'proses' => 2]);
 
         $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 20]);
 
         $this->actingAs($this->authorizedUser())
             ->put(route('lot-making-plannings.assign', $planning), [
-                'lot_making_assignment_id' => $assignment->id,
-                'shift' => 1,
+                'proses' => 2, 'machine_id' => $machine->id, 'shift' => 1,
                 'window' => $this->anyFreeWindowValue($board, $machine->id, 1),
             ])
             ->assertRedirect(route('lot-making-plannings.index'));
 
         $planning->refresh();
         $this->assertTrue($planning->isAssigned());
-        $this->assertSame(45, $planning->loading_time);
 
-        $pattern = Pattern::find($planning->pattern_id);
+        $pattern = Pattern::find($planning->assignments()->first()->pattern_id);
         $this->assertSame(45, $pattern->loading_time);
         $this->assertSame(3, $pattern->jumlah_proses);
         $this->assertSame(2, $pattern->proses);
@@ -287,14 +463,12 @@ class LotMakingPlanningTest extends TestCase
         $machine = Machine::create(['name' => 'PT91']);
         $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
         $lotMaking = LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 1, 'loading_time' => 40, 'dandori' => 0, 'jumlah_proses' => 1]);
-        $assignment = LotMakingAssignment::create(['part_id' => $part->id, 'machine_id' => $machine->id, 'proses' => 1]);
 
         $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
 
         $this->actingAs($this->authorizedUser())
             ->put(route('lot-making-plannings.assign', $planning), [
-                'lot_making_assignment_id' => $assignment->id,
-                'shift' => 1,
+                'proses' => 1, 'machine_id' => $machine->id, 'shift' => 1,
                 'window' => $this->anyFreeWindowValue($board, $machine->id, 1),
             ]);
 
@@ -311,60 +485,7 @@ class LotMakingPlanningTest extends TestCase
         $this->assertStringNotContainsString('width: 72px', $after);
     }
 
-    public function test_assigning_is_rejected_when_proses_exceeds_jumlah_proses(): void
-    {
-        $board = $this->makeTodaysBoard();
-        $machine = Machine::create(['name' => 'PT91']);
-        $part = Part::create(['part_no' => 'P1']);
-
-        PatternGroupItem::create([
-            'pattern_board_id' => $board->id, 'part_id' => $part->id, 'shift' => 1,
-            'urutan' => 1, 'lot' => 10, 'loading_time' => 30, 'jumlah_proses' => 2,
-            'total_kanban' => 1, 'dandori' => 0,
-        ]);
-        // Created directly (bypassing LotMakingAssignmentController's own
-        // validation) to exercise the controller's defense-in-depth check —
-        // Kelompok Pattern's jumlah_proses (2) is what actually governs here.
-        $assignment = LotMakingAssignment::create(['part_id' => $part->id, 'machine_id' => $machine->id, 'proses' => 5]);
-
-        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
-
-        $this->actingAs($this->authorizedUser())
-            ->put(route('lot-making-plannings.assign', $planning), [
-                'lot_making_assignment_id' => $assignment->id,
-                'shift' => 1,
-                'window' => $this->anyFreeWindowValue($board, $machine->id, 1),
-            ])
-            ->assertSessionHasErrors('lot_making_assignment_id');
-
-        $this->assertSame(0, Pattern::count());
-    }
-
-    public function test_assigning_is_rejected_when_proses_exceeds_jumlah_proses_without_kelompok_pattern(): void
-    {
-        $board = $this->makeTodaysBoard();
-        $machine = Machine::create(['name' => 'PT91']);
-        $part = Part::create(['part_no' => 'P1']);
-
-        // No PatternGroupItem — the Lot Making record's own jumlah_proses (3)
-        // is what governs here instead.
-        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 10, 'slot' => 1, 'loading_time' => 30, 'jumlah_proses' => 3]);
-        $assignment = LotMakingAssignment::create(['part_id' => $part->id, 'machine_id' => $machine->id, 'proses' => 5]);
-
-        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
-
-        $this->actingAs($this->authorizedUser())
-            ->put(route('lot-making-plannings.assign', $planning), [
-                'lot_making_assignment_id' => $assignment->id,
-                'shift' => 1,
-                'window' => $this->anyFreeWindowValue($board, $machine->id, 1),
-            ])
-            ->assertSessionHasErrors('lot_making_assignment_id');
-
-        $this->assertSame(0, Pattern::count());
-    }
-
-    public function test_finishing_deletes_the_pattern_row_so_the_andon_slot_reverts_to_free_time(): void
+    public function test_closing_a_proses_step_deletes_its_pattern_row_so_the_andon_slot_reverts_to_free_time(): void
     {
         $board = PatternBoard::create(['name' => 'A']);
         $machine = Machine::create(['name' => 'PT91']);
@@ -375,21 +496,18 @@ class LotMakingPlanningTest extends TestCase
             'urutan' => 1, 'lot' => 10, 'loading_time' => 30, 'jumlah_proses' => 3,
             'total_kanban' => 1, 'dandori' => 0,
         ]);
-        $pattern = Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $part->id, 'shift' => 1, 'proses' => 2]);
+        $pattern = Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $part->id, 'shift' => 1, 'proses' => 1]);
 
-        $planning = LotMakingPlanning::create([
-            'part_id' => $part->id, 'lot' => 10,
-            'pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'shift' => 1, 'proses' => 2,
-            'pattern_id' => $pattern->id,
-        ]);
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        $assignment = $planning->assignments()->create(['proses' => 1, 'machine_id' => $machine->id, 'shift' => 1, 'pattern_id' => $pattern->id]);
 
         $this->actingAs($this->authorizedUser())
-            ->post(route('lot-making-plannings.finish', $planning))
+            ->post(route('lot-making-plannings.close', $assignment))
             ->assertRedirect(route('lot-making-plannings.index'));
 
-        $planning->refresh();
-        $this->assertTrue($planning->isFinished());
-        $this->assertNull($planning->pattern_id);
+        $assignment->refresh();
+        $this->assertTrue($assignment->isFinished());
+        $this->assertNull($assignment->pattern_id);
         $this->assertSame(0, Pattern::count());
 
         $html = $this->get("/andon/{$board->id}")->getContent();
@@ -397,10 +515,11 @@ class LotMakingPlanningTest extends TestCase
         $this->assertStringContainsString('FREE TIME', $html);
     }
 
-    public function test_cancelling_an_in_progress_item_deletes_the_pattern_and_reverts_it_to_open(): void
+    public function test_closing_one_proses_step_does_not_affect_its_siblings(): void
     {
         $board = PatternBoard::create(['name' => 'A']);
-        $machine = Machine::create(['name' => 'PT91']);
+        $machineA = Machine::create(['name' => 'PT91']);
+        $machineB = Machine::create(['name' => 'PT92']);
         $part = Part::create(['part_no' => 'BZ020-KK010']);
 
         PatternGroupItem::create([
@@ -408,51 +527,89 @@ class LotMakingPlanningTest extends TestCase
             'urutan' => 1, 'lot' => 10, 'loading_time' => 30, 'jumlah_proses' => 3,
             'total_kanban' => 1, 'dandori' => 0,
         ]);
-        $pattern = Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $part->id, 'shift' => 1, 'proses' => 2]);
+        $patternA = Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machineA->id, 'part_id' => $part->id, 'shift' => 1, 'proses' => 1]);
+        $patternB = Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machineB->id, 'part_id' => $part->id, 'shift' => 1, 'proses' => 2]);
 
-        $planning = LotMakingPlanning::create([
-            'part_id' => $part->id, 'lot' => 10,
-            'pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'shift' => 1, 'proses' => 2,
-            'pattern_id' => $pattern->id,
-        ]);
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        $assignmentA = $planning->assignments()->create(['proses' => 1, 'machine_id' => $machineA->id, 'shift' => 1, 'pattern_id' => $patternA->id]);
+        $assignmentB = $planning->assignments()->create(['proses' => 2, 'machine_id' => $machineB->id, 'shift' => 1, 'pattern_id' => $patternB->id]);
 
-        $this->actingAs($this->authorizedUser())
-            ->post(route('lot-making-plannings.cancel', $planning))
-            ->assertRedirect(route('lot-making-plannings.index'));
+        $this->actingAs($this->authorizedUser())->post(route('lot-making-plannings.close', $assignmentA));
 
-        $planning->refresh();
-        $this->assertFalse($planning->isAssigned());
-        $this->assertFalse($planning->isFinished());
-        $this->assertSame('open', $planning->status);
-        $this->assertNull($planning->pattern_id);
-        $this->assertNull($planning->machine_id);
-        $this->assertNull($planning->pattern_board_id);
-        $this->assertNull($planning->shift);
-        $this->assertNull($planning->proses);
-        $this->assertSame(0, Pattern::count());
+        $this->assertNull(Pattern::find($patternA->id));
+        $this->assertNotNull(Pattern::find($patternB->id));
+        $this->assertFalse($assignmentB->fresh()->isFinished());
 
-        // The Andon slot reverts to FREE TIME, same as Finish.
         $html = $this->get("/andon/{$board->id}")->getContent();
-        $this->assertStringNotContainsString('BZ020-KK010', $html);
-        $this->assertStringContainsString('FREE TIME', $html);
-
-        // And the item shows up back on the Open tab, ready to be reassigned.
-        $openHtml = $this->actingAs($this->authorizedUser())->get(route('lot-making-plannings.index'))->getContent();
-        $this->assertStringContainsString('BZ020-KK010', $openHtml);
+        $this->assertStringNotContainsString('BZ020-KK010 1/3', $html);
+        $this->assertStringContainsString('BZ020-KK010 2/3', $html);
     }
 
-    public function test_cancelling_is_rejected_when_the_item_is_not_assigned_or_already_finished(): void
+    public function test_closing_is_rejected_once_already_closed(): void
     {
         $part = Part::create(['part_no' => 'P1']);
-        $user = $this->authorizedUser();
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        $assignment = $planning->assignments()->create(['proses' => 1, 'machine_id' => Machine::create(['name' => 'PT91'])->id, 'shift' => 1, 'finished_at' => now()]);
 
-        $open = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
-        $this->actingAs($user)->post(route('lot-making-plannings.cancel', $open));
-        $this->assertSame('open', $open->fresh()->status);
+        $this->actingAs($this->authorizedUser())
+            ->post(route('lot-making-plannings.close', $assignment))
+            ->assertRedirect();
 
-        $closed = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10, 'finished_at' => now()]);
-        $this->actingAs($user)->post(route('lot-making-plannings.cancel', $closed));
-        $this->assertTrue($closed->fresh()->isFinished());
+        $this->assertNotNull($assignment->fresh()->finished_at);
+    }
+
+    public function test_cancelling_one_proses_step_deletes_only_its_own_pattern_row(): void
+    {
+        $board = PatternBoard::create(['name' => 'A']);
+        $machineA = Machine::create(['name' => 'PT91']);
+        $machineB = Machine::create(['name' => 'PT92']);
+        $part = Part::create(['part_no' => 'BZ020-KK010']);
+
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id, 'part_id' => $part->id, 'shift' => 1,
+            'urutan' => 1, 'lot' => 10, 'loading_time' => 30, 'jumlah_proses' => 3,
+            'total_kanban' => 1, 'dandori' => 0,
+        ]);
+        $patternA = Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machineA->id, 'part_id' => $part->id, 'shift' => 1, 'proses' => 1]);
+        $patternB = Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machineB->id, 'part_id' => $part->id, 'shift' => 1, 'proses' => 2]);
+
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        $assignmentA = $planning->assignments()->create(['proses' => 1, 'machine_id' => $machineA->id, 'shift' => 1, 'pattern_id' => $patternA->id]);
+        $planning->assignments()->create(['proses' => 2, 'machine_id' => $machineB->id, 'shift' => 1, 'pattern_id' => $patternB->id]);
+
+        $this->actingAs($this->authorizedUser())
+            ->post(route('lot-making-plannings.cancel', $assignmentA))
+            ->assertRedirect(route('lot-making-plannings.index'));
+
+        $this->assertNull(Pattern::find($patternA->id));
+        $this->assertNotNull(Pattern::find($patternB->id));
+
+        // Step 1 is gone outright (no history kept for a cancel), step 2
+        // stays assigned.
+        $this->assertSame(1, $planning->assignments()->count());
+
+        $html = $this->get("/andon/{$board->id}")->getContent();
+        $this->assertStringNotContainsString('BZ020-KK010 1/3', $html);
+        $this->assertStringContainsString('BZ020-KK010 2/3', $html);
+    }
+
+    public function test_cancelling_is_rejected_once_the_step_is_closed(): void
+    {
+        $part = Part::create(['part_no' => 'P1']);
+        $machine = Machine::create(['name' => 'PT91']);
+        $board = PatternBoard::create(['name' => 'A']);
+        $pattern = Pattern::create(['pattern_board_id' => $board->id, 'machine_id' => $machine->id, 'part_id' => $part->id, 'shift' => 1, 'proses' => 1, 'loading_time' => 30, 'jumlah_proses' => 1, 'dandori' => 0, 'total_kanban' => 1]);
+
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        // Deliberately still carrying a pattern_id despite being finished —
+        // an invariant close() itself never produces, but the guard here
+        // must hold regardless of how a step ended up finished.
+        $assignment = $planning->assignments()->create(['proses' => 1, 'machine_id' => $machine->id, 'shift' => 1, 'pattern_id' => $pattern->id, 'finished_at' => now()]);
+
+        $this->actingAs($this->authorizedUser())->post(route('lot-making-plannings.cancel', $assignment));
+
+        $this->assertNotNull(Pattern::find($pattern->id));
+        $this->assertNotNull(LotMakingPlanningAssignment::find($assignment->id));
     }
 
     public function test_the_planning_menu_item_appears_in_the_sidebar(): void

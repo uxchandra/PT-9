@@ -121,8 +121,11 @@ Route::middleware('auth')->group(function () {
 
         Route::get('lot-making-plannings', [LotMakingPlanningController::class, 'index'])->name('lot-making-plannings.index');
         Route::put('lot-making-plannings/{planning}/assign', [LotMakingPlanningController::class, 'assign'])->name('lot-making-plannings.assign');
-        Route::post('lot-making-plannings/{planning}/finish', [LotMakingPlanningController::class, 'finish'])->name('lot-making-plannings.finish');
-        Route::post('lot-making-plannings/{planning}/cancel', [LotMakingPlanningController::class, 'cancel'])->name('lot-making-plannings.cancel');
+        // Cancel and Close both act on a single proses step, not the whole
+        // lot — closing is per-step now, not per-lot (see
+        // LotMakingPlanningController).
+        Route::post('lot-making-planning-assignments/{assignment}/cancel', [LotMakingPlanningController::class, 'cancel'])->name('lot-making-plannings.cancel');
+        Route::post('lot-making-planning-assignments/{assignment}/close', [LotMakingPlanningController::class, 'close'])->name('lot-making-plannings.close');
 
         // "Assignment Machine" — a second table under the Lot Making listing,
         // mirroring Assignment Mesin on the Pattern page (see

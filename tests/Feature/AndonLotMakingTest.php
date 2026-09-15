@@ -38,10 +38,10 @@ class AndonLotMakingTest extends TestCase
         $cycle = LotMakingCycle::create([
             'part_no' => 'P1', 'lot_produksi' => 50, 'source' => 'scan', 'completed_at' => now(),
         ]);
-        LotMakingPlanning::create([
+        $planning = LotMakingPlanning::create([
             'part_id' => $part->id, 'lot' => 50, 'lot_making_cycle_id' => $cycle->id,
-            'machine_id' => $machine->id, 'pattern_id' => $pattern->id,
         ]);
+        $planning->assignments()->create(['proses' => 1, 'machine_id' => $machine->id, 'shift' => 1, 'pattern_id' => $pattern->id]);
 
         $html = $this->get(route('andon-lot-making.show'))->getContent();
 
@@ -65,19 +65,21 @@ class AndonLotMakingTest extends TestCase
         $this->assertStringContainsString('PT91, PT92', $html);
     }
 
-    public function test_the_planning_roller_drops_a_cycle_once_its_planning_is_closed(): void
+    public function test_the_planning_roller_drops_a_cycle_once_every_proses_step_is_closed(): void
     {
         // The roller is the active Kanban queue, not a history log — once
-        // closed, a planning row is done and no longer belongs there.
+        // every one of a lot's proses steps is closed, it's done and no
+        // longer belongs there.
         $part = Part::create(['part_no' => 'P1']);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 50, 'slot' => 1, 'jumlah_proses' => 1]);
         $machine = Machine::create(['name' => 'PT91']);
         $cycle = LotMakingCycle::create([
             'part_no' => 'P1', 'lot_produksi' => 50, 'source' => 'scan', 'completed_at' => now(),
         ]);
-        LotMakingPlanning::create([
+        $planning = LotMakingPlanning::create([
             'part_id' => $part->id, 'lot' => 50, 'lot_making_cycle_id' => $cycle->id,
-            'machine_id' => $machine->id, 'finished_at' => now(),
         ]);
+        $planning->assignments()->create(['proses' => 1, 'machine_id' => $machine->id, 'shift' => 1, 'finished_at' => now()]);
 
         $html = $this->get(route('andon-lot-making.show'))->getContent();
 
@@ -96,7 +98,8 @@ class AndonLotMakingTest extends TestCase
         $openCycle = LotMakingCycle::create(['part_no' => 'OPEN-1', 'lot_produksi' => 10, 'source' => 'scan', 'completed_at' => now()]);
         LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10, 'lot_making_cycle_id' => $openCycle->id]);
         $progressCycle = LotMakingCycle::create(['part_no' => 'PROGRESS-1', 'lot_produksi' => 20, 'source' => 'scan', 'completed_at' => now()]);
-        LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 20, 'lot_making_cycle_id' => $progressCycle->id, 'machine_id' => $machine->id, 'pattern_id' => $pattern->id]);
+        $progressPlanning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 20, 'lot_making_cycle_id' => $progressCycle->id]);
+        $progressPlanning->assignments()->create(['proses' => 1, 'machine_id' => $machine->id, 'shift' => 1, 'pattern_id' => $pattern->id]);
 
         $html = $this->get(route('andon-lot-making.show'))->getContent();
 

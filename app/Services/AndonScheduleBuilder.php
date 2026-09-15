@@ -77,11 +77,21 @@ class AndonScheduleBuilder
         // board, independent of which machine(s) or shift run it.
         $koseiParts = $filteredPatterns->pluck('part')->unique('id')->sortBy('part_no')->values();
 
-        // Rest bands are shown for reference at their real clock time, but only the
-        // shift-change gap actually pauses production — regular rests no longer
-        // split/pause a running process, so loading-time bars stay unbroken.
+        // Rest bands (including the shift-change gap itself) are shown for
+        // reference at their real clock time only — nothing pauses or splits
+        // a running *process* anymore. A job already underway when one
+        // starts just keeps going straight through it as overtime (lembur)
+        // instead of stopping or jumping to the other side, so loading-time
+        // bars stay unbroken even when they visually overlap a rest band —
+        // see $activePauses below, always empty, passed to buildShiftBlocks.
+        //
+        // FREE TIME itself still splits at the shift-change gap, though: an
+        // idle stretch spanning the whole day is still two separate windows
+        // — one per shift — for freeWindows()'s own shift labelling to make
+        // sense (see $pauseIntervals here, unchanged).
         $restIntervals = $this->buildRestIntervals();
         $pauseIntervals = $restIntervals->filter(fn ($r) => $r['name'] === self::SHIFT_GAP_LABEL)->values();
+        $activePauses = collect();
 
         $timelineEnd = self::DAY_END;
         $rows = [];
@@ -91,12 +101,16 @@ class AndonScheduleBuilder
 
             // Shift 1 and shift 2 are scheduled independently, each from its own
             // start of window, so shift 2 gets filled instead of always sitting
-            // empty behind the shift-change gap.
+            // empty behind the shift-change gap. But a shift 1 job that overruns
+            // into or past that gap (nothing pauses it — see $activePauses
+            // above) is still occupying the machine past 20:00 — shift 2's own
+            // start has to wait for it to actually finish, or its blocks would
+            // land right on top of that overtime instead of after it.
             [$shift1Blocks, $cursor1] = $this->buildShiftBlocks(
-                $machinePatterns->where('shift', 1), $groupItemsByPartShift, $lotMakingByPart, self::DAY_START, $pauseIntervals
+                $machinePatterns->where('shift', 1), $groupItemsByPartShift, $lotMakingByPart, self::DAY_START, $activePauses
             );
             [$shift2Blocks, $cursor2] = $this->buildShiftBlocks(
-                $machinePatterns->where('shift', 2), $groupItemsByPartShift, $lotMakingByPart, self::SHIFT_GAP_END, $pauseIntervals
+                $machinePatterns->where('shift', 2), $groupItemsByPartShift, $lotMakingByPart, max(self::SHIFT_GAP_END, $cursor1), $activePauses
             );
 
             $blocks = array_merge($shift1Blocks, $shift2Blocks);
@@ -344,7 +358,9 @@ class AndonScheduleBuilder
     /**
      * Place `$duration` minutes of working time starting at `$cursor`, jumping over
      * any interval in `$pauseIntervals` encountered so production pauses only for
-     * those (the shift-change gap), resuming right after. Returns the (possibly
+     * those, resuming right after — currently always called with an empty list
+     * (see build()), so in practice this places one unbroken segment straight
+     * through any rest band or the shift-change gap. Returns the (possibly
      * split) segments plus the new cursor.
      *
      * @return array{0: array<int, array{0: int, 1: int}>, 1: int}

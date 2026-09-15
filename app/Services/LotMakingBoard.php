@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\LotMaking;
 use App\Models\LotMakingAssignment;
 use App\Models\LotMakingCycle;
+use App\Models\LotMakingPlanning;
 use App\Models\LotMakingScan;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -77,29 +78,31 @@ class LotMakingBoard
             ->values()
             ->all();
 
-        // The roller is the active Kanban queue, not a full history — once a
-        // planning row is closed it's done and drops off here entirely (see
-        // LotMakingPlanningController::finish). A cycle with no planning row
-        // at all (logged before Lot Making Planning existed) is treated as
-        // still-open, same as a fresh one. Oldest first — rendered
-        // top-to-bottom, so the newest completion naturally ends up at the
-        // bottom of each section. Scoped to this board's own source so a scan
-        // completion never shows up on the demand board's roller or vice
-        // versa.
+        // The roller is the active Kanban queue, not a full history — once
+        // every one of a lot's proses steps is closed it's done and drops
+        // off here entirely (see LotMakingPlanningController::close). A step
+        // closing is per-proses, not per-lot (see LotMakingPlanning), so
+        // "done" can't be a single column to filter on in SQL — it's
+        // computed per cycle below. A cycle with no planning row at all
+        // (logged before Lot Making Planning existed) is treated as
+        // still-open, same as a fresh one. A generous multiple of the roller
+        // limit is fetched before filtering so a run of already-closed lots
+        // doesn't starve the list. Oldest first — rendered top-to-bottom, so
+        // the newest completion naturally ends up at the bottom of each
+        // section. Scoped to this board's own source so a scan completion
+        // never shows up on the demand board's roller or vice versa.
         $cycles = LotMakingCycle::where('source', $cycleSource)
-            ->where(function ($query) {
-                $query->whereDoesntHave('planning')
-                    ->orWhereHas('planning', fn ($q) => $q->whereNull('finished_at'));
-            })
-            ->with('planning.machine')
+            ->with('planning.assignments.machine', 'planning.part.lotMaking')
             ->orderByDesc('completed_at')
-            ->limit(self::ROLLER_LIMIT)
+            ->limit(self::ROLLER_LIMIT * 3)
             ->get()
+            ->reject(fn (LotMakingCycle $c) => $c->planning !== null && $this->isFullyClosed($c->planning))
+            ->take(self::ROLLER_LIMIT)
             ->sortBy('completed_at')
             ->values();
 
-        $openCycles = $cycles->filter(fn (LotMakingCycle $c) => $c->planning === null || $c->planning->pattern_id === null)->values();
-        $inProgressCycles = $cycles->filter(fn (LotMakingCycle $c) => $c->planning !== null && $c->planning->pattern_id !== null)->values();
+        $openCycles = $cycles->filter(fn (LotMakingCycle $c) => $c->planning === null || ! $c->planning->isAssigned())->values();
+        $inProgressCycles = $cycles->filter(fn (LotMakingCycle $c) => $c->planning !== null && $c->planning->isAssigned())->values();
 
         // An Open row has no machine yet — list every machine it's actually
         // registered against (see Assignment Machine) instead of leaving it
@@ -120,6 +123,21 @@ class LotMakingBoard
             'inProgressCycles' => $inProgressCycles,
             'assignmentMachinesByPartNo' => $assignmentMachinesByPartNo,
         ];
+    }
+
+    /**
+     * A lot with no steps definable yet (jumlah_proses unset) never counts
+     * as closed — there's nothing to have finished.
+     */
+    private function isFullyClosed(LotMakingPlanning $planning): bool
+    {
+        $jumlahProses = $planning->part?->lotMaking?->jumlah_proses;
+
+        if ($jumlahProses === null) {
+            return false;
+        }
+
+        return $planning->assignments->whereNotNull('finished_at')->count() >= $jumlahProses;
     }
 
     /**

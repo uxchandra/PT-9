@@ -1,10 +1,15 @@
 @php
     $planning = $cycle->planning;
-    // Not assigned yet — list every machine this part is registered against
-    // (Assignment Machine) instead of leaving it blank, so the floor can see
-    // where it's likely headed.
-    $machineNames = $planning?->machine?->name
-        ?? (($assignmentMachinesByPartNo ?? collect())->get($cycle->part_no) ?? collect())->implode(', ');
+    // A lot can have more than one proses step, each on its own machine, and
+    // each closes independently — list every machine currently still
+    // running a step (not yet closed). Nothing currently running (nothing
+    // assigned yet, or every assigned step already closed) — list every
+    // machine this part is registered against (Assignment Machine) instead
+    // of leaving it blank, so the floor can see where it's likely headed.
+    $activeMachines = $planning?->assignments->whereNull('finished_at') ?? collect();
+    $machineNames = $activeMachines->isNotEmpty()
+        ? $activeMachines->pluck('machine.name')->filter()->unique()->implode(', ')
+        : (($assignmentMachinesByPartNo ?? collect())->get($cycle->part_no) ?? collect())->implode(', ');
 @endphp
 <div class="border-t border-white py-2">
     <div class="flex items-center justify-between gap-2">

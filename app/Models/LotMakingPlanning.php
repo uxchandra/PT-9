@@ -3,19 +3,25 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * One completed Lot Making lot, thrown into a planning queue waiting to be
  * scheduled onto a machine's Andon timeline — see the migration for the full
- * mechanism. Three statuses, derived (not stored) from pattern_id/finished_at:
- *  - Open        — not yet assigned to a machine.
- *  - In Progress — assigned (a real `patterns` row exists, occupying an Andon slot).
- *  - Close       — finished; the `patterns` row is gone, kept here for history.
+ * mechanism. A lot goes through `jumlah_proses` steps (see
+ * lot_makings.jumlah_proses), each independently assignable to its own
+ * machine AND shift AND independently closable (see
+ * LotMakingPlanningAssignment) — two steps of the same lot can genuinely run
+ * on different shifts, so shift is picked per step, not once for the lot.
+ *
+ * There's no single status for the lot itself — "Open"/"In Progress"/"Close"
+ * (see STATUS_LABELS) describe one proses STEP, not the lot as a whole: a
+ * lot with 3 steps can have one Open, one In Progress and one Close all at
+ * once, each shown on its own tab (see LotMakingPlanningController::index).
  */
-#[Fillable(['part_id', 'lot', 'lot_making_cycle_id', 'pattern_board_id', 'machine_id', 'shift', 'proses', 'loading_time', 'pattern_id', 'finished_at'])]
+#[Fillable(['part_id', 'lot', 'lot_making_cycle_id'])]
 class LotMakingPlanning extends Model
 {
     public const STATUS_OPEN = 'open';
@@ -34,19 +40,7 @@ class LotMakingPlanning extends Model
     {
         return [
             'lot' => 'integer',
-            'shift' => 'integer',
-            'proses' => 'integer',
-            'finished_at' => 'datetime',
         ];
-    }
-
-    protected function status(): Attribute
-    {
-        return Attribute::get(fn () => match (true) {
-            $this->isFinished() => self::STATUS_CLOSE,
-            $this->isAssigned() => self::STATUS_IN_PROGRESS,
-            default => self::STATUS_OPEN,
-        });
     }
 
     public function part(): BelongsTo
@@ -59,28 +53,15 @@ class LotMakingPlanning extends Model
         return $this->belongsTo(LotMakingCycle::class);
     }
 
-    public function patternBoard(): BelongsTo
+    public function assignments(): HasMany
     {
-        return $this->belongsTo(PatternBoard::class);
-    }
-
-    public function machine(): BelongsTo
-    {
-        return $this->belongsTo(Machine::class);
-    }
-
-    public function pattern(): BelongsTo
-    {
-        return $this->belongsTo(Pattern::class);
+        return $this->hasMany(LotMakingPlanningAssignment::class);
     }
 
     public function isAssigned(): bool
     {
-        return $this->pattern_id !== null;
-    }
-
-    public function isFinished(): bool
-    {
-        return $this->finished_at !== null;
+        return $this->relationLoaded('assignments')
+            ? $this->assignments->isNotEmpty()
+            : $this->assignments()->exists();
     }
 }
