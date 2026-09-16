@@ -12,10 +12,10 @@ use Maatwebsite\Excel\Concerns\ToCollection;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
 /**
- * Imports rows shaped like: Machine | Item | Jumlah Proses | Proses | loading_time | kanban | dandori | Shift | lot.
+ * Imports rows shaped like: Machine | Urutan | Item | Jumlah Proses | Proses | loading_time | kanban | dandori | Shift | lot.
  *
  * Each row is one machine+part assignment. Machines and parts are created
- * automatically if they don't exist yet. loading_time/jumlah_proses/dandori/lot
+ * automatically if they don't exist yet. loading_time/jumlah_proses/dandori/lot/urutan
  * belong to the board+part+shift (Kelompok Pattern) and are set from the first
  * row seen for that part+shift; later rows for the same part+shift only add
  * their machine assignment (with that row's own "Proses" number) and are
@@ -24,6 +24,13 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
  * or has an invalid value; 2 means the 20:00-06:00 shift. lot defaults to 0
  * when left out. total_kanban is never read from the file — it's always
  * derived from lot ÷ the part's Qty Kbn (Part List), rounded up.
+ *
+ * Urutan drives the part's position on the Andon Pattern board (and, via
+ * AndonScheduleBuilder, when it starts — urutan 1 in shift 1 starts at
+ * 07:00, urutan 1 in shift 2 starts at 20:00, and so on back-to-back). It's
+ * optional: leave the column blank and the next free number after this
+ * board's current highest urutan is assigned automatically, same as before
+ * this column existed.
  */
 class PatternImport implements ToCollection, WithHeadingRow
 {
@@ -68,6 +75,13 @@ class PatternImport implements ToCollection, WithHeadingRow
             $lot = (int) ($row['lot'] ?? 0);
             $shift = (int) ($row['shift'] ?? 1);
 
+            // Blank (not just "0") means "no opinion" — leave the existing/
+            // auto-assigned urutan alone instead of treating it as an
+            // explicit 0, which would otherwise flag every re-imported row
+            // as a mismatch.
+            $urutanRaw = trim((string) ($row['urutan'] ?? ''));
+            $urutan = $urutanRaw !== '' && is_numeric($urutanRaw) ? (int) $urutanRaw : null;
+
             if (! in_array($shift, [1, 2], true)) {
                 $shift = 1;
             }
@@ -90,11 +104,17 @@ class PatternImport implements ToCollection, WithHeadingRow
                 ->first();
 
             if (! $groupItem) {
+                if ($urutan !== null) {
+                    $this->nextUrutan = max($this->nextUrutan, $urutan + 1);
+                } else {
+                    $urutan = $this->nextUrutan++;
+                }
+
                 $groupItem = PatternGroupItem::create([
                     'pattern_board_id' => $this->patternBoard->id,
                     'part_id' => $part->id,
                     'shift' => $shift,
-                    'urutan' => $this->nextUrutan++,
+                    'urutan' => $urutan,
                     'lot' => $lot,
                     'loading_time' => $loadingTime,
                     'jumlah_proses' => $jumlahProses,
@@ -105,8 +125,9 @@ class PatternImport implements ToCollection, WithHeadingRow
             } elseif ($groupItem->lot !== $lot
                 || $groupItem->loading_time !== $loadingTime
                 || $groupItem->jumlah_proses !== $jumlahProses
-                || $groupItem->dandori !== $dandori) {
-                $this->mismatches[] = "Baris {$rowNumber} ({$partName}, shift {$shift}): lot/loading_time/jumlah_proses/dandori beda dari yang sudah tersimpan, nilai baris ini diabaikan.";
+                || $groupItem->dandori !== $dandori
+                || ($urutan !== null && $groupItem->urutan !== $urutan)) {
+                $this->mismatches[] = "Baris {$rowNumber} ({$partName}, shift {$shift}): lot/loading_time/jumlah_proses/dandori/urutan beda dari yang sudah tersimpan, nilai baris ini diabaikan.";
             }
 
             Pattern::updateOrCreate(

@@ -7,9 +7,24 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['no', 'part_id', 'row', 'kolom', 'lot_produksi', 'slot', 'loading_time', 'dandori', 'jumlah_proses'])]
+#[Fillable(['no', 'part_id', 'level', 'row', 'kolom', 'lot_produksi', 'slot', 'loading_time', 'dandori', 'jumlah_proses'])]
 class LotMaking extends Model
 {
+    /**
+     * Which scanner card (see KeseiPull::LOCATIONS) this part's pulling
+     * command is grouped under. Only changes where it's listed — the
+     * pulling math itself (rolling stock-based demand, capped) stays the
+     * same regardless of which card it lands on; see LotMakingPull.
+     */
+    public const LEVEL_FINISH_GOODS = 'finish-goods';
+
+    public const LEVEL_STORE_3 = 'store-3';
+
+    public const LEVELS = [
+        self::LEVEL_FINISH_GOODS => 'Finish Goods',
+        self::LEVEL_STORE_3 => 'Store 3',
+    ];
+
     protected function casts(): array
     {
         return [

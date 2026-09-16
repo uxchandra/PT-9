@@ -19,7 +19,7 @@
             <div>
                 <x-input-label for="lma-create-part_id" :value="__('Part')" />
                 <select id="lma-create-part_id" name="part_id" required
-                        class="mt-1 block w-full border-gray-300 focus:border-brand-700 focus:ring-brand-700 rounded-lg shadow-sm text-sm transition">
+                        class="lma-select2-part mt-1 block w-full">
                     <option value="">{{ __('-- Pilih Part --') }}</option>
                     @foreach ($assignmentParts as $part)
                         <option value="{{ $part->id }}" @selected((int) old('part_id') === $part->id)>{{ $part->part_no }}</option>

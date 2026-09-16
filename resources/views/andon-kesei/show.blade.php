@@ -106,7 +106,10 @@
 
             async function refresh() {
                 try {
-                    const res = await fetch(window.location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                    const res = await fetch(window.location.href, {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                        cache: 'no-store',
+                    });
                     if (!res.ok) return;
                     const data = await res.json();
                     if (data.timeline !== lastTimeline) {

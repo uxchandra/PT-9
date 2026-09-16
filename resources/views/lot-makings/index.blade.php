@@ -117,4 +117,29 @@
             });
         })();
     </script>
+
+    @push('styles')
+        <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+        <style>
+            .select2-container .select2-selection--single { height: 38px; border-color: #d1d5db; border-radius: 0.5rem; display: flex; align-items: center; }
+            .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 1.5; color: #374151; padding-left: 0.75rem; }
+            .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
+            .select2-container--default.select2-container--focus .select2-selection--single,
+            .select2-container--default.select2-container--open .select2-selection--single { border-color: #5d4037; box-shadow: 0 0 0 1px #5d4037; }
+            .select2-dropdown { border-color: #d1d5db; }
+            .select2-container--default .select2-results__option--highlighted[aria-selected] { background-color: #5d4037; }
+        </style>
+    @endpush
+
+    @push('scripts')
+        <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+        <script>
+            window.addEventListener('DOMContentLoaded', function () {
+                if (window.jQuery && jQuery.fn.select2) {
+                    jQuery('.lma-select2-part').select2({ width: '100%', placeholder: '{{ __('-- Pilih Part --') }}', allowClear: true });
+                }
+            });
+        </script>
+    @endpush
 </x-app-layout>

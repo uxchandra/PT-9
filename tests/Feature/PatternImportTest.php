@@ -218,6 +218,70 @@ class PatternImportTest extends TestCase
         $this->assertSame(55, $shift2GroupItem->loading_time);
     }
 
+    public function test_urutan_column_is_imported_and_defaults_to_auto_increment_when_left_out(): void
+    {
+        $board = PatternBoard::create(['name' => 'A']);
+
+        $csv = "Machine,Item,Urutan,Jumlah Proses,Proses,loading_time,kanban,dandori,Shift,lot\n"
+            ."PT91,EXPLICIT-URUTAN,5,9,2,40,10,10,1,150\n"
+            ."PT91,NO-URUTAN-COL,,1,1,10,1,0,1,\n"; // blank -> auto-assigned
+
+        $response = $this->actingAs($this->authorizedUser())
+            ->post(route('pattern-boards.import.store', $board), [
+                'file' => UploadedFile::fake()->createWithContent('import.csv', $csv),
+            ]);
+
+        $response->assertRedirect(route('pattern-boards.index', ['board' => $board->id]));
+
+        $explicitPart = Part::where('part_no', 'EXPLICIT-URUTAN')->first();
+        $blankPart = Part::where('part_no', 'NO-URUTAN-COL')->first();
+
+        $explicitGroupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $explicitPart->id)->first();
+        $blankGroupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $blankPart->id)->first();
+
+        $this->assertSame(5, $explicitGroupItem->urutan);
+        // Auto-increment must not collide with the explicit value seen just before it.
+        $this->assertSame(6, $blankGroupItem->urutan);
+    }
+
+    public function test_reimporting_a_part_with_a_different_explicit_urutan_is_flagged_as_a_mismatch(): void
+    {
+        $board = PatternBoard::create(['name' => 'A']);
+        $part = Part::create(['part_no' => 'GA241-04750']);
+        $machineA = Machine::create(['name' => 'PT91']);
+
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $part->id,
+            'urutan' => 3,
+            'loading_time' => 40,
+            'jumlah_proses' => 9,
+            'total_kanban' => 10,
+            'dandori' => 10,
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machineA->id,
+            'part_id' => $part->id,
+            'proses' => 2,
+        ]);
+
+        $csv = "Machine,Item,Urutan,Jumlah Proses,Proses,loading_time,dandori\n"
+            ."PT92,GA241-04750,7,9,3,40,10\n";
+
+        $response = $this->actingAs($this->authorizedUser())
+            ->post(route('pattern-boards.import.store', $board), [
+                'file' => UploadedFile::fake()->createWithContent('import.csv', $csv),
+            ]);
+
+        $response->assertSessionHas('importMismatches');
+        $this->assertNotEmpty(session('importMismatches'));
+
+        $groupItem = PatternGroupItem::where('pattern_board_id', $board->id)->where('part_id', $part->id)->first();
+        $this->assertSame(3, $groupItem->urutan, 'urutan must not be overwritten by a later conflicting row');
+    }
+
     public function test_lot_column_is_imported_and_defaults_to_0_when_left_out(): void
     {
         $board = PatternBoard::create(['name' => 'A']);

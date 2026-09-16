@@ -28,6 +28,7 @@
                         <thead>
                             <tr class="bg-blue-100">
                                 <th class="px-2 py-1 border-r border-blue-200">Machine</th>
+                                <th class="px-2 py-1 border-r border-blue-200">Urutan</th>
                                 <th class="px-2 py-1 border-r border-blue-200">Item</th>
                                 <th class="px-2 py-1 border-r border-blue-200">Jumlah Proses</th>
                                 <th class="px-2 py-1 border-r border-blue-200">Proses</th>
@@ -40,6 +41,7 @@
                         <tbody>
                             <tr class="bg-white">
                                 <td class="px-2 py-1 border-r border-blue-200 border-t border-blue-200">PT91</td>
+                                <td class="px-2 py-1 border-r border-blue-200 border-t border-blue-200">1</td>
                                 <td class="px-2 py-1 border-r border-blue-200 border-t border-blue-200">GA241-04750</td>
                                 <td class="px-2 py-1 border-r border-blue-200 border-t border-blue-200">9</td>
                                 <td class="px-2 py-1 border-r border-blue-200 border-t border-blue-200">2</td>
@@ -53,7 +55,8 @@
                 </div>
                 <ul class="mt-3 space-y-1 list-disc list-inside text-blue-700">
                     <li>{{ __('Satu baris = satu assignment machine + part. Machine dan Item yang belum ada otomatis dibuat.') }}</li>
-                    <li>{{ __('loading_time, Jumlah Proses, dandori, lot disimpan di Kelompok Pattern per part+shift — diambil dari baris pertama part+shift tersebut ditemukan. Kalau baris lain untuk part+shift yang sama beda nilainya, baris itu dilewati untuk kolom-kolom tersebut (assignment mesinnya tetap disimpan).') }}</li>
+                    <li>{{ __('loading_time, Jumlah Proses, dandori, lot, Urutan disimpan di Kelompok Pattern per part+shift — diambil dari baris pertama part+shift tersebut ditemukan. Kalau baris lain untuk part+shift yang sama beda nilainya, baris itu dilewati untuk kolom-kolom tersebut (assignment mesinnya tetap disimpan).') }}</li>
+                    <li>{{ __('Urutan menentukan posisi part di board Andon dari atas ke bawah, sekaligus jam mulainya: urutan 1 di Shift 1 mulai 07:00, urutan 1 di Shift 2 mulai 20:00, urutan berikutnya lanjut berurutan setelahnya. Boleh dikosongkan — otomatis dapat nomor urut berikutnya, dan tetap bisa digeser manual (⠿) di halaman Pattern setelah import.') }}</li>
                     <li>{{ __('Proses & Machine tetap disimpan per baris (per assignment).') }}</li>
                     <li>{{ __('Shift: isi 1 untuk Shift 1 (07:00–16:00) atau 2 untuk Shift 2 (20:00–06:00). Kolom ini boleh dikosongkan / tidak ada — defaultnya Shift 1.') }}</li>
                     <li>{{ __('lot: boleh dikosongkan / tidak ada — defaultnya 0.') }}</li>

@@ -24,6 +24,7 @@ use App\Http\Controllers\RestController;
 use App\Http\Controllers\ScannerController;
 use App\Http\Controllers\StockPartAllController;
 use App\Http\Controllers\StockSnapshotController;
+use App\Http\Controllers\UserController;
 use App\Models\PatternBoard;
 use Illuminate\Support\Facades\Route;
 
@@ -88,6 +89,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/planning', [AndonController::class, 'planningBoards'])->name('planning.index');
         Route::get('/planning/{patternBoard}', [AndonController::class, 'planningTable'])->name('planning.table');
     });
+
+    Route::resource('users', UserController::class)->except(['show'])->middleware('can:manage users');
 
     Route::resource('machines', MachineController::class)->middleware('can:manage machines');
     Route::resource('parts', PartController::class)->middleware('can:manage parts');

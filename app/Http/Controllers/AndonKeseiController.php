@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\KeseiBoard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\View\View;
+use Illuminate\Http\Response;
 
 /**
  * Standalone Kesei board — dark, full-bleed theme. Data is built by
@@ -20,12 +20,12 @@ use Illuminate\View\View;
  */
 class AndonKeseiController extends Controller
 {
-    public function show(Request $request, KeseiBoard $board): View|JsonResponse
+    public function show(Request $request, KeseiBoard $board): Response|JsonResponse
     {
         return $this->render($request, $board->data('stock'), 'KESEI KANBAN LINE 9', 60000);
     }
 
-    public function showScan(Request $request, KeseiBoard $board): View|JsonResponse
+    public function showScan(Request $request, KeseiBoard $board): Response|JsonResponse
     {
         // Scans are live operator actions on a handheld — refresh fast so a
         // tick lands on the wall board almost immediately, not on the stock
@@ -33,20 +33,27 @@ class AndonKeseiController extends Controller
         return $this->render($request, $board->data('scan'), 'KESEI SCAN LINE 9', 3000);
     }
 
-    private function render(Request $request, array $viewData, string $title, int $pollMs): View|JsonResponse
+    private function render(Request $request, array $viewData, string $title, int $pollMs): Response|JsonResponse
     {
         $viewData['boardTitle'] = $title;
         $viewData['pollMs'] = $pollMs;
 
+        // The polling JS below fetches this exact same URL (differentiated
+        // only by the X-Requested-With header, no query string), so without
+        // an explicit no-store here a browser/proxy cache can serve the
+        // cached JSON variant back on a later plain navigation (e.g. the
+        // 30-min auto-reload) — showing raw JSON instead of the page.
         if ($request->ajax()) {
             return response()->json([
                 'timeline' => view('andon-kesei._timeline-dark', $viewData)->render(),
                 'closingTable' => view('andon-kesei._closing-table-dark', $viewData)->render(),
                 'antrianFixVolume' => view('andon-kesei._antrian-fix-volume-dark', $viewData)->render(),
                 'serverTime' => now()->format('H:i:s'),
-            ]);
+            ])->header('Cache-Control', 'no-store, no-cache, must-revalidate');
         }
 
-        return view('andon-kesei.show', $viewData);
+        return response()
+            ->view('andon-kesei.show', $viewData)
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
 }

@@ -10,9 +10,11 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
- * The "pulling command" for the Lot Making scanner card — same rolling
- * 15-minute stock-based target/scanned/remaining math as Kesei's Finish
- * Goods card (see KeseiPull::demandRow). Lot Making has no closing time, so
+ * The pulling command for Lot Making parts — same rolling 15-minute
+ * stock-based target/scanned/remaining math as Kesei's Finish Goods card
+ * (see KeseiPull::demandRow), unaffected by which scanner card (LotMaking::
+ * LEVELS) a part is grouped under: level only decides where it's listed,
+ * never how its target is computed. Lot Making has no closing time, so
  * there's nothing to fold: the accumulation window is simply a fixed
  * history floor, and it never resets on its own (that's an entirely
  * separate concept — see LotMakingCycleTracker for the slot-fill/roller
@@ -23,14 +25,19 @@ class LotMakingPull
     private const HISTORY_DAYS = 8;
 
     /**
+     * Every Lot Making part whose level matches $level — one row per part,
+     * merged onto that scanner card alongside its Kesei rows (see
+     * ScannerController::location()).
+     *
      * @return Collection<int, array{part_no: string, needed: int, scanned: int, remaining: int, last_update: ?string, done: bool}>
      */
-    public function list(): Collection
+    public function list(string $level): Collection
     {
         $now = now();
         $floor = $now->copy()->subDays(self::HISTORY_DAYS);
 
-        $lotMakings = LotMaking::with('part')->get()->filter(fn (LotMaking $lm) => $lm->part?->part_no !== null);
+        $lotMakings = LotMaking::with('part')->where('level', $level)->get()
+            ->filter(fn (LotMaking $lm) => $lm->part?->part_no !== null);
         $partNos = $lotMakings->map(fn (LotMaking $lm) => $lm->part->part_no)->unique()->values()->all();
 
         if ($partNos === []) {
@@ -64,13 +71,16 @@ class LotMakingPull
 
     /**
      * One row's figures computed on its own (no full-list rebuild) so a scan
-     * stays fast — the same reasoning as KeseiPull::scanRow.
+     * stays fast — the same reasoning as KeseiPull::scanRow. Null when the
+     * part isn't a Lot Making part, or its level doesn't match $level (the
+     * scanner card being scanned from).
      *
      * @return array{part_no: string, needed: int, scanned: int, remaining: int, last_update: ?string, done: bool}|null
      */
-    public function scanRow(string $partNo): ?array
+    public function scanRow(string $partNo, string $level): ?array
     {
         $lm = LotMaking::with('part')
+            ->where('level', $level)
             ->whereHas('part', fn ($q) => $q->where('part_no', $partNo))
             ->first();
 

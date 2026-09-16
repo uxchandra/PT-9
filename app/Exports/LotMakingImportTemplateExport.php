@@ -17,14 +17,17 @@ class LotMakingImportTemplateExport implements FromArray, WithColumnWidths, With
 {
     public function headings(): array
     {
-        return ['no', 'row', 'kolom', 'part_no', 'lot_produksi', 'slot', 'loading_time', 'dandori'];
+        // level: Finish Goods / Store 3 (or blank) — which scanner card this
+        // part's pulling command shows up under. Same free-text synonyms as
+        // Kesei's own Level column (FG, 3, STORE 3, ...) — see LotMakingImport.
+        return ['no', 'row', 'kolom', 'part_no', 'level', 'lot_produksi', 'slot', 'loading_time', 'dandori'];
     }
 
     public function array(): array
     {
         return [
-            [1, '1', '1', 'GA241-04750', 200, 40, 30, 5],
-            [2, '1', '2', '57453-BZ140', 120, 30, 20, 0],
+            [1, '1', '1', 'GA241-04750', 'Finish Goods', 200, 40, 30, 5],
+            [2, '1', '2', '57453-BZ140', 'Store 3', 120, 30, 20, 0],
         ];
     }
 
@@ -35,10 +38,11 @@ class LotMakingImportTemplateExport implements FromArray, WithColumnWidths, With
             'B' => 10,  // row
             'C' => 10,  // kolom
             'D' => 22,  // part_no
-            'E' => 15,  // lot_produksi
-            'F' => 10,  // slot
-            'G' => 14,  // loading_time
-            'H' => 10,  // dandori
+            'E' => 16,  // level
+            'F' => 15,  // lot_produksi
+            'G' => 10,  // slot
+            'H' => 14,  // loading_time
+            'I' => 10,  // dandori
         ];
     }
 
@@ -80,7 +84,7 @@ class LotMakingImportTemplateExport implements FromArray, WithColumnWidths, With
                 // Short/numeric columns read better centred; part_no stays
                 // left-aligned since it's the one free-text-length column.
                 $sheet->getStyle("A2:C{$lastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-                $sheet->getStyle("E2:H{$lastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("E2:I{$lastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
             },
         ];
     }

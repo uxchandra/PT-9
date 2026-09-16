@@ -29,6 +29,7 @@ class RolePermissionSeeder extends Seeder
             'view stock snapshot',
             'manage planning',
             'use scanner',
+            'manage users',
         ];
 
         foreach ($permissions as $permission) {

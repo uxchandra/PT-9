@@ -39,6 +39,19 @@
     <x-input-error :messages="$errors->get('part_id')" class="mt-2" />
 </div>
 
+<div class="mt-5">
+    <x-input-label for="lm-level-{{ $idSuffix }}" :value="__('Level (Kartu Scanner)')" />
+    <select id="lm-level-{{ $idSuffix }}" name="level"
+            class="mt-1 block w-full border-gray-300 focus:border-brand-700 focus:ring-brand-700 rounded-lg shadow-sm text-sm transition">
+        <option value="">{{ __('— tidak ditampilkan di scanner —') }}</option>
+        @foreach (\App\Models\LotMaking::LEVELS as $value => $label)
+            <option value="{{ $value }}" @selected(old('level', $lm?->level) === $value)>{{ $label }}</option>
+        @endforeach
+    </select>
+    <p class="mt-1 text-xs text-gray-400">{{ __('Menentukan part ini muncul di kartu scanner mana (Finish Goods / Store 3).') }}</p>
+    <x-input-error :messages="$errors->get('level')" class="mt-2" />
+</div>
+
 <div class="grid grid-cols-2 gap-4 mt-5">
     <div>
         <x-input-label for="lm-lot_produksi-{{ $idSuffix }}" :value="__('Lot Produksi')" />

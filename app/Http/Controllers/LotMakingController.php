@@ -9,6 +9,7 @@ use App\Models\Part;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 class LotMakingController extends Controller
@@ -97,6 +98,7 @@ class LotMakingController extends Controller
         return $request->validate([
             'no' => ['nullable', 'integer', 'min:0'],
             'part_id' => ['required', 'exists:parts,id'],
+            'level' => ['nullable', Rule::in(array_keys(LotMaking::LEVELS))],
             'row' => ['nullable', 'string', 'max:50'],
             'kolom' => ['nullable', 'string', 'max:50'],
             'lot_produksi' => ['nullable', 'integer', 'min:0'],

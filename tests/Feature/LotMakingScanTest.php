@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\KeseiPart;
 use App\Models\LotMaking;
 use App\Models\LotMakingCycle;
 use App\Models\LotMakingScan;
@@ -37,28 +38,85 @@ class LotMakingScanTest extends TestCase
         return $user;
     }
 
-    public function test_scanner_dashboard_lists_a_lot_making_card(): void
+    public function test_scanner_dashboard_does_not_list_a_separate_lot_making_card(): void
     {
         $this->actingAs($this->scannerUser())
             ->get(route('scanner.dashboard'))
             ->assertOk()
-            ->assertSee('Lot Making');
+            ->assertSee('Finish Goods')
+            ->assertSee('Store 3')
+            ->assertDontSee('Lot Making');
     }
 
-    public function test_lot_making_pull_list_shows_demand_from_the_stock_feed(): void
+    public function test_a_lot_making_part_with_finish_goods_level_is_rejected_at_the_lot_making_slug(): void
+    {
+        // The 'lot-making' slug is no longer a valid scanner card at all —
+        // every Lot Making part is grouped under Finish Goods/Store 3 by its
+        // own level instead.
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'lot-making'))
+            ->assertNotFound();
+    }
+
+    public function test_a_lot_making_part_shows_up_on_the_finish_goods_card_by_its_own_level(): void
     {
         Carbon::setTestNow('2026-09-15 10:00:00');
         $part = Part::create(['part_no' => '61367-0D150', 'qty_kbn' => 1]);
-        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 50, 'slot' => 8]);
+        LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods', 'lot_produksi' => 50, 'slot' => 8]);
 
         StockSnapshot::create(['part_no' => '61367-0D150', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
         StockSnapshot::create(['part_no' => '61367-0D150', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]); // -4
 
         $this->actingAs($this->scannerUser())
-            ->get(route('scanner.location', 'lot-making'))
+            ->get(route('scanner.location', 'finish-goods'))
             ->assertOk()
             ->assertSee('61367-0D150')
             ->assertSee('/ 4');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_lot_making_part_with_no_level_does_not_show_up_on_any_card(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'NO-LEVEL', 'qty_kbn' => 1]);
+        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 50, 'slot' => 8]);
+
+        StockSnapshot::create(['part_no' => 'NO-LEVEL', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'NO-LEVEL', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]);
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'finish-goods'))
+            ->assertOk()
+            ->assertDontSee('NO-LEVEL');
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'store-3'))
+            ->assertOk()
+            ->assertDontSee('NO-LEVEL');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_finish_goods_merges_kesei_and_lot_making_parts_on_the_same_card(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+
+        $keseiPart = Part::create(['part_no' => 'KESEI-FG', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $keseiPart->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        StockSnapshot::create(['part_no' => 'KESEI-FG', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'KESEI-FG', 'stock' => 98, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]); // -2
+
+        $lotMakingPart = Part::create(['part_no' => 'LM-FG', 'qty_kbn' => 1]);
+        LotMaking::create(['part_id' => $lotMakingPart->id, 'level' => 'finish-goods', 'lot_produksi' => 50, 'slot' => 8]);
+        StockSnapshot::create(['part_no' => 'LM-FG', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'LM-FG', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]); // -4
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'finish-goods'))
+            ->assertOk()
+            ->assertSee('KESEI-FG')
+            ->assertSee('LM-FG');
 
         Carbon::setTestNow();
     }
@@ -67,12 +125,12 @@ class LotMakingScanTest extends TestCase
     {
         Carbon::setTestNow('2026-09-15 10:00:00');
         $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
-        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 50, 'slot' => 8]);
+        LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods', 'lot_produksi' => 50, 'slot' => 8]);
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]); // -4
 
         $this->actingAs($this->scannerUser())
-            ->postJson(route('scanner.scan', 'lot-making'), ['code' => 'S9 09 I 26 A_8_P1_1'])
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'S9 09 I 26 A_8_P1_1'])
             ->assertOk()
             ->assertJson(['ok' => true, 'part_no' => 'P1', 'scanned' => 1, 'needed' => 4, 'remaining' => 3]);
 
@@ -81,10 +139,10 @@ class LotMakingScanTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_a_part_not_in_lot_making_is_rejected(): void
+    public function test_a_part_not_in_lot_making_or_kesei_is_rejected(): void
     {
         $this->actingAs($this->scannerUser())
-            ->postJson(route('scanner.scan', 'lot-making'), ['code' => 'S9 09 I 26 A_8_UNKNOWN_1'])
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'S9 09 I 26 A_8_UNKNOWN_1'])
             ->assertStatus(422)
             ->assertJson(['ok' => false]);
 
@@ -94,16 +152,34 @@ class LotMakingScanTest extends TestCase
     public function test_an_unparseable_qr_is_rejected(): void
     {
         $this->actingAs($this->scannerUser())
-            ->postJson(route('scanner.scan', 'lot-making'), ['code' => 'garbage'])
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'garbage'])
             ->assertStatus(422)
             ->assertJson(['ok' => false]);
+    }
+
+    public function test_a_lot_making_part_cannot_be_scanned_from_the_wrong_card(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
+        LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods', 'lot_produksi' => 50, 'slot' => 8]);
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]);
+
+        $this->actingAs($this->scannerUser())
+            ->postJson(route('scanner.scan', 'store-3'), ['code' => 'x_x_P1_1'])
+            ->assertStatus(422)
+            ->assertJson(['ok' => false]);
+
+        $this->assertDatabaseCount('lot_making_scans', 0);
+
+        Carbon::setTestNow();
     }
 
     public function test_scanning_beyond_the_needed_qty_is_rejected(): void
     {
         Carbon::setTestNow('2026-09-15 10:00:00');
         $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
-        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 50, 'slot' => 8]);
+        LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods', 'lot_produksi' => 50, 'slot' => 8]);
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]); // -4 kanban
 
@@ -112,7 +188,7 @@ class LotMakingScanTest extends TestCase
         }
 
         $this->actingAs($this->scannerUser())
-            ->postJson(route('scanner.scan', 'lot-making'), ['code' => 'x_x_P1_1'])
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'x_x_P1_1'])
             ->assertStatus(422);
 
         Carbon::setTestNow();
@@ -123,13 +199,13 @@ class LotMakingScanTest extends TestCase
         Carbon::setTestNow('2026-09-15 10:00:00');
         $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
         // slot_fix = ceil(5/5) = 1 -> 5 columns, each with capacity 1.
-        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 5, 'slot' => 5]);
+        LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods', 'lot_produksi' => 5, 'slot' => 5]);
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 0, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]); // plenty of demand
 
         for ($i = 0; $i < 4; $i++) {
             $this->actingAs($this->scannerUser())
-                ->postJson(route('scanner.scan', 'lot-making'), ['code' => 'x_x_P1_1'])
+                ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'x_x_P1_1'])
                 ->assertOk()
                 ->assertJson(['ok' => true]);
         }
@@ -141,7 +217,7 @@ class LotMakingScanTest extends TestCase
 
         // The 5th scan fills the last column and completes the cycle.
         $this->actingAs($this->scannerUser())
-            ->postJson(route('scanner.scan', 'lot-making'), ['code' => 'x_x_P1_1'])
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'x_x_P1_1'])
             ->assertOk();
 
         $this->assertSame(1, LotMakingCycle::count());
@@ -156,7 +232,7 @@ class LotMakingScanTest extends TestCase
 
         // A 6th scan starts a fresh cycle rather than continuing to pile up.
         $this->actingAs($this->scannerUser())
-            ->postJson(route('scanner.scan', 'lot-making'), ['code' => 'x_x_P1_1'])
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'x_x_P1_1'])
             ->assertOk();
         $this->assertSame(1, LotMakingCycle::count());
 
@@ -168,13 +244,13 @@ class LotMakingScanTest extends TestCase
         Carbon::setTestNow('2026-09-15 10:00:00');
         $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
         // slot_fix = ceil(20/5) = 4 -> 5 columns of capacity 4 each.
-        LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 20, 'slot' => 5]);
+        LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods', 'lot_produksi' => 20, 'slot' => 5]);
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
         StockSnapshot::create(['part_no' => 'P1', 'stock' => 0, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]);
 
         for ($i = 0; $i < 3; $i++) {
             $this->actingAs($this->scannerUser())
-                ->postJson(route('scanner.scan', 'lot-making'), ['code' => 'x_x_P1_1'])
+                ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'x_x_P1_1'])
                 ->assertOk();
         }
 

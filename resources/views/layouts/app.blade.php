@@ -403,6 +403,17 @@
                         <span class="font-semibold text-sm">{{ __('Planning') }}</span>
                     </a>
                     @endcan
+
+                    @can('manage users')
+                    <a href="{{ route('users.index') }}"
+                       class="menu-item flex items-center px-4 py-2.5 text-gray-300 {{ request()->routeIs('users.*') ? 'active' : '' }}">
+                        <svg class="w-5 h-5 mr-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                  d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-1.13a4 4 0 100-8 4 4 0 000 8zm6 3.13a4 4 0 00-3-3.87m0 0a5.978 5.978 0 00-3-.13"/>
+                        </svg>
+                        <span class="font-semibold text-sm">{{ __('User') }}</span>
+                    </a>
+                    @endcan
                 </nav>
 
                 <!-- User / logout -->

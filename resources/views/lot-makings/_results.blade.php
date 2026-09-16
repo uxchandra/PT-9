@@ -1,6 +1,6 @@
 @php
     $columns = [
-        'Row', 'Kolom', 'Part No', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses',
+        'Row', 'Kolom', 'Part No', 'Level', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses',
     ];
 @endphp
 
@@ -26,6 +26,7 @@
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-gray-700">{{ $lotMaking->row ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-gray-700">{{ $lotMaking->kolom ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 font-semibold text-gray-800">{{ $lotMaking->part?->part_no ?? '-' }}</td>
+                    <td class="px-4 py-2 border-b border-l border-gray-200 text-gray-600">{{ \App\Models\LotMaking::LEVELS[$lotMaking->level] ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->lot_produksi ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->slot ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->avg_slot !== null ? number_format($lotMaking->avg_slot, 2) : '-' }}</td>
