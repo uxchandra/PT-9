@@ -11,24 +11,22 @@
                 <p class="mt-1 text-sm text-gray-500">{{ __('Part yang dipantau di Andon Kesei beserta timeline stoknya.') }}</p>
             </div>
             <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2">
+                    <input type="text" id="kesei-search" autocomplete="off"
+                           placeholder="{{ __('Cari part no / SOS code / level...') }}"
+                           class="rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700 w-64">
+                    <button type="button" id="kesei-search-reset" class="hidden text-sm text-gray-500 hover:text-gray-700">
+                        {{ __('Reset') }}
+                    </button>
+                </div>
                 <a href="{{ route('kesei.import.create') }}"
                    class="inline-flex items-center justify-center px-4 py-2 bg-white border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition">
                     {{ __('Import') }}
                 </a>
-                <a href="{{ route('andon-kesei.show') }}" target="_blank"
-                   class="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-800 rounded-lg font-semibold text-sm text-white hover:bg-gray-900 transition">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                    </svg>
-                    {{ __('Lihat Andon Kesei') }}
-                </a>
-                <a href="{{ route('andon-kesei.scan') }}" target="_blank"
-                   class="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-700 rounded-lg font-semibold text-sm text-white hover:bg-brand-800 transition">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m0 14v1m8-8h-1M5 12H4m3.05-4.95.7.7m8.5-.7-.7.7m0 8.5.7.7m-8.5-.7-.7.7M4 8V4h4m8 0h4v4m0 8v4h-4m-8 0H4v-4"/>
-                    </svg>
-                    {{ __('Andon Kesei Scan') }}
-                </a>
+                <button type="button" x-data="" x-on:click="$dispatch('open-modal', 'kesei-create')"
+                        class="inline-flex items-center justify-center px-4 py-2 bg-brand-800 border border-transparent rounded-lg font-semibold text-sm text-white hover:bg-brand-900 transition">
+                    {{ __('Tambah') }}
+                </button>
             </div>
         </div>
 
@@ -41,100 +39,36 @@
             </div>
         @endif
 
-        {{-- Add part --}}
-        <div class="bg-white border border-gray-100 shadow-sm rounded-2xl p-4">
-            <form method="POST" action="{{ route('kesei.store') }}" class="flex flex-wrap items-start gap-3">
-                @csrf
-                <div class="flex-1 min-w-[240px]">
-                    <select name="part_id" class="js-select2 block w-full" required>
-                        <option value="">{{ __('— pilih part —') }}</option>
-                        @foreach ($availableParts as $part)
-                            <option value="{{ $part->id }}" @selected((int) old('part_id') === $part->id)>{{ $part->part_no }}</option>
-                        @endforeach
-                    </select>
-                    <x-input-error :messages="$errors->get('part_id')" class="mt-2" />
-                </div>
-                <div class="min-w-[220px]">
-                    <input type="text" name="stock_source" value="{{ old('stock_source') }}"
-                           placeholder="{{ __('SOS Code (opsional)') }}"
-                           class="block w-full rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm">
-                    <p class="mt-1 text-xs text-gray-400">{{ __('part no, pisah koma. Kosong = pakai part no sendiri') }}</p>
-                    <x-input-error :messages="$errors->get('stock_source')" class="mt-1" />
-                </div>
-                <div>
-                    <input type="text" name="level" value="{{ old('level') }}" placeholder="{{ __('Level') }}"
-                           class="block w-24 rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm">
-                    <p class="mt-1 text-xs text-gray-400">{{ __('Level (opsional)') }}</p>
-                    <x-input-error :messages="$errors->get('level')" class="mt-1" />
-                </div>
-                <div>
-                    <input type="time" name="closing_time" value="{{ old('closing_time') }}"
-                           class="block rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm">
-                    <p class="mt-1 text-xs text-gray-400">{{ __('Closing time') }}</p>
-                    <x-input-error :messages="$errors->get('closing_time')" class="mt-1" />
-                </div>
-                <div>
-                    <label class="inline-flex items-center gap-1.5 text-sm text-gray-700 pt-1.5">
-                        <input type="hidden" name="closing_mode" value="end_of_day">
-                        <input type="checkbox" name="closing_mode" value="pre_run"
-                               @checked(old('closing_mode', 'pre_run') === 'pre_run')
-                               class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                        {{ __('Pre-run') }}
-                    </label>
-                    <p class="mt-1 text-xs text-gray-400">{{ __('Closing sebelum run') }}</p>
-                    <x-input-error :messages="$errors->get('closing_mode')" class="mt-1" />
-                </div>
-                <div>
-                    <div class="flex flex-wrap items-center gap-x-3 gap-y-1 pt-1.5">
-                        @forelse ($patternBoards as $board)
-                            <label class="inline-flex items-center gap-1 text-sm text-gray-700">
-                                <input type="checkbox" name="pattern_board_ids[]" value="{{ $board->id }}"
-                                       @checked(collect(old('pattern_board_ids', []))->map('intval')->contains($board->id))
-                                       class="rounded border-gray-300 text-brand-600 focus:ring-brand-500">
-                                {{ $board->name }}
-                            </label>
-                        @empty
-                            <span class="text-xs text-gray-400">{{ __('Belum ada pattern board') }}</span>
-                        @endforelse
-                    </div>
-                    <p class="mt-1 text-xs text-gray-400">{{ __('Pattern (bisa lebih dari satu)') }}</p>
-                    <x-input-error :messages="$errors->get('pattern_board_ids')" class="mt-1" />
-                </div>
-                <x-primary-button>{{ __('Tambah') }}</x-primary-button>
-            </form>
-        </div>
-
         {{-- List --}}
         <div class="bg-white border border-gray-100 shadow-sm rounded-2xl overflow-hidden">
-            <div class="flex items-center justify-between p-6 border-b border-gray-100">
-                <p class="text-sm text-gray-500">
-                    {{ $keseiParts->count() }} {{ __('part') }}
-                    <span id="kesei-reorder-status" class="ml-1 text-xs font-medium"></span>
-                </p>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
+            <p class="px-6 pt-4 text-sm text-gray-500">
+                {{ $keseiParts->count() }} {{ __('part') }}
+                <span id="kesei-reorder-status" class="ml-1 text-xs font-medium"></span>
+            </p>
+
+            <div class="kesei-table-scroll mx-6 my-6 overflow-x-auto overflow-y-auto border-2 border-gray-300 rounded-lg" style="max-height: calc(105vh - 380px);">
+                <table class="min-w-full text-xs border-separate border-spacing-0">
                     <thead>
                         <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                            <th class="px-3 py-3 w-8"></th>
-                            <th class="px-6 py-3">{{ __('No') }}</th>
-                            <th class="px-3 py-3 w-28 whitespace-nowrap">{{ __('Part No') }}</th>
-                            <th class="px-3 py-3 w-20 whitespace-nowrap">{{ __('Level') }}</th>
-                            <th class="px-6 py-3">{{ __('SOS Code') }}</th>
-                            <th class="px-4 py-3 w-40">{{ __('Closing Time') }}</th>
-                            <th class="px-4 py-3 w-40">{{ __('Pattern') }}</th>
-                            <th class="px-3 py-3 w-12 text-center">{{ __('Aksi') }}</th>
+                            <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-gray-300 w-8"></th>
+                            <th class="sticky top-0 z-10 bg-gray-50 px-6 py-3 border-b-2 border-l border-gray-300">{{ __('No') }}</th>
+                            <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-28 whitespace-nowrap">{{ __('Part No') }}</th>
+                            <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-20 whitespace-nowrap">{{ __('Level') }}</th>
+                            <th class="sticky top-0 z-10 bg-gray-50 px-6 py-3 border-b-2 border-l border-gray-300">{{ __('SOS Code') }}</th>
+                            <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 w-40">{{ __('Closing Time') }}</th>
+                            <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 w-40">{{ __('Pattern') }}</th>
+                            <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-12 text-center">{{ __('Aksi') }}</th>
                         </tr>
                     </thead>
                     <tbody id="kesei-sortable" class="divide-y divide-gray-100"
                            data-reorder-url="{{ route('kesei.reorder') }}">
                         @forelse ($keseiParts as $item)
                             <tr class="hover:bg-gray-50" data-id="{{ $item->id }}">
-                                <td class="kesei-drag-handle px-3 py-3 text-center text-gray-300 hover:text-gray-500 cursor-grab select-none"
+                                <td class="kesei-drag-handle px-3 py-3 border-b border-gray-300 text-center text-gray-300 hover:text-gray-500 cursor-grab select-none"
                                     title="{{ __('Geser untuk mengatur urutan') }}">⠿</td>
-                                <td class="kesei-urutan-cell px-6 py-3 text-gray-600">{{ $loop->iteration }}</td>
-                                <td class="px-3 py-3 w-28 whitespace-nowrap text-gray-800 font-medium">{{ $item->part?->part_no ?? '-' }}</td>
-                                <td class="px-3 py-3 w-20">
+                                <td class="kesei-urutan-cell px-6 py-3 border-b border-l border-gray-300 text-gray-600">{{ $loop->iteration }}</td>
+                                <td class="px-3 py-3 border-b border-l border-gray-300 whitespace-nowrap text-gray-800 font-medium">{{ $item->part?->part_no ?? '-' }}</td>
+                                <td class="px-3 py-3 border-b border-l border-gray-300">
                                     <input type="text"
                                            class="kesei-inline w-16 rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
                                            data-field="level"
@@ -143,7 +77,7 @@
                                            placeholder="—">
                                     <span class="kesei-status ml-1 text-xs"></span>
                                 </td>
-                                <td class="px-6 py-3">
+                                <td class="px-6 py-3 border-b border-l border-gray-300">
                                     <input type="text"
                                            class="kesei-inline w-full max-w-xs rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
                                            data-field="stock_source"
@@ -151,7 +85,7 @@
                                            value="{{ $item->stock_source }}">
                                     <span class="kesei-status ml-1 text-xs"></span>
                                 </td>
-                                <td class="px-4 py-3 w-40">
+                                <td class="px-4 py-3 border-b border-l border-gray-300">
                                     <div class="flex items-center gap-1">
                                         <details class="kesei-closings relative" data-url="{{ route('kesei.update', $item) }}">
                                             <summary class="list-none cursor-pointer text-xs text-gray-700 hover:text-brand-600 [&::-webkit-details-marker]:hidden">
@@ -180,7 +114,7 @@
                                         <span class="kesei-status text-xs"></span>
                                     </div>
                                 </td>
-                                <td class="px-4 py-3 w-40">
+                                <td class="px-4 py-3 border-b border-l border-gray-300">
                                     <div class="flex items-center gap-1">
                                         <details class="kesei-pattern relative" data-url="{{ route('kesei.update', $item) }}">
                                             <summary class="list-none cursor-pointer text-xs text-gray-700 hover:text-brand-600 [&::-webkit-details-marker]:hidden">
@@ -202,7 +136,7 @@
                                         <span class="kesei-status text-xs"></span>
                                     </div>
                                 </td>
-                                <td class="px-3 py-3 text-center">
+                                <td class="px-3 py-3 border-b border-l border-gray-300 text-center">
                                     <form action="{{ route('kesei.destroy', $item) }}" method="POST" class="inline" onsubmit="return confirm('{{ __('Hapus part ini dari Kesei?') }}');">
                                         @csrf
                                         @method('DELETE')
@@ -216,7 +150,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="8" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada part di Kesei.') }}</td>
+                                <td colspan="8" class="px-6 py-8 text-center text-gray-400 border-b border-gray-300">{{ __('Belum ada part di Kesei.') }}</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -225,9 +159,16 @@
         </div>
     </div>
 
+    @include('kesei._create-modal')
+
     @push('styles')
         <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
         <style>
+            .kesei-table-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; }
+            .kesei-table-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+            .kesei-table-scroll::-webkit-scrollbar-track { background: #f3f4f6; }
+            .kesei-table-scroll::-webkit-scrollbar-thumb { background: #9ca3af; border-radius: 10px; border: 2px solid #f3f4f6; }
+            .kesei-table-scroll::-webkit-scrollbar-thumb:hover { background: #6b7280; }
             .select2-container .select2-selection--single { height: 38px; border-color: #d1d5db; border-radius: 0.375rem; display: flex; align-items: center; }
             .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 1.5; color: #374151; padding-left: 0.75rem; }
             .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
@@ -261,6 +202,32 @@
                         .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
                         .then(function (d) { set('✓', 'text-green-600'); return d; })
                         .catch(function () { set('✕', 'text-red-600'); });
+                }
+
+                // Client-side filter — the whole list is already loaded (drag
+                // reorder needs every row present), so search just hides
+                // non-matching rows instead of round-tripping to the server.
+                const searchInput = document.getElementById('kesei-search');
+                const searchReset = document.getElementById('kesei-search-reset');
+                const sortable = document.getElementById('kesei-sortable');
+                if (searchInput && sortable) {
+                    const applyFilter = function () {
+                        const q = searchInput.value.trim().toLowerCase();
+                        searchReset.classList.toggle('hidden', q === '');
+                        sortable.querySelectorAll('tr[data-id]').forEach(function (tr) {
+                            const partNo = tr.children[2]?.textContent || '';
+                            const level = tr.querySelector('[data-field="level"]')?.value || '';
+                            const sos = tr.querySelector('[data-field="stock_source"]')?.value || '';
+                            const haystack = (partNo + ' ' + level + ' ' + sos).toLowerCase();
+                            tr.classList.toggle('hidden', q !== '' && ! haystack.includes(q));
+                        });
+                    };
+                    searchInput.addEventListener('input', applyFilter);
+                    searchReset.addEventListener('click', function () {
+                        searchInput.value = '';
+                        searchInput.focus();
+                        applyFilter();
+                    });
                 }
 
                 // Inline auto-save of Source / Level.

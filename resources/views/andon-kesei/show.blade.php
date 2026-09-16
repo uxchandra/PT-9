@@ -131,34 +131,26 @@
 
         // Slow, looping auto-scroll of the part timeline (top -> bottom) so a
         // row list taller than the screen is fully visible over time on this
-        // unattended wall board — pauses briefly at each end before looping
-        // back to the top. Re-queries the scroller every tick since panel
-        // refreshes replace it wholesale (innerHTML swap).
+        // unattended wall board — jumps straight back to the top the instant
+        // it hits bottom, no pause (a pending setTimeout pause used to be
+        // able to outlive a panel refresh — replacePanel() swaps in a fresh
+        // .andon-scroll element via innerHTML, and the old timer's delay
+        // could land on a scroller that had already moved on, leaving it
+        // looking stuck). Re-queries the scroller live every tick instead so
+        // there's no state that can go stale across a refresh.
         (function () {
             const STEP_PX = 0.6;
             const TICK_MS = 40;
-            const PAUSE_MS = 2500;
-            let paused = false;
 
             setInterval(function () {
-                if (paused) return;
-
                 const scroller = document.querySelector('#kesei-panel-timeline .andon-scroll');
                 if (!scroller) return;
 
                 const max = scroller.scrollHeight - scroller.clientHeight;
                 if (max <= 0) return;
 
-                scroller.scrollTop = Math.min(max, scroller.scrollTop + STEP_PX);
-
-                if (scroller.scrollTop >= max) {
-                    paused = true;
-                    setTimeout(function () {
-                        const el = document.querySelector('#kesei-panel-timeline .andon-scroll');
-                        if (el) el.scrollTop = 0;
-                        paused = false;
-                    }, PAUSE_MS);
-                }
+                const next = scroller.scrollTop + STEP_PX;
+                scroller.scrollTop = next >= max ? 0 : next;
             }, TICK_MS);
         })();
 
