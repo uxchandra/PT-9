@@ -8,8 +8,8 @@
         <div id="kesei-panel-closing" class="min-h-0 shrink-0 border-b-2 border-white overflow-hidden" style="max-height: 45%;">
             @include('andon-kesei._closing-table-dark')
         </div>
-        <div id="kesei-panel-stock" class="flex-1 min-h-0 overflow-hidden">
-            @include('andon-kesei._stock-timeline-dark')
+        <div id="kesei-panel-antrian" class="flex-1 min-h-0 overflow-hidden">
+            @include('andon-kesei._antrian-fix-volume-dark')
         </div>
     </div>
 </div>

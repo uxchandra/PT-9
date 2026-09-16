@@ -358,6 +358,21 @@ class LotMakingPlanningTest extends TestCase
         $this->assertStringContainsString('Jumlah Proses part ini belum diisi.', $html);
     }
 
+    public function test_the_fallback_row_disappears_from_open_once_assigned_even_without_jumlah_proses(): void
+    {
+        // No per-step tracking is possible without jumlah_proses, so "has
+        // any assignment at all" is what has to signal it's no longer Open
+        // — otherwise it would sit in the Open tab forever, even after being
+        // assigned or closed.
+        $part = Part::create(['part_no' => 'NO-JP-2']);
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        $planning->assignments()->create(['proses' => 1, 'machine_id' => Machine::create(['name' => 'PT91'])->id, 'shift' => 1]);
+
+        $html = $this->actingAs($this->authorizedUser())->get(route('lot-making-plannings.index'))->getContent();
+
+        $this->assertStringNotContainsString('NO-JP-2', $html);
+    }
+
     public function test_assigning_is_rejected_when_the_lot_has_no_jumlah_proses_configured(): void
     {
         $this->makeTodaysBoard();

@@ -6,13 +6,23 @@
         {{ __('Belum ada part di menu Kesei.') }}
     </div>
 @else
-    @php $totalWidth = max($timelineEnd - $dayStart, 1) * $pxPerMinute + 24; @endphp
+    @php
+        $totalWidth = max($timelineEnd - $dayStart, 1) * $pxPerMinute + 24;
+        $labelWidth = 110;
+        $polaWidth = 56;
+        $sidebarWidth = $labelWidth + $polaWidth;
+    @endphp
     <div class="andon-scroll h-full overflow-auto bg-black">
-        <div class="h-full flex flex-col" style="width: {{ 110 + $totalWidth }}px;">
+        <div class="h-full flex flex-col" style="width: {{ $sidebarWidth + $totalWidth }}px;">
 
             {{-- Time axis header --}}
             <div class="shrink-0 flex sticky top-0 z-30 bg-black border-b-2 border-white">
-                <div class="sticky left-0 z-40 bg-black shrink-0" style="width: 110px;"></div>
+                <div class="sticky left-0 z-40 bg-black shrink-0 flex" style="width: {{ $sidebarWidth }}px;">
+                    <div class="shrink-0" style="width: {{ $labelWidth }}px;"></div>
+                    <div class="shrink-0 flex items-center justify-center border-l border-white/10 text-[9px] uppercase tracking-wide text-slate-400 font-semibold" style="width: {{ $polaWidth }}px;">
+                        {{ __('Pola') }}
+                    </div>
+                </div>
                 <div class="relative shrink-0" style="width: {{ $totalWidth }}px; height: 28px;">
                     @for ($t = $dayStart; $t <= $timelineEnd; $t += 60)
                         <div class="absolute top-0 h-full border-l border-white/10 flex items-center text-[10px] text-slate-300 font-semibold pl-1"
@@ -26,14 +36,14 @@
             {{-- Part rows --}}
             <div class="relative flex-1">
                 @for ($t = $dayStart; $t <= $timelineEnd; $t += 60)
-                    <div class="grid-line-dark z-0" style="left: {{ 110 + ($t - $dayStart) * $pxPerMinute }}px;"></div>
+                    <div class="grid-line-dark z-0" style="left: {{ $sidebarWidth + ($t - $dayStart) * $pxPerMinute }}px;"></div>
                 @endfor
 
                 {{-- Moving "now" line — nudged forward every second by the page script. --}}
                 @if ($nowMinute >= $dayStart && $nowMinute <= $timelineEnd)
                     <div id="kesei-now-line" class="absolute top-0 bottom-0 z-20 pointer-events-none"
-                         data-day-start="{{ $dayStart }}" data-px="{{ $pxPerMinute }}" data-now="{{ $nowMinute }}" data-total="{{ $timelineEnd }}"
-                         style="left: {{ 110 + ($nowMinute - $dayStart) * $pxPerMinute }}px; width: 2px; background: #3b82f6;"></div>
+                         data-day-start="{{ $dayStart }}" data-px="{{ $pxPerMinute }}" data-now="{{ $nowMinute }}" data-total="{{ $timelineEnd }}" data-sidebar="{{ $sidebarWidth }}"
+                         style="left: {{ $sidebarWidth + ($nowMinute - $dayStart) * $pxPerMinute }}px; width: 2px; background: #22d3ee;"></div>
                 @endif
 
                 @foreach ($keseiRows as $row)
@@ -51,12 +61,30 @@
                     <div class="flex border-b border-white/10 transition-colors {{ $rowBg }}"
                          style="height: 48px;"
                          @unless ($row['runs_today']) title="{{ __('Part ini tidak jalan di pattern yang sedang berjalan') }}" @endunless>
-                        <div class="sticky left-0 z-20 flex flex-col justify-center px-3 shrink-0 border-r border-white/10"
-                             style="width: 110px; background-color: {{ $labelBg }};">
-                            <span class="font-bold text-white text-xs truncate">{{ $row['label'] }}</span>
-                            @if (count($row['sources']) > 1 || ($row['sources'][0] ?? null) !== $row['label'])
-                                <span class="text-[9px] text-slate-400 truncate" title="{{ implode(', ', $row['sources']) }}">&sum; {{ implode(', ', $row['sources']) }}</span>
-                            @endif
+                        <div class="sticky left-0 z-20 flex shrink-0" style="width: {{ $sidebarWidth }}px;">
+                            <div class="flex flex-col justify-center px-3 shrink-0 border-r border-white/10"
+                                 style="width: {{ $labelWidth }}px; background-color: {{ $labelBg }};">
+                                <span class="font-bold text-white text-xs truncate">{{ $row['label'] }}</span>
+                                @if (count($row['sources']) > 1 || ($row['sources'][0] ?? null) !== $row['label'])
+                                    <span class="text-[9px] text-slate-400 truncate" title="{{ implode(', ', $row['sources']) }}">&sum; {{ implode(', ', $row['sources']) }}</span>
+                                @endif
+                            </div>
+                            {{-- Pola: every pattern this row belongs to, one letter at a
+                                 time — whichever letter is today's running pattern lights
+                                 up green so it's obvious at a glance which rows include it,
+                                 the rest read in the row's own pola colour (see
+                                 KeseiBoard::polaColor). --}}
+                            <div class="flex items-center justify-center shrink-0 border-r border-white/10"
+                                 style="width: {{ $polaWidth }}px; background-color: {{ $labelBg }};"
+                                 title="{{ __('Pola') }} {{ $row['pola'] !== '' ? $row['pola'] : '—' }}">
+                                <span class="text-xs font-extrabold tracking-wide">
+                                    @forelse (str_split($row['pola']) as $letter)
+                                        <span style="color: {{ $letter === $currentPattern ? '#4ade80' : '#ffffff' }};">{{ $letter }}</span>
+                                    @empty
+                                        <span class="text-slate-600">—</span>
+                                    @endforelse
+                                </span>
+                            </div>
                         </div>
                         <div class="relative shrink-0" style="width: {{ $totalWidth }}px;">
                             @php
@@ -67,8 +95,11 @@
                             {{-- A row can carry more than one closing time a day (e.g. 05:00
                                  and 15:00) — one marker per definition. --}}
                             @foreach ($row['closing_markers'] as $marker)
+                                {{-- Coloured per the row's own pola (see KeseiBoard::polaColor)
+                                     instead of a flat green, so a marker also says which
+                                     pattern group it belongs to at a glance. --}}
                                 <div class="closing-time-marker absolute top-0 bottom-0 z-10"
-                                     style="left: {{ max(0, ($marker['minute'] - $dayStart) * $pxPerMinute) }}px;"
+                                     style="left: {{ max(0, ($marker['minute'] - $dayStart) * $pxPerMinute) }}px; border-left-color: {{ $row['pola_color'] }}; filter: drop-shadow(0 0 3px {{ $row['pola_color'] }});"
                                      title="{{ __('Closing time') }} {{ $marker['label'] }} — {{ $ck }} kanban berjalan">
                                     {{-- style before class: keeps the literal "text-green-700" class
                                          (some tests key off it) while actually rendering a brighter

@@ -82,9 +82,12 @@ class LotMakingPlanningController extends Controller
             $jumlahProses = $planning->part?->lotMaking?->jumlah_proses;
 
             if ($jumlahProses === null) {
-                // No steps definable yet — always sits in Open until Jumlah
-                // Proses is filled in on the part.
-                if ($status === LotMakingPlanning::STATUS_OPEN) {
+                // No steps definable yet — sits in Open until Jumlah Proses
+                // is filled in on the part, but only as long as nothing has
+                // been assigned to it at all (there's no per-step tracking
+                // to fall back on here, so "has any assignment" is the only
+                // signal available that it's no longer simply waiting).
+                if ($status === LotMakingPlanning::STATUS_OPEN && $planning->assignments->isEmpty()) {
                     $groups->push(['planning' => $planning, 'steps' => [['proses' => null, 'assignment' => null]]]);
                 }
 

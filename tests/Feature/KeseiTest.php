@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\CalendarEntry;
 use App\Models\KeseiPart;
+use App\Models\LotMaking;
+use App\Models\LotMakingPlanning;
 use App\Models\Part;
 use App\Models\PatternBoard;
 use App\Models\StockSnapshot;
@@ -106,7 +108,7 @@ class KeseiTest extends TestCase
             ->assertSee('KESEI-PART-A');
     }
 
-    public function test_andon_kesei_shows_stock_decrease_ticks_and_the_stock_table(): void
+    public function test_andon_kesei_shows_stock_decrease_ticks(): void
     {
         $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]); // 1 pc = 1 kanban
         KeseiPart::create(['part_id' => $part->id, 'urutan' => 1]);
@@ -119,11 +121,6 @@ class KeseiTest extends TestCase
 
         // 50 -> 47 = 3 pcs = 3 kanban.
         $this->assertStringContainsString('stok turun 3 kanban (3 pcs)', $html);
-
-        // The Timeline Stok table carries the reading.
-        $stockPanelPos = strpos($html, 'TIMELINE STOK');
-        $this->assertNotFalse($stockPanelPos);
-        $this->assertMatchesRegularExpression('/>\s*50\s*</', substr($html, $stockPanelPos));
     }
 
     public function test_the_scan_board_polls_much_faster_than_the_stock_board(): void
@@ -147,7 +144,7 @@ class KeseiTest extends TestCase
 
         $this->get(route('andon-kesei.show'), ['X-Requested-With' => 'XMLHttpRequest'])
             ->assertOk()
-            ->assertJsonStructure(['timeline', 'closingTable', 'stockTimeline', 'serverTime']);
+            ->assertJsonStructure(['timeline', 'closingTable', 'antrianFixVolume', 'serverTime']);
     }
 
     public function test_closing_table_fills_only_when_a_running_part_reaches_its_closing(): void
@@ -177,8 +174,8 @@ class KeseiTest extends TestCase
         $html = $this->get(route('andon-kesei.show'))->getContent();
 
         $closingPos = strpos($html, 'CLOSING TIME');
-        $stockPos = strpos($html, 'TIMELINE STOK');
-        $table = substr($html, $closingPos, $stockPos - $closingPos);
+        $antrianPos = strpos($html, 'ANTRIAN (FIX VOLUME)');
+        $table = substr($html, $closingPos, $antrianPos - $closingPos);
 
         $this->assertLessThan(strpos($table, 'No Part'), strpos($table, 'Close'));
         // DONE row: Pattern A, Qty Kbn 3.
@@ -208,7 +205,7 @@ class KeseiTest extends TestCase
         $late->patternBoards()->sync([$a->id]);
 
         $html = $this->get(route('andon-kesei.show'))->getContent();
-        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'ANTRIAN (FIX VOLUME)') - strpos($html, 'CLOSING TIME'));
 
         // LATE closed at 13:00, EARLY at 09:00 → LATE is listed first.
         $this->assertLessThan(strpos($table, 'EARLY'), strpos($table, 'LATE'));
@@ -237,7 +234,7 @@ class KeseiTest extends TestCase
         StockSnapshot::create(['part_no' => 'PLANNED', 'stock' => 9, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 09:30')]);
 
         $html = $this->get(route('andon-kesei.show'))->getContent();
-        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'ANTRIAN (FIX VOLUME)') - strpos($html, 'CLOSING TIME'));
 
         $this->assertMatchesRegularExpression('/PLANNED.*?>\s*4\s*<\/td>\s*<\/tr>/s', $table);
         // No closing time → never enters the closing table.
@@ -254,6 +251,122 @@ class KeseiTest extends TestCase
 
         $this->assertMatchesRegularExpression('/id="kesei-now-line"[^>]*data-now="\d+/', $html);
         $this->assertStringContainsString('__keseiNowSync', $html);
+    }
+
+    public function test_the_pola_column_shows_every_pattern_a_row_belongs_to(): void
+    {
+        $a = PatternBoard::create(['name' => 'A']);
+        $c = PatternBoard::create(['name' => 'C']);
+        $kesei = KeseiPart::create(['part_id' => Part::create(['part_no' => 'P1'])->id, 'urutan' => 1]);
+        // Synced in reverse order — the column should still read "AC", not "CA".
+        $kesei->patternBoards()->sync([$c->id, $a->id]);
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+
+        $this->assertStringContainsString('Pola AC', $html);
+    }
+
+    public function test_the_pola_column_highlights_todays_running_pattern_letter_in_green(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $b = PatternBoard::create(['name' => 'B']);
+        $d = PatternBoard::create(['name' => 'D']);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $d->id]);
+
+        $kesei = KeseiPart::create(['part_id' => Part::create(['part_no' => 'P1'])->id, 'urutan' => 1]);
+        $kesei->patternBoards()->sync([$b->id, $d->id]);
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+
+        // Today's pattern is D — the "D" letter in the "BD" pola reads green,
+        // "B" stays plain white (not the pola's own closing-time colour).
+        $this->assertStringContainsString('<span style="color: #4ade80;">D</span>', $html);
+        $this->assertStringContainsString('<span style="color: #ffffff;">B</span>', $html);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_the_closing_time_marker_is_coloured_by_the_rows_pola(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $a = PatternBoard::create(['name' => 'A']);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $a->id]);
+
+        $kesei = KeseiPart::create(['part_id' => Part::create(['part_no' => 'P1'])->id, 'urutan' => 1]);
+        $kesei->addClosing('09:00', 'end_of_day');
+        $kesei->patternBoards()->sync([$a->id]);
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+
+        // Pola "A" alone maps to purple (#a855f7), not the default green.
+        $this->assertStringContainsString('border-left-color: #a855f7', $html);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_the_header_shows_a_closing_time_legend_swatch_for_every_pola(): void
+    {
+        KeseiPart::create(['part_id' => Part::create(['part_no' => 'P1'])->id, 'urutan' => 1]);
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+
+        foreach (['ABCD', 'AC', 'BD', 'A', 'C', 'D', 'B'] as $pola) {
+            $this->assertStringContainsString('>'.$pola.'<', $html);
+        }
+        // The 7 legend colours, once each.
+        foreach (['#3b82f6', '#22c55e', '#f97316', '#a855f7', '#eab308', '#ec4899'] as $color) {
+            $this->assertStringContainsString($color, $html);
+        }
+    }
+
+    public function test_antrian_fix_volume_lists_open_lot_making_planning_steps(): void
+    {
+        $open = Part::create(['part_no' => 'OPEN-PART']);
+        LotMaking::create(['part_id' => $open->id, 'jumlah_proses' => 3]);
+        LotMakingPlanning::create(['part_id' => $open->id, 'lot' => 27]);
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+
+        $this->assertStringContainsString('ANTRIAN (FIX VOLUME)', $html);
+        $antrian = substr($html, strpos($html, 'ANTRIAN (FIX VOLUME)'));
+
+        $this->assertStringContainsString('OPEN-PART', $antrian);
+        // Nothing assigned yet — all 3 steps are still Open.
+        $this->assertStringContainsString('1/3', $antrian);
+        $this->assertStringContainsString('2/3', $antrian);
+        $this->assertStringContainsString('3/3', $antrian);
+    }
+
+    public function test_antrian_fix_volume_drops_a_step_once_its_no_longer_open(): void
+    {
+        $part = Part::create(['part_no' => 'ASSIGNED-PART']);
+        LotMaking::create(['part_id' => $part->id, 'jumlah_proses' => 1]);
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        $planning->assignments()->create([
+            'proses' => 1, 'machine_id' => \App\Models\Machine::create(['name' => 'PT91'])->id, 'shift' => 1,
+        ]);
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+        $antrian = substr($html, strpos($html, 'ANTRIAN (FIX VOLUME)'));
+
+        $this->assertStringNotContainsString('ASSIGNED-PART', $antrian);
+    }
+
+    public function test_antrian_fix_volume_drops_an_assigned_lot_even_without_jumlah_proses(): void
+    {
+        // No LotMaking record at all — jumlah_proses is unknown, so there's
+        // no per-step tracking to fall back on; "has any assignment at all"
+        // is the only signal that it's no longer simply waiting.
+        $part = Part::create(['part_no' => 'NO-JP-ASSIGNED']);
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 10]);
+        $planning->assignments()->create([
+            'proses' => 1, 'machine_id' => \App\Models\Machine::create(['name' => 'PT91'])->id, 'shift' => 1,
+        ]);
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+        $antrian = substr($html, strpos($html, 'ANTRIAN (FIX VOLUME)'));
+
+        $this->assertStringNotContainsString('NO-JP-ASSIGNED', $antrian);
     }
 
     public function test_import_adds_parts_creates_missing_ones_and_skips_duplicates(): void
@@ -289,8 +402,8 @@ class KeseiTest extends TestCase
 
     public function test_stock_source_makes_andon_kesei_sum_several_source_parts(): void
     {
-        // One Kesei row (labelled by FAMILY-A) whose Timeline Stok is the sum
-        // of two other parts' Stock Part All readings.
+        // One Kesei row (labelled by FAMILY-A) whose decrease ticks are driven
+        // by the sum of two other parts' Stock Part All readings.
         $family = Part::create(['part_no' => 'FAMILY-A', 'qty_kbn' => 1]);
         KeseiPart::create(['part_id' => $family->id, 'stock_source' => 'SRC-1, SRC-2', 'urutan' => 1]);
 
@@ -303,11 +416,6 @@ class KeseiTest extends TestCase
         StockSnapshot::create(['part_no' => 'SRC-2', 'stock' => 20, 'std_min' => 5, 'captured_at' => $windowStart->copy()->addMinutes(15)]);
 
         $html = $this->get(route('andon-kesei.show'))->getContent();
-
-        // Timeline Stok shows the summed value, not either source alone.
-        $stockPos = strpos($html, 'TIMELINE STOK');
-        $this->assertMatchesRegularExpression('/>\s*50\s*</', substr($html, $stockPos));
-        $this->assertMatchesRegularExpression('/>\s*46\s*</', substr($html, $stockPos));
 
         // The decrease tick reflects the summed drop (50 -> 46 = 4).
         $this->assertStringContainsString('stok turun 4 kanban (4 pcs)', $html);
@@ -441,7 +549,7 @@ class KeseiTest extends TestCase
         $this->assertStringNotContainsString('stok turun 3 kanban', $html);
 
         // Closing Time table: the 05:00 -> 15:00 span (3 kanban) folded at 15:00.
-        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'ANTRIAN (FIX VOLUME)') - strpos($html, 'CLOSING TIME'));
         $this->assertMatchesRegularExpression('/P1.*?>\s*3\s*<\/td>\s*<\/tr>/s', $table);
         $this->assertStringContainsString('15:00', $table); // whichever closing fired, not a static column
 
@@ -475,7 +583,7 @@ class KeseiTest extends TestCase
         $this->assertStringNotContainsString('stok turun 3 kanban', $html);
         $this->assertStringContainsString('stok turun 5 kanban (5 pcs)', $html);
         // The folded 4 + 3 = 7 lands in the Closing Time table.
-        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'ANTRIAN (FIX VOLUME)') - strpos($html, 'CLOSING TIME'));
         $this->assertMatchesRegularExpression('/P1.*?>\s*7\s*<\/td>\s*<\/tr>/s', $table);
 
         Carbon::setTestNow();
@@ -515,7 +623,7 @@ class KeseiTest extends TestCase
         $this->assertStringContainsString('stok turun 3 kanban (3 pcs)', $html);
 
         // Pattern X is running right now, not D → EVERY4 is not in the closing table.
-        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'ANTRIAN (FIX VOLUME)') - strpos($html, 'CLOSING TIME'));
         $this->assertStringNotContainsString('EVERY4', $table);
 
         // 06:00 maps to minute 1380 on the looping 07:00 → 07:00 face.
@@ -555,7 +663,7 @@ class KeseiTest extends TestCase
         $this->assertStringNotContainsString('stok turun 6 kanban', $html);
         $this->assertStringContainsString('stok turun 2 kanban (2 pcs)', $html);
         // The folded 4 + 6 = 10 lands in the Closing Time table.
-        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'TIMELINE STOK') - strpos($html, 'CLOSING TIME'));
+        $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'ANTRIAN (FIX VOLUME)') - strpos($html, 'CLOSING TIME'));
         $this->assertMatchesRegularExpression('/EVERY4.*?>\s*10\s*<\/td>\s*<\/tr>/s', $table);
 
         Carbon::setTestNow();

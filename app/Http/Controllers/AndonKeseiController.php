@@ -42,7 +42,7 @@ class AndonKeseiController extends Controller
             return response()->json([
                 'timeline' => view('andon-kesei._timeline-dark', $viewData)->render(),
                 'closingTable' => view('andon-kesei._closing-table-dark', $viewData)->render(),
-                'stockTimeline' => view('andon-kesei._stock-timeline-dark', $viewData)->render(),
+                'antrianFixVolume' => view('andon-kesei._antrian-fix-volume-dark', $viewData)->render(),
                 'serverTime' => now()->format('H:i:s'),
             ]);
         }

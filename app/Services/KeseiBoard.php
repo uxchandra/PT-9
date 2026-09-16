@@ -6,6 +6,7 @@ use App\Models\CalendarEntry;
 use App\Models\KeseiPart;
 use App\Models\KeseiPartClosing;
 use App\Models\KeseiScan;
+use App\Models\LotMakingPlanning;
 use App\Models\PatternGroupItem;
 use App\Models\StockSnapshot;
 use Illuminate\Support\Carbon;
@@ -134,6 +135,11 @@ class KeseiBoard
             ->get()
             ->map(function (KeseiPart $kesei) use ($now, $historyFloor) {
                 [$foldStart, $cycleStart] = $kesei->foldBoundaries($now);
+                // Canonical "pola" — every pattern this row belongs to,
+                // alphabetised into one string (e.g. "AC", "ABCD") so it
+                // matches polaColor()'s lookup table regardless of the
+                // order patternBoards() happens to return them in.
+                $pola = $kesei->patternBoards->pluck('name')->unique()->sort()->implode('');
 
                 return [
                     'id' => $kesei->id,
@@ -142,6 +148,8 @@ class KeseiBoard
                     'qty_kbn' => $kesei->part?->qty_kbn,
                     'sources' => $kesei->sourcePartNos(),
                     'patterns' => $kesei->patternBoards->pluck('name')->all(),
+                    'pola' => $pola,
+                    'pola_color' => $this->polaColor($pola),
                     // The pattern of the run this closing is for.
                     'planned_pattern' => $kesei->plannedPatternName($now),
                     // Is this part actively running under today's Calendar pattern?
@@ -170,6 +178,10 @@ class KeseiBoard
                 ];
             })
             ->filter(fn (array $row) => $row['sources'] !== [])
+            // Parts actively running under today's pattern float to the top —
+            // stable sort, so within "running" and "not running" each keeps
+            // its normal urutan/id order.
+            ->sortByDesc('runs_today')
             ->values();
 
         $queryStart = $this->queryStart($keseiRows, $now, $historyFloor);
@@ -196,6 +208,13 @@ class KeseiBoard
             // 15 min, so ~192 rows) — the pile-forever rule is only for the
             // red ticks.
             'stockHistoryRows' => $this->buildStockHistoryRows($keseiRows, $stockByTime, $now->copy()->subDays(2)),
+            // Antrian (Fix Volume): every still-Open Lot Making Planning
+            // proses step — a queue driven by completed kanban volume
+            // (jumlah_proses), not a clock time, which is what sets it apart
+            // from the Closing Time (Fix Time) table above it.
+            'openLotMakingQueue' => $this->loadOpenLotMakingQueue(),
+            // Every pola -> color pairing, for the header's Closing Time legend.
+            'polaLegend' => $this->polaLegend(),
             // Positions are minutes past 07:00 on the looping clock face.
             'dayStart' => 0,
             'timelineEnd' => self::WINDOW_MINUTES,
@@ -246,6 +265,44 @@ class KeseiBoard
         [$visible] = $this->splitEvents($rows, $this->buildStockDecreaseEvents($rows, $seedStock, $stockByTime));
 
         return ['row' => $row, 'events' => $visible[$part->id] ?? []];
+    }
+
+    /**
+     * The fixed pola -> color legend — the only pattern-board combinations
+     * actually run on this line. Order is the display order of the legend.
+     */
+    private const POLA_COLORS = [
+        'ABCD' => '#3b82f6', // blue
+        'AC' => '#22c55e', // green
+        'BD' => '#f97316', // orange
+        'A' => '#a855f7', // purple
+        'C' => '#eab308', // yellow
+        'D' => '#ffffff', // white
+        'B' => '#ec4899', // pink
+    ];
+
+    /**
+     * The color a row's "pola" (its full pattern-board combination, e.g.
+     * "AC" or "ABCD") reads as on the board — used for the Closing Time
+     * marker drawn on that row's timeline. A combination outside the fixed
+     * set above (never actually run on this line) falls back to a neutral
+     * grey.
+     */
+    private function polaColor(string $pola): string
+    {
+        return self::POLA_COLORS[$pola] ?? '#94a3b8';
+    }
+
+    /**
+     * The same pola -> color legend, exposed for the header's Closing Time
+     * legend to render one swatch per pola instead of hardcoding the colors
+     * a second time.
+     *
+     * @return array<string, string>
+     */
+    public function polaLegend(): array
+    {
+        return self::POLA_COLORS;
     }
 
     /**
@@ -425,6 +482,67 @@ class KeseiBoard
             }
 
             $rows[] = ['time' => Carbon::parse($timestamp)->format('H:i'), 'values' => $values];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Every still-Open Lot Making Planning proses step, oldest first — the
+     * exact same per-step status computation as
+     * LotMakingPlanningController::index()'s Open branch: a lot with
+     * jumlah_proses steps contributes one row here per step that has no
+     * assignment yet. created_at is pre-formatted (not left as Carbon) since
+     * this whole array round-trips through KeseiBoard's cache.
+     *
+     * @return array<int, array{created_at: string, part_no: string, lot: int, proses: ?int, jumlah_proses: ?int}>
+     */
+    private function loadOpenLotMakingQueue(): array
+    {
+        $plannings = LotMakingPlanning::with(['part.lotMaking', 'assignments'])
+            ->orderBy('created_at')
+            ->get();
+
+        $rows = [];
+
+        foreach ($plannings as $planning) {
+            $jumlahProses = $planning->part?->lotMaking?->jumlah_proses;
+            $partNo = $planning->part?->part_no ?? '(part terhapus)';
+
+            if ($jumlahProses === null) {
+                // No steps definable yet — the whole lot counts as one Open
+                // row, but only as long as nothing has been assigned to it
+                // at all (there's no per-step tracking to fall back on here,
+                // so "has any assignment" is the only signal available that
+                // it's no longer simply waiting).
+                if ($planning->assignments->isEmpty()) {
+                    $rows[] = [
+                        'created_at' => $planning->created_at->format('d/m H:i'),
+                        'part_no' => $partNo,
+                        'lot' => $planning->lot,
+                        'proses' => null,
+                        'jumlah_proses' => null,
+                    ];
+                }
+
+                continue;
+            }
+
+            $byProses = $planning->assignments->keyBy('proses');
+
+            for ($n = 1; $n <= $jumlahProses; $n++) {
+                if ($byProses->has($n)) {
+                    continue;
+                }
+
+                $rows[] = [
+                    'created_at' => $planning->created_at->format('d/m H:i'),
+                    'part_no' => $partNo,
+                    'lot' => $planning->lot,
+                    'proses' => $n,
+                    'jumlah_proses' => $jumlahProses,
+                ];
+            }
         }
 
         return $rows;

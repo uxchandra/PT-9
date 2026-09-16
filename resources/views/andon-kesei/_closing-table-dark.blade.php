@@ -1,7 +1,7 @@
 {{-- Dark-mode twin of _closing-table.blade.php — see _timeline-dark.blade.php. --}}
 <div class="h-full flex flex-col bg-black">
     <div class="shrink-0 px-3 py-1.5 border-b-2 border-white">
-        <span class="text-xs font-bold text-white tracking-wide">{{ __('CLOSING TIME') }}</span>
+        <span class="text-xs font-bold text-white tracking-wide">{{ __('CLOSING TIME (FIX TIME)') }}</span>
     </div>
 
     <div class="andon-scroll flex-1 min-h-0 overflow-y-auto px-3 pb-2">
