@@ -128,8 +128,8 @@ class UserController extends Controller
                 Rule::unique('users', 'username')->ignore($user),
             ],
             'password' => $user === null
-                ? ['required', 'confirmed', Password::defaults()]
-                : ['nullable', 'confirmed', Password::defaults()],
+                ? ['required', 'confirmed', Password::min(2)]
+                : ['nullable', 'confirmed', Password::min(2)],
             'role' => ['required', Rule::in($this->assignableRoles()->all())],
         ]);
     }

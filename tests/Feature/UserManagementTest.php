@@ -75,6 +75,36 @@ class UserManagementTest extends TestCase
         $this->assertTrue(\Illuminate\Support\Facades\Hash::check('password123', $user->password));
     }
 
+    public function test_a_2_character_password_is_accepted(): void
+    {
+        $admin = $this->adminUser();
+
+        $this->actingAs($admin)->post(route('users.store'), [
+            'name' => 'Short Pass',
+            'username' => 'shortpass',
+            'password' => 'ab',
+            'password_confirmation' => 'ab',
+            'role' => 'staff',
+        ])->assertRedirect(route('users.index'));
+
+        $this->assertNotNull(User::where('username', 'shortpass')->first());
+    }
+
+    public function test_a_1_character_password_is_rejected(): void
+    {
+        $admin = $this->adminUser();
+
+        $this->actingAs($admin)->post(route('users.store'), [
+            'name' => 'Too Short',
+            'username' => 'tooshort',
+            'password' => 'a',
+            'password_confirmation' => 'a',
+            'role' => 'staff',
+        ])->assertSessionHasErrors('password');
+
+        $this->assertNull(User::where('username', 'tooshort')->first());
+    }
+
     public function test_username_must_be_unique(): void
     {
         $admin = $this->adminUser();
