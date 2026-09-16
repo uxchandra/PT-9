@@ -130,15 +130,21 @@ class PatternImport implements ToCollection, WithHeadingRow
                 $this->mismatches[] = "Baris {$rowNumber} ({$partName}, shift {$shift}): lot/loading_time/jumlah_proses/dandori/urutan beda dari yang sudah tersimpan, nilai baris ini diabaikan.";
             }
 
-            Pattern::updateOrCreate(
-                [
-                    'pattern_board_id' => $this->patternBoard->id,
-                    'machine_id' => $machine->id,
-                    'part_id' => $part->id,
-                    'shift' => $shift,
-                ],
-                ['proses' => $proses]
-            );
+            // proses is part of the match key, not the update payload — a
+            // part can legitimately run more than once on the same
+            // machine+shift (e.g. proses 1 AND proses 3), and each of those
+            // needs its own row. Keying only on board+machine+part+shift
+            // (proses left out) made a second such row silently overwrite
+            // the first instead of creating a new one. Re-importing the
+            // exact same row (same proses too) still lands on the same row
+            // rather than duplicating it.
+            Pattern::updateOrCreate([
+                'pattern_board_id' => $this->patternBoard->id,
+                'machine_id' => $machine->id,
+                'part_id' => $part->id,
+                'shift' => $shift,
+                'proses' => $proses,
+            ]);
             $this->assignmentsSaved++;
         }
     }

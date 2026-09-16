@@ -218,6 +218,62 @@ class PatternImportTest extends TestCase
         $this->assertSame(55, $shift2GroupItem->loading_time);
     }
 
+    public function test_the_same_part_can_be_assigned_to_the_same_machine_more_than_once(): void
+    {
+        $board = PatternBoard::create(['name' => 'A']);
+
+        // Same part, same machine, same shift, twice — proses 1 AND proses 3
+        // (e.g. it comes back around to the same machine for a later step).
+        // Both must be saved as separate assignments, not one overwriting
+        // the other.
+        $csv = "Machine,Item,Jumlah Proses,Proses,loading_time,dandori\n"
+            ."PT91,GA241-04750,3,1,40,10\n"
+            ."PT91,GA241-04750,3,3,40,10\n";
+
+        $response = $this->actingAs($this->authorizedUser())
+            ->post(route('pattern-boards.import.store', $board), [
+                'file' => UploadedFile::fake()->createWithContent('import.csv', $csv),
+            ]);
+
+        $response->assertRedirect(route('pattern-boards.index', ['board' => $board->id]));
+        $this->assertEmpty(session('importMismatches', []));
+
+        $part = Part::where('part_no', 'GA241-04750')->first();
+        $machine = Machine::where('name', 'PT91')->first();
+
+        $assignments = Pattern::where('pattern_board_id', $board->id)
+            ->where('machine_id', $machine->id)
+            ->where('part_id', $part->id)
+            ->get();
+
+        $this->assertSame(2, $assignments->count());
+        $this->assertSame([1, 3], $assignments->pluck('proses')->sort()->values()->all());
+    }
+
+    public function test_reimporting_the_exact_same_row_does_not_duplicate_the_assignment(): void
+    {
+        $board = PatternBoard::create(['name' => 'A']);
+
+        $csv = "Machine,Item,Jumlah Proses,Proses,loading_time,dandori\n"
+            ."PT91,GA241-04750,3,1,40,10\n";
+
+        $upload = fn () => $this->actingAs($this->authorizedUser())
+            ->post(route('pattern-boards.import.store', $board), [
+                'file' => UploadedFile::fake()->createWithContent('import.csv', $csv),
+            ]);
+
+        $upload();
+        $upload();
+
+        $part = Part::where('part_no', 'GA241-04750')->first();
+        $machine = Machine::where('name', 'PT91')->first();
+
+        $this->assertSame(1, Pattern::where('pattern_board_id', $board->id)
+            ->where('machine_id', $machine->id)
+            ->where('part_id', $part->id)
+            ->count());
+    }
+
     public function test_urutan_column_is_imported_and_defaults_to_auto_increment_when_left_out(): void
     {
         $board = PatternBoard::create(['name' => 'A']);

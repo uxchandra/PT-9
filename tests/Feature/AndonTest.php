@@ -12,6 +12,7 @@ use App\Models\PatternGroupItem;
 use App\Models\Rest;
 use App\Models\StockSnapshot;
 use App\Models\User;
+use App\Services\AndonScheduleBuilder;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -41,15 +42,17 @@ class AndonTest extends TestCase
         $response->assertSee('Board X');
     }
 
-    public function test_andon_show_never_splits_loading_or_dandori_around_a_regular_rest(): void
+    public function test_andon_show_never_splits_loading_or_dandori_around_a_regular_rest_reached_mid_run(): void
     {
         $board = PatternBoard::create(['name' => 'TestBoard']);
         $machine = Machine::create(['name' => 'M1']);
         $partA = Part::create(['part_no' => 'P1']);
 
         // dandori (10min) 07:00-07:10, loading_time (100min) 07:10-08:50 — the
-        // 08:00-08:30 Lunch rest falls entirely inside that window but must NOT
-        // pause/split it: only the shift-change gap does that now.
+        // 08:00-08:30 Lunch rest falls entirely inside that already-running
+        // window and must NOT split it: a rest only ever delays a segment
+        // that hasn't started yet (see AndonScheduleBuilder::placeSegment),
+        // never one already in progress when it's reached.
         PatternGroupItem::create([
             'pattern_board_id' => $board->id,
             'part_id' => $partA->id,
@@ -80,7 +83,7 @@ class AndonTest extends TestCase
 
         $response->assertSee('M1');
         // The rest band still renders (as a reference marker, behind the bar) even
-        // though it no longer affects scheduling.
+        // though it doesn't affect a process already running through it.
         $response->assertSee('Lunch');
         $response->assertSee('P1 1/2');
 
@@ -97,6 +100,57 @@ class AndonTest extends TestCase
         // Idle time on M1 after the loading block (and the shift-2 stretch)
         // shows as FREE TIME instead of being left blank.
         $response->assertSee('FREE TIME');
+    }
+
+    public function test_andon_show_delays_a_segment_that_would_start_exactly_as_a_rest_begins(): void
+    {
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $partA = Part::create(['part_no' => 'P1']);
+
+        // dandori (60min) 07:00-08:00 finishes exactly as the 08:00-08:30
+        // Lunch rest begins — loading must wait for the rest to end (08:30)
+        // instead of starting right into it.
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $partA->id,
+            'urutan' => 1,
+            'loading_time' => 40,
+            'jumlah_proses' => 1,
+            'total_kanban' => 5,
+            'dandori' => 60,
+        ]);
+
+        Rest::create([
+            'name' => 'Lunch',
+            'start_time' => '08:00',
+            'end_time' => '08:30',
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $partA->id,
+            'proses' => 1,
+        ]);
+
+        [$rows] = app(AndonScheduleBuilder::class)->build($board);
+        $blocks = collect($rows)->firstWhere(fn ($row) => $row['machine']->id === $machine->id)['blocks'];
+
+        $dandoriBlock = collect($blocks)->firstWhere('type', 'dandori');
+        $loadingBlock = collect($blocks)->firstWhere('type', 'loading');
+
+        // Dandori itself is untouched — it was already running before the rest.
+        $this->assertSame(420, $dandoriBlock['start']);
+        $this->assertSame(480, $dandoriBlock['end']);
+
+        // Loading was about to start exactly at 480 (08:00), right as the
+        // rest begins — it waits for the rest to clear at 510 (08:30).
+        $this->assertSame(510, $loadingBlock['start']);
+        $this->assertSame(550, $loadingBlock['end']);
+        // production_start still counts from dandori's own (unaffected) start —
+        // the instance genuinely began at 420, only its loading portion waited.
+        $this->assertSame(420, $loadingBlock['production_start']);
     }
 
     public function test_andon_show_visualizes_loading_time_rounded_up_to_the_nearest_5_minutes(): void

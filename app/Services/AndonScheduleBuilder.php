@@ -77,21 +77,21 @@ class AndonScheduleBuilder
         // board, independent of which machine(s) or shift run it.
         $koseiParts = $filteredPatterns->pluck('part')->unique('id')->sortBy('part_no')->values();
 
-        // Rest bands (including the shift-change gap itself) are shown for
-        // reference at their real clock time only — nothing pauses or splits
-        // a running *process* anymore. A job already underway when one
-        // starts just keeps going straight through it as overtime (lembur)
-        // instead of stopping or jumping to the other side, so loading-time
-        // bars stay unbroken even when they visually overlap a rest band —
-        // see $activePauses below, always empty, passed to buildShiftBlocks.
+        // The shift-change gap is the one band a running *process* never
+        // stops for — a job already underway when 16:00 hits just keeps
+        // going straight through it as overtime (lembur) instead of
+        // stopping or jumping to the other side. A regular rest (lunch,
+        // coffee, ...) is different: production genuinely pauses for those
+        // and resumes right after, same as before the shift-gap redesign —
+        // see $activePauses below (every rest EXCEPT the shift gap),
+        // passed to buildShiftBlocks.
         //
-        // FREE TIME itself still splits at the shift-change gap, though: an
-        // idle stretch spanning the whole day is still two separate windows
-        // — one per shift — for freeWindows()'s own shift labelling to make
-        // sense (see $pauseIntervals here, unchanged).
+        // FREE TIME splits around every band, shift gap included, so a
+        // picked window never silently spans through one — see
+        // $pauseIntervals below (the full set).
         $restIntervals = $this->buildRestIntervals();
-        $pauseIntervals = $restIntervals->filter(fn ($r) => $r['name'] === self::SHIFT_GAP_LABEL)->values();
-        $activePauses = collect();
+        $pauseIntervals = $restIntervals;
+        $activePauses = $restIntervals->reject(fn ($r) => $r['name'] === self::SHIFT_GAP_LABEL)->values();
 
         $timelineEnd = self::DAY_END;
         $rows = [];
@@ -281,12 +281,14 @@ class AndonScheduleBuilder
             $label = $pattern->part->part_no.' '.$pattern->proses.'/'.$jumlahProses;
 
             // Andon Planning's "closing time" (4h before this part starts)
-            // counts from the very start of this instance — its dandori if
-            // it has one, otherwise its loading start.
-            $productionStart = $cursor;
+            // counts from the very start of this instance, AFTER any rest
+            // wait below has already nudged it — its dandori if it has one,
+            // otherwise its loading start.
+            $productionStart = null;
 
             if ($dandori > 0) {
                 [$segments, $cursor] = $this->placeSegment($cursor, $dandori, $pauseIntervals);
+                $productionStart = $segments[0][0];
                 foreach ($segments as $i => [$start, $end]) {
                     $blocks[] = [
                         'type' => 'dandori',
@@ -305,6 +307,7 @@ class AndonScheduleBuilder
             $visualLoadingTime = (int) (ceil($loadingTime / 5) * 5);
 
             [$segments, $cursor] = $this->placeSegment($cursor, $visualLoadingTime, $pauseIntervals);
+            $productionStart ??= $segments[0][0];
             foreach ($segments as $i => [$start, $end]) {
                 $blocks[] = [
                     'type' => 'loading',
@@ -356,46 +359,32 @@ class AndonScheduleBuilder
     }
 
     /**
-     * Place `$duration` minutes of working time starting at `$cursor`, jumping over
-     * any interval in `$pauseIntervals` encountered so production pauses only for
-     * those, resuming right after — currently always called with an empty list
-     * (see build()), so in practice this places one unbroken segment straight
-     * through any rest band or the shift-change gap. Returns the (possibly
-     * split) segments plus the new cursor.
+     * Place `$duration` minutes of working time starting at `$cursor`. A new
+     * segment never STARTS inside a pause in `$pauseIntervals` — `$cursor`
+     * landing in one (most commonly because the previous segment, e.g.
+     * dandori, finished right as a rest began) nudges the start to that
+     * rest's end first. But once placement actually begins, it's one
+     * unbroken block straight through to `$cursor + $duration` even if a
+     * rest falls somewhere in the middle of it — nothing already running
+     * stops for a rest it reaches mid-way, only a segment about to start
+     * waits for one it's already sitting in. build() calls this with every
+     * regular rest but never the shift-change gap (see $activePauses
+     * there), so a job that's already running keeps going straight through
+     * 16:00-20:00 as overtime the same way it does through the middle of a
+     * lunch/coffee break — the only thing a regular rest can do is delay a
+     * not-yet-started segment.
      *
      * @return array{0: array<int, array{0: int, 1: int}>, 1: int}
      */
     private function placeSegment(int $cursor, int $duration, $pauseIntervals): array
     {
-        $segments = [];
-        $remaining = $duration;
         $pos = $cursor;
-        $guard = 0;
 
-        while ($remaining > 0 && $guard++ < 1000) {
-            $activePause = $pauseIntervals->first(fn ($r) => $pos >= $r['start'] && $pos < $r['end']);
-
-            if ($activePause) {
-                $pos = $activePause['end'];
-
-                continue;
-            }
-
-            $nextPauseStart = $pauseIntervals->first(fn ($r) => $r['start'] > $pos)['start'] ?? null;
-            $available = $nextPauseStart !== null ? min($remaining, $nextPauseStart - $pos) : $remaining;
-
-            if ($available <= 0) {
-                $pos++;
-
-                continue;
-            }
-
-            $segments[] = [$pos, $pos + $available];
-            $pos += $available;
-            $remaining -= $available;
+        while (($activePause = $pauseIntervals->first(fn ($r) => $pos >= $r['start'] && $pos < $r['end'])) !== null) {
+            $pos = $activePause['end'];
         }
 
-        return [$segments, $pos];
+        return [[[$pos, $pos + $duration]], $pos + $duration];
     }
 
     /**
