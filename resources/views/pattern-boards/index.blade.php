@@ -105,7 +105,22 @@
     </div>
 
     @if ($selectedBoard)
+        @push('styles')
+            <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+            <style>
+                .select2-container .select2-selection--single { height: 38px; border-color: #d1d5db; border-radius: 0.5rem; display: flex; align-items: center; }
+                .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 1.5; color: #374151; padding-left: 0.75rem; }
+                .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
+                .select2-container--default.select2-container--focus .select2-selection--single,
+                .select2-container--default.select2-container--open .select2-selection--single { border-color: #5d4037; box-shadow: 0 0 0 1px #5d4037; }
+                .select2-dropdown { border-color: #d1d5db; }
+                .select2-container--default .select2-results__option--highlighted[aria-selected] { background-color: #5d4037; }
+            </style>
+        @endpush
+
         @push('scripts')
+            <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
             <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.6/Sortable.min.js"></script>
             <script>
                 (function () {
@@ -113,6 +128,18 @@
                     const baseUrl = @json(route('pattern-boards.index'));
                     const token = document.querySelector('meta[name="csrf-token"]')?.content;
                     const results = document.getElementById('pattern-results');
+
+                    // select2 (with search) on every Kelompok Pattern edit
+                    // modal's Part field (see pattern-group-items/_edit-modal.
+                    // blade.php) — one modal per row, so called on load and
+                    // again after every AJAX search swap. A fresh swap always
+                    // creates brand-new <select> elements (innerHTML replace),
+                    // so there's never a double-init to worry about.
+                    function initGiSelect2() {
+                        if (window.jQuery && jQuery.fn.select2) {
+                            jQuery('.js-gi-select2').select2({ width: '100%', placeholder: '{{ __('Cari part no...') }}', allowClear: true });
+                        }
+                    }
 
                     // (Re)bind drag-and-drop to the Kelompok Pattern table — called
                     // on load and again after every AJAX search swap. Disabled
@@ -181,6 +208,7 @@
                                     window.history.replaceState({}, '', url.toString());
                                     reset.classList.toggle('hidden', q === '');
                                     initKpSortable();
+                                    initGiSelect2();
                                 })
                                 .catch((e) => { if (e.name !== 'AbortError') results.classList.remove('opacity-50'); });
                         }
@@ -194,6 +222,7 @@
                     })();
 
                     initKpSortable();
+                    initGiSelect2();
                 })();
 
                 // Live "Total Kanban" preview inside every Kelompok Pattern edit

@@ -26,7 +26,7 @@
             <div>
                 <x-input-label for="gi-part_id-{{ $item->id }}" :value="__('Part (P/N)')" />
                 <select id="gi-part_id-{{ $item->id }}" name="part_id" required
-                        class="gi-part-select mt-1 block w-full border-gray-300 focus:border-brand-700 focus:ring-brand-700 rounded-lg shadow-sm text-sm transition">
+                        class="gi-part-select js-gi-select2 mt-1 block w-full">
                     <option value="">{{ __('-- Pilih Part --') }}</option>
                     @foreach ($editParts as $part)
                         <option value="{{ $part->id }}" data-qty-kbn="{{ $part->qty_kbn }}" @selected($item->part_id == $part->id)>{{ $part->part_no }}</option>

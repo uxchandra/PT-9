@@ -15,8 +15,7 @@
 
                 <div>
                     <x-input-label for="part_id" :value="__('Part (P/N)')" />
-                    <select id="part_id" name="part_id" required
-                            class="mt-1 block w-full border-gray-300 focus:border-brand-700 focus:ring-brand-700 rounded-lg shadow-sm text-sm transition">
+                    <select id="part_id" name="part_id" required class="js-select2 mt-1 block w-full">
                         <option value="">{{ __('-- Pilih Part --') }}</option>
                         @foreach ($parts as $part)
                             <option value="{{ $part->id }}" data-qty-kbn="{{ $part->qty_kbn }}" @selected(old('part_id') == $part->id)>{{ $part->part_no }}</option>
@@ -102,9 +101,36 @@
                 preview.textContent = Math.ceil(lot / qtyKbn);
             }
 
+            // select2 dispatches a native 'change' on the underlying <select>
+            // when a part is picked, so this listener needs no changes.
             partSelect.addEventListener('change', updatePreview);
             lotInput.addEventListener('input', updatePreview);
             updatePreview();
         })();
     </script>
+
+    @push('styles')
+        <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+        <style>
+            .select2-container .select2-selection--single { height: 38px; border-color: #d1d5db; border-radius: 0.5rem; display: flex; align-items: center; }
+            .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 1.5; color: #374151; padding-left: 0.75rem; }
+            .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
+            .select2-container--default.select2-container--focus .select2-selection--single,
+            .select2-container--default.select2-container--open .select2-selection--single { border-color: #5d4037; box-shadow: 0 0 0 1px #5d4037; }
+            .select2-dropdown { border-color: #d1d5db; }
+            .select2-container--default .select2-results__option--highlighted[aria-selected] { background-color: #5d4037; }
+        </style>
+    @endpush
+
+    @push('scripts')
+        <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+        <script>
+            window.addEventListener('DOMContentLoaded', function () {
+                if (window.jQuery && jQuery.fn.select2) {
+                    jQuery('.js-select2').select2({ width: '100%', placeholder: '{{ __('Cari part no...') }}', allowClear: true });
+                }
+            });
+        </script>
+    @endpush
 </x-app-layout>
