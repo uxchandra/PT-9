@@ -102,6 +102,58 @@ class AndonTest extends TestCase
         $response->assertSee('FREE TIME');
     }
 
+    public function test_dandori_splits_around_a_regular_rest_it_reaches_mid_run(): void
+    {
+        // Only 5 minutes left before the 07:05-07:35 Lunch rest, but dandori
+        // needs 10 — unlike loading, dandori is manual setup work and really
+        // does stop for a rest reached partway through: 5 minutes before
+        // (07:00-07:05), the remaining 5 resume the instant it ends
+        // (07:35-07:40), instead of running the whole 10 straight through it.
+        $board = PatternBoard::create(['name' => 'TestBoard']);
+        $machine = Machine::create(['name' => 'M1']);
+        $partA = Part::create(['part_no' => 'P1']);
+
+        PatternGroupItem::create([
+            'pattern_board_id' => $board->id,
+            'part_id' => $partA->id,
+            'urutan' => 1,
+            'loading_time' => 20,
+            'jumlah_proses' => 1,
+            'total_kanban' => 5,
+            'dandori' => 10,
+        ]);
+
+        Rest::create([
+            'name' => 'Lunch',
+            'start_time' => '07:05',
+            'end_time' => '07:35',
+        ]);
+
+        Pattern::create([
+            'pattern_board_id' => $board->id,
+            'machine_id' => $machine->id,
+            'part_id' => $partA->id,
+            'proses' => 1,
+        ]);
+
+        [$rows] = app(AndonScheduleBuilder::class)->build($board);
+        $blocks = collect($rows)->firstWhere(fn ($row) => $row['machine']->id === $machine->id)['blocks'];
+        $dandoriBlocks = collect($blocks)->where('type', 'dandori')->values();
+        $loadingBlock = collect($blocks)->firstWhere('type', 'loading');
+
+        $this->assertCount(2, $dandoriBlocks);
+        $this->assertSame(420, $dandoriBlocks[0]['start']); // 07:00
+        $this->assertSame(425, $dandoriBlocks[0]['end']);   // 07:05
+        $this->assertSame(455, $dandoriBlocks[1]['start']); // 07:35
+        $this->assertSame(460, $dandoriBlocks[1]['end']);   // 07:40
+
+        // Loading picks up right where dandori left off.
+        $this->assertSame(460, $loadingBlock['start']);
+        $this->assertSame(480, $loadingBlock['end']);
+        // production_start still counts from dandori's own (first) start.
+        $this->assertSame(420, $loadingBlock['production_start']);
+    }
+
     public function test_andon_show_delays_a_segment_that_would_start_exactly_as_a_rest_begins(): void
     {
         $board = PatternBoard::create(['name' => 'TestBoard']);

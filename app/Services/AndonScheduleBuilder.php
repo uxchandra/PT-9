@@ -288,7 +288,12 @@ class AndonScheduleBuilder
             $productionStart = null;
 
             if ($dandori > 0) {
-                [$segments, $cursor] = $this->placeSegment($cursor, $dandori, $pauseIntervals);
+                // Dandori is manual setup work, not the machine actually
+                // running — unlike loading below, it really does stop for a
+                // regular rest reached partway through and picks back up
+                // right after, instead of running on through it. Uses
+                // placeSplitSegment() (not placeSegment()) for that reason.
+                [$segments, $cursor] = $this->placeSplitSegment($cursor, $dandori, $pauseIntervals);
                 $productionStart = $segments[0][0];
                 foreach ($segments as $i => [$start, $end]) {
                     $blocks[] = [
@@ -360,20 +365,20 @@ class AndonScheduleBuilder
     }
 
     /**
-     * Place `$duration` minutes of working time starting at `$cursor`. A new
-     * segment never STARTS inside a pause in `$pauseIntervals` — `$cursor`
-     * landing in one (most commonly because the previous segment, e.g.
-     * dandori, finished right as a rest began) nudges the start to that
-     * rest's end first. But once placement actually begins, it's one
-     * unbroken block straight through to `$cursor + $duration` even if a
-     * rest falls somewhere in the middle of it — nothing already running
-     * stops for a rest it reaches mid-way, only a segment about to start
-     * waits for one it's already sitting in. build() calls this with every
-     * regular rest but never the shift-change gap (see $activePauses
-     * there), so a job that's already running keeps going straight through
-     * 16:00-20:00 as overtime the same way it does through the middle of a
-     * lunch/coffee break — the only thing a regular rest can do is delay a
-     * not-yet-started segment.
+     * Place `$duration` minutes of LOADING time starting at `$cursor` — the
+     * machine actually running, so a regular rest can only delay it before
+     * it starts, never interrupt it once it has. A new segment never STARTS
+     * inside a pause in `$pauseIntervals` — `$cursor` landing in one (most
+     * commonly because dandori just finished right as a rest began) nudges
+     * the start to that rest's end first. But once placement actually
+     * begins, it's one unbroken block straight through to
+     * `$cursor + $duration` even if a rest falls somewhere in the middle of
+     * it. build() calls this with every regular rest but never the
+     * shift-change gap (see $activePauses there), so a job that's already
+     * running keeps going straight through 16:00-20:00 as overtime the same
+     * way it does through the middle of a lunch/coffee break. Dandori uses
+     * placeSplitSegment() below instead — it isn't machine time, so it
+     * really does stop for a rest reached mid-way.
      *
      * @return array{0: array<int, array{0: int, 1: int}>, 1: int}
      */
@@ -386,6 +391,51 @@ class AndonScheduleBuilder
         }
 
         return [[[$pos, $pos + $duration]], $pos + $duration];
+    }
+
+    /**
+     * Place `$duration` minutes of DANDORI (manual setup work) starting at
+     * `$cursor`, splitting around every pause in `$pauseIntervals` it
+     * touches — including one reached partway through, unlike
+     * placeSegment() above. E.g. 5 minutes left before a rest, 10 minutes of
+     * dandori to place: 5 minutes go in before the rest, the remaining 5
+     * resume the instant it ends, rather than running the whole 10 straight
+     * through it. Returns the (possibly split) segments plus the cursor
+     * reached after the last one.
+     *
+     * @return array{0: array<int, array{0: int, 1: int}>, 1: int}
+     */
+    private function placeSplitSegment(int $cursor, int $duration, $pauseIntervals): array
+    {
+        $segments = [];
+        $remaining = $duration;
+        $pos = $cursor;
+        $guard = 0;
+
+        while ($remaining > 0 && $guard++ < 1000) {
+            $activePause = $pauseIntervals->first(fn ($r) => $pos >= $r['start'] && $pos < $r['end']);
+
+            if ($activePause) {
+                $pos = $activePause['end'];
+
+                continue;
+            }
+
+            $nextPauseStart = $pauseIntervals->first(fn ($r) => $r['start'] > $pos)['start'] ?? null;
+            $available = $nextPauseStart !== null ? min($remaining, $nextPauseStart - $pos) : $remaining;
+
+            if ($available <= 0) {
+                $pos++;
+
+                continue;
+            }
+
+            $segments[] = [$pos, $pos + $available];
+            $pos += $available;
+            $remaining -= $available;
+        }
+
+        return [$segments, $pos];
     }
 
     /**
