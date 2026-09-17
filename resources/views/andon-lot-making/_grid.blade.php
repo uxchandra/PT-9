@@ -27,8 +27,12 @@
                             </div>
 
                             @if ($part['slots'] !== [])
-                                <div class="border-b border-white px-2 py-0.5 text-center text-[10px] font-semibold uppercase tracking-wide text-slate-300">
-                                    {{ __('Lot Produksi') }}
+                                {{-- Total ticked so far this cycle vs. the cycle's
+                                     whole lot_produksi (not a single slot's own
+                                     capacity) — e.g. "5/75". --}}
+                                <div class="flex items-center justify-between gap-1 border-b border-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-300">
+                                    <span>{{ __('Lot Produksi') }}</span>
+                                    <span class="text-white normal-case tracking-normal">{{ $part['ticks_total'] ?? 0 }}/{{ $part['lot_produksi'] ?? 0 }}</span>
                                 </div>
                                 <div class="flex border-b border-white">
                                     @foreach ($part['slots'] as $i => $value)

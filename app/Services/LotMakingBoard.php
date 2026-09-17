@@ -158,6 +158,9 @@ class LotMakingBoard
             // Same left-to-right fill as the slots themselves, capped per
             // column — how many of each column's capacity are already ticked.
             'ticks' => $this->distribute($ticks, $slots),
+            // The raw total, uncapped by column capacity — how many ticks
+            // this whole cycle has recorded so far, out of lot_produksi.
+            'ticks_total' => $ticks,
         ];
     }
 

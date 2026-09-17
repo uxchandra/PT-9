@@ -57,13 +57,13 @@
         </div>
 
         <div id="andon-production-columns" class="flex-1 min-h-0 flex bg-black">
-            <div id="andon-production-panel-kesei" class="h-full min-w-0" style="flex: 45 45 0%;">
+            <div id="andon-production-panel-kesei" class="h-full min-w-0" style="flex: 38 38 0%;">
                 @include('andon-production._kesei-timeline')
             </div>
 
             <div class="andon-production-divider" data-divider-index="0" title="{{ __('Geser untuk mengubah lebar panel') }}"></div>
 
-            <div id="andon-production-column-lotmaking" class="h-full min-w-0 flex flex-col" style="flex: 30 30 0%;">
+            <div id="andon-production-column-lotmaking" class="h-full min-w-0 flex flex-col" style="flex: 37 37 0%;">
                 <div class="shrink-0 px-3 py-1.5 border-b-2 border-white">
                     <span class="text-xs font-bold text-white tracking-wide">{{ __('LOT MAKING') }}</span>
                 </div>

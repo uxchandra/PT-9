@@ -339,6 +339,29 @@ class LotMakingScanTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_the_andon_board_shows_total_ticks_against_the_wholecycle_lot_produksi(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
+        LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods', 'lot_produksi' => 20, 'slot' => 5]);
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'P1', 'stock' => 0, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]);
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->actingAs($this->scannerUser())
+                ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'x_x_P1_1'])
+                ->assertOk();
+        }
+
+        $html = $this->get(route('andon-lot-making.show'))->getContent();
+
+        // 3 ticks so far, out of the whole cycle's lot_produksi (20) — not a
+        // single column/slot's own capacity (4).
+        $this->assertStringContainsString('3/20', $html);
+
+        Carbon::setTestNow();
+    }
+
     public function test_history_scan_page_requires_manage_lot_making_permission(): void
     {
         $this->get(route('lot-making-scans.index'))->assertRedirect(route('login'));
