@@ -129,7 +129,7 @@
         // Re-pull the list every 20s so the 15-minute reset shows up live.
         setInterval(function () {
             if (busy || queue.length) return;
-            fetch(listUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            fetch(listUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, cache: 'no-store' })
                 .then(function (r) {
                     if (r.status === 419 || r.status === 401 || (r.redirected && /\/login/.test(r.url))) {
                         window.location.href = @json(route('login'));
@@ -139,8 +139,15 @@
                 })
                 .then(function (html) {
                     if (html == null) return;
+                    var trimmed = html.trim();
+                    // The partial always starts with <ul id="pull-list" ...> —
+                    // a stray cache hit for the full page (see
+                    // ScannerController::location()) would start with <!doctype
+                    // or <html> instead. Refusing to swap in anything else stops
+                    // that from nesting the whole page inside itself.
+                    if (trimmed.slice(0, 3).toLowerCase() !== '<ul') return;
                     var cur = document.getElementById('pull-list');
-                    if (cur && html.trim()) cur.outerHTML = html;
+                    if (cur && trimmed) cur.outerHTML = trimmed;
                     var fresh = document.getElementById('pull-list');
                     var lu = document.getElementById('last-update-val');
                     if (fresh && lu) lu.textContent = fresh.dataset.lastUpdate || '—';

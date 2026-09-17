@@ -160,14 +160,36 @@ class KeseiPull
     }
 
     /**
-     * @param  array{label: string, sources: array<int, string>, fold_start: Carbon}  $row
+     * @param  array{label: string, sources: array<int, string>, fold_start: Carbon, pulling_command?: ?int, pulling_command_set_at?: ?string}  $row
      * @param  Collection<int, array{kanban: int, at: Carbon}>  $events
      * @return array{part_no: string, needed: int, scanned: int, remaining: int, last_update: ?string, done: bool}
      */
     private function demandRow(array $row, Collection $events): array
     {
+        // "Perintah Pulling" — a manually-set target that REPLACES whatever
+        // had already accumulated before it, exactly like a fresh manual
+        // closing/reset: decrease events at/before the moment it was typed
+        // are dropped (already superseded by the number typed in), and only
+        // ones after it still count on top — same as a real stock decrease
+        // would from then on. Ignored once an actual closing happens after
+        // it (fold_start would then be later than it, so it's already been
+        // dealt with along with the rest of that pile — see KeseiPart::
+        // pulling_command).
+        $baseline = 0;
+        $baselineSetAt = ! empty($row['pulling_command_set_at']) ? Carbon::parse($row['pulling_command_set_at']) : null;
+        $useBaseline = $baselineSetAt !== null && $baselineSetAt->gte($row['fold_start']);
+
+        if ($useBaseline) {
+            $events = $events->filter(fn (array $e) => $e['at']->gt($baselineSetAt));
+            $baseline = (int) ($row['pulling_command'] ?? 0);
+        }
+
         $totalDecrease = (int) $events->sum('kanban');
         $lastUpdateAt = $events->pluck('at')->max();   // Carbon|null
+
+        if ($useBaseline) {
+            $lastUpdateAt = $lastUpdateAt === null ? $baselineSetAt : $lastUpdateAt->max($baselineSetAt);
+        }
 
         $scanTimes = $this->scanTimes($row);
 
@@ -179,7 +201,7 @@ class KeseiPull
             $scanned = $scanTimes->count();
         }
 
-        $needed = max(0, $totalDecrease - $absorbed);
+        $needed = max(0, $totalDecrease + $baseline - $absorbed);
 
         return [
             'part_no' => $row['label'],

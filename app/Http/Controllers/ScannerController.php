@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\KeseiPart;
 use App\Models\KeseiScan;
+use App\Models\LotMaking;
 use App\Models\LotMakingScan;
 use App\Services\KeseiPull;
 use App\Services\LotMakingCycleTracker;
 use App\Services\LotMakingPull;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\View\View;
 
@@ -35,17 +38,24 @@ class ScannerController extends Controller
         return view('scanner.dashboard', ['locations' => $locations]);
     }
 
-    public function location(Request $request, string $location, KeseiPull $pull, LotMakingPull $lotMakingPull): View
+    public function location(Request $request, string $location, KeseiPull $pull, LotMakingPull $lotMakingPull): Response
     {
         abort_unless(KeseiPull::isLocation($location), 404);
 
         // Every open scanner polls this ~every 20s. The figures only move on the
-        // 15-minute stock feed and on new scans (from either system), so a
-        // short cache — busted by the newest scan id from each — keeps the
-        // poll from rebuilding the whole board on every tick.
+        // 15-minute stock feed, on new scans (from either system), and on a
+        // Kesei Part/Lot Making row being edited (level, Perintah Pulling,
+        // ...) — a short cache busted by all of those keeps the poll from
+        // rebuilding the whole board on every tick while still reflecting an
+        // edit within a few seconds instead of the full 10s TTL.
         $cacheKey = "scanner-pull:{$location}:"
             .(KeseiScan::where('location', $location)->max('id') ?? 0).':'
-            .(LotMakingScan::max('id') ?? 0);
+            .(LotMakingScan::max('id') ?? 0).':'
+            // max('updated_at') returns the raw DB string (or null), not a
+            // Carbon instance — plenty precise enough as a cache-busting
+            // value on its own, no need to parse it into one.
+            .(KeseiPart::max('updated_at') ?? '0').':'
+            .(LotMaking::max('updated_at') ?? '0');
 
         $rows = collect(Cache::remember($cacheKey, 10, fn () => $pull->list($location)
             ->concat($lotMakingPull->list($location))
@@ -63,10 +73,17 @@ class ScannerController extends Controller
             'lastUpdate' => $pull->lastStockUpdate(),
         ];
 
-        // Polled every ~20s so the 15-minute reset shows up without a reload.
-        return $request->ajax()
-            ? view('scanner._pull-list', $data)
-            : view('scanner.location', $data);
+        // Polled every ~20s so the 15-minute reset shows up without a reload
+        // — at the exact same URL as the page itself, differentiated only by
+        // the X-Requested-With header (see location.blade.php's fetch()).
+        // Without an explicit no-store here, a browser/proxy cache keyed
+        // purely on that URL can serve the wrong variant back: the full page
+        // lands inside #pull-list, which itself contains another #pull-list,
+        // compounding deeper every time that happens again.
+        return ($request->ajax()
+            ? response()->view('scanner._pull-list', $data)
+            : response()->view('scanner.location', $data))
+            ->header('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
 
     public function scan(Request $request, string $location, KeseiPull $pull, LotMakingPull $lotMakingPull, LotMakingCycleTracker $cycles): JsonResponse

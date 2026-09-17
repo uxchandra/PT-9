@@ -7,14 +7,14 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['no', 'part_id', 'level', 'row', 'kolom', 'lot_produksi', 'slot', 'loading_time', 'dandori', 'jumlah_proses'])]
+#[Fillable(['no', 'part_id', 'level', 'pulling_command', 'pulling_command_set_at', 'row', 'kolom', 'lot_produksi', 'slot', 'loading_time', 'dandori', 'jumlah_proses'])]
 class LotMaking extends Model
 {
     /**
      * Which scanner card (see KeseiPull::LOCATIONS) this part's pulling
-     * command is grouped under. Only changes where it's listed — the
-     * pulling math itself (rolling stock-based demand, capped) stays the
-     * same regardless of which card it lands on; see LotMakingPull.
+     * command is grouped under, and therefore its mode: 'finish-goods' is
+     * rolling stock-based demand (capped), 'store-3' is free/unlimited —
+     * see LotMakingPull.
      */
     public const LEVEL_FINISH_GOODS = 'finish-goods';
 
@@ -34,6 +34,7 @@ class LotMaking extends Model
             'loading_time' => 'integer',
             'dandori' => 'integer',
             'jumlah_proses' => 'integer',
+            'pulling_command_set_at' => 'datetime',
         ];
     }
 

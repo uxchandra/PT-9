@@ -1,6 +1,6 @@
 @php
     $columns = [
-        'Row', 'Kolom', 'Part No', 'Level', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses',
+        'Row', 'Kolom', 'Part No', 'Level', 'Perintah Pulling', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses',
     ];
 @endphp
 
@@ -14,7 +14,7 @@
             <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
                 <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-gray-300">{{ __('No') }}</th>
                 @foreach ($columns as $label)
-                    <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 {{ in_array($label, ['Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses']) ? 'text-right' : '' }}">{{ __($label) }}</th>
+                    <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 {{ in_array($label, ['Perintah Pulling', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses']) ? 'text-right' : '' }}">{{ __($label) }}</th>
                 @endforeach
                 <th class="sticky top-0 right-0 z-20 bg-gray-50 px-4 py-3 border-b-2 border-l-2 border-gray-300 text-right">{{ __('Aksi') }}</th>
             </tr>
@@ -27,6 +27,7 @@
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-gray-700">{{ $lotMaking->kolom ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 font-semibold text-gray-800">{{ $lotMaking->part?->part_no ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-gray-600">{{ \App\Models\LotMaking::LEVELS[$lotMaking->level] ?? '-' }}</td>
+                    <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->pulling_command ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->lot_produksi ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->slot ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->avg_slot !== null ? number_format($lotMaking->avg_slot, 2) : '-' }}</td>

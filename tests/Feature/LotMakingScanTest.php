@@ -98,6 +98,81 @@ class LotMakingScanTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_a_lot_making_part_on_store_3_lists_with_no_target_even_without_any_stock_decrease(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'LM-ST3', 'qty_kbn' => 1]);
+        LotMaking::create(['part_id' => $part->id, 'level' => 'store-3', 'lot_produksi' => 50, 'slot' => 8]);
+        // No StockSnapshot at all — a demand-mode listing would show 0 or
+        // skip the row entirely; Store 3 is free-mode and lists it anyway.
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'store-3'))
+            ->assertOk()
+            ->assertSee('LM-ST3');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_lot_making_part_on_store_3_allows_unlimited_scans_regardless_of_stock(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'LM-ST3', 'qty_kbn' => 1]);
+        LotMaking::create(['part_id' => $part->id, 'level' => 'store-3', 'lot_produksi' => 50, 'slot' => 8]);
+        // No stock decrease recorded at all — a demand-mode part would be
+        // rejected immediately (needed = 0), but Store 3 never caps.
+
+        foreach ([1, 2, 3] as $n) {
+            $this->actingAs($this->scannerUser())
+                ->postJson(route('scanner.scan', 'store-3'), ['code' => 'x_x_LM-ST3_1'])
+                ->assertOk()
+                ->assertJson(['ok' => true, 'part_no' => 'LM-ST3', 'scanned' => $n, 'needed' => null, 'remaining' => null]);
+        }
+
+        $this->assertDatabaseCount('lot_making_scans', 3);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_manually_set_pulling_command_seeds_a_lot_making_parts_target_too(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'LM-PW', 'qty_kbn' => 1]);
+        $lm = LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods', 'lot_produksi' => 50, 'slot' => 8]);
+        $lm->update(['pulling_command' => 9, 'pulling_command_set_at' => now()]);
+        // No StockSnapshot at all — the target comes purely from the manual
+        // baseline, same mechanism as KeseiPull::demandRow().
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'finish-goods'))
+            ->assertOk()
+            ->assertSee('LM-PW')
+            ->assertSee('/ 9');
+
+        $this->actingAs($this->scannerUser())
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'x_x_LM-PW_1'])
+            ->assertOk()
+            ->assertJson(['ok' => true, 'part_no' => 'LM-PW', 'scanned' => 1, 'needed' => 9, 'remaining' => 8]);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_lot_making_pulling_command_set_outside_the_history_floor_no_longer_contributes(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'LM-PW-OLD', 'qty_kbn' => 1]);
+        $lm = LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods', 'lot_produksi' => 50, 'slot' => 8]);
+        // 9 days ago — outside the 8-day history floor, so it's already aged out.
+        $lm->update(['pulling_command' => 9, 'pulling_command_set_at' => Carbon::parse('2026-09-06 08:00:00')]);
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'finish-goods'))
+            ->assertOk()
+            ->assertDontSee('LM-PW-OLD');
+
+        Carbon::setTestNow();
+    }
+
     public function test_finish_goods_merges_kesei_and_lot_making_parts_on_the_same_card(): void
     {
         Carbon::setTestNow('2026-09-15 10:00:00');

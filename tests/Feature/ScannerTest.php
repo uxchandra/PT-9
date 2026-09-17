@@ -157,6 +157,87 @@ class ScannerTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_a_manually_set_pulling_command_replaces_a_target_already_computed_from_old_decreases(): void
+    {
+        // Same fixture as pullablePart() but built inline so we can set the
+        // baseline strictly AFTER the -4 stock decrease has already
+        // happened — reproduces the reported bug where setting Perintah
+        // Pulling to 15 left the page showing the old computed 18 (adding
+        // on top) instead of replacing it outright.
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'PW-REPLACE', 'qty_kbn' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+
+        StockSnapshot::create(['part_no' => 'PW-REPLACE', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'PW-REPLACE', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]); // -4, so needed would be 4
+
+        Carbon::setTestNow('2026-09-15 10:05:00');
+        $kesei->update(['pulling_command' => 15, 'pulling_command_set_at' => now()]);
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'finish-goods'))
+            ->assertOk()
+            ->assertSee('PW-REPLACE')
+            ->assertSee('/ 15')
+            ->assertDontSee('/ 19'); // the old bug: 4 (stale decrease) + 15 (baseline)
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_manually_set_pulling_command_seeds_the_target_even_without_a_stock_decrease(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'PW-1', 'qty_kbn' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        $kesei->update(['pulling_command' => 14, 'pulling_command_set_at' => now()]);
+        // No StockSnapshot at all — the target comes purely from the manual
+        // baseline, not a computed decrease.
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'finish-goods'))
+            ->assertOk()
+            ->assertSee('PW-1')
+            ->assertSee('/ 14');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_manually_set_pulling_command_still_counts_down_as_scans_come_in(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'PW-2', 'qty_kbn' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        $kesei->update(['pulling_command' => 3, 'pulling_command_set_at' => now()]);
+
+        $this->actingAs($this->scannerUser())
+            ->postJson(route('scanner.scan', 'finish-goods'), ['code' => 'x_x_PW-2_1'])
+            ->assertOk()
+            ->assertJson(['ok' => true, 'part_no' => 'PW-2', 'scanned' => 1, 'needed' => 3, 'remaining' => 2]);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_pulling_command_set_before_the_last_closing_no_longer_contributes(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'PW-3', 'qty_kbn' => 1]);
+        $kesei = KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        // Set well in the past, before the closing below — already folded
+        // away along with the rest of that old pile.
+        $kesei->update(['pulling_command' => 14, 'pulling_command_set_at' => Carbon::parse('2026-09-14 08:00:00')]);
+        $kesei->addClosing('09:00', KeseiPart::CLOSING_END_OF_DAY);
+
+        // No stock decrease and the baseline already folded away — the row
+        // has zero demand, same as any other unassigned part, so it drops
+        // off the list entirely.
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'finish-goods'))
+            ->assertOk()
+            ->assertDontSee('PW-3');
+
+        Carbon::setTestNow();
+    }
+
     public function test_a_part_not_on_the_pull_list_is_rejected(): void
     {
         $this->pullablePart();

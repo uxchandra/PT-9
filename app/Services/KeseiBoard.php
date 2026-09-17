@@ -145,6 +145,13 @@ class KeseiBoard
                     'id' => $kesei->id,
                     'label' => $kesei->part?->part_no ?? '(part terhapus)',
                     'level' => $kesei->level,
+                    // "Perintah Pulling" — see KeseiPull::demandRow() for how
+                    // this seeds the Finish Goods target on top of stock
+                    // decreases seen since it was set. Stored as a plain
+                    // string here (not a Carbon) so it survives the board
+                    // cache's freeze/thaw round-trip without special-casing.
+                    'pulling_command' => $kesei->pulling_command,
+                    'pulling_command_set_at' => $kesei->pulling_command_set_at?->toDateTimeString(),
                     'qty_kbn' => $kesei->part?->qty_kbn,
                     'sources' => $kesei->sourcePartNos(),
                     'patterns' => $kesei->patternBoards->pluck('name')->all(),
@@ -252,6 +259,8 @@ class KeseiBoard
         $row = [
             'id' => $part->id,
             'label' => $part->part?->part_no ?? '(part terhapus)',
+            'pulling_command' => $part->pulling_command,
+            'pulling_command_set_at' => $part->pulling_command_set_at?->toDateTimeString(),
             'qty_kbn' => $part->part?->qty_kbn,
             'sources' => $sources,
             'closing_reached' => $foldStart !== null,

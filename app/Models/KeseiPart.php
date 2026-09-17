@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
-#[Fillable(['part_id', 'stock_source', 'level', 'urutan'])]
+#[Fillable(['part_id', 'stock_source', 'level', 'urutan', 'pulling_command', 'pulling_command_set_at'])]
 class KeseiPart extends Model
 {
     /**
@@ -18,6 +18,13 @@ class KeseiPart extends Model
      * run-day closing recently. Also the hard cap on the stock lookback.
      */
     public const FOLD_HISTORY_DAYS = 8;
+
+    protected function casts(): array
+    {
+        return [
+            'pulling_command_set_at' => 'datetime',
+        ];
+    }
 
     /** closing_time is a planning cutoff in the 24h BEFORE the 07:00 run —
      *  the demand piled up by then becomes that run's production plan. */

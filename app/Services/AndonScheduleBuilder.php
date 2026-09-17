@@ -82,15 +82,16 @@ class AndonScheduleBuilder
         // going straight through it as overtime (lembur) instead of
         // stopping or jumping to the other side. A regular rest (lunch,
         // coffee, ...) is different: production genuinely pauses for those
-        // and resumes right after, same as before the shift-gap redesign —
-        // see $activePauses below (every rest EXCEPT the shift gap),
-        // passed to buildShiftBlocks.
+        // and resumes right after — see $activePauses below (every rest
+        // EXCEPT the shift gap), passed to buildShiftBlocks.
         //
-        // FREE TIME splits around every band, shift gap included, so a
-        // picked window never silently spans through one — see
-        // $pauseIntervals below (the full set).
+        // FREE TIME itself is happy to overlap a regular rest visually —
+        // it's just idle machine time either way — but still splits at the
+        // shift-change gap specifically, since freeWindows() infers a
+        // window's shift from which side of that gap it starts on (see
+        // $pauseIntervals below, shift gap only).
         $restIntervals = $this->buildRestIntervals();
-        $pauseIntervals = $restIntervals;
+        $pauseIntervals = $restIntervals->filter(fn ($r) => $r['name'] === self::SHIFT_GAP_LABEL)->values();
         $activePauses = $restIntervals->reject(fn ($r) => $r['name'] === self::SHIFT_GAP_LABEL)->values();
 
         $timelineEnd = self::DAY_END;

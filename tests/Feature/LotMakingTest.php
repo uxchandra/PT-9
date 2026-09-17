@@ -179,6 +179,64 @@ class LotMakingTest extends TestCase
         $this->assertSame(0, LotMaking::count());
     }
 
+    public function test_setting_pulling_command_stamps_a_set_at_time(): void
+    {
+        $part = Part::create(['part_no' => 'P1']);
+        $lm = LotMaking::create(['part_id' => $part->id]);
+
+        $this->actingAs($this->authorizedUser())
+            ->put(route('lot-makings.update', $lm), [
+                'part_id' => $part->id,
+                'pulling_command' => 14,
+            ])
+            ->assertRedirect(route('lot-makings.index'));
+
+        $fresh = $lm->fresh();
+        $this->assertSame(14, $fresh->pulling_command);
+        $this->assertNotNull($fresh->pulling_command_set_at);
+    }
+
+    public function test_saving_unrelated_fields_does_not_reset_an_existing_pulling_command_timestamp(): void
+    {
+        $part = Part::create(['part_no' => 'P1']);
+        $lm = LotMaking::create(['part_id' => $part->id]);
+        $lm->update(['pulling_command' => 14, 'pulling_command_set_at' => now()->subDays(3)]);
+        $originalSetAt = $lm->fresh()->pulling_command_set_at;
+
+        // The form always submits pulling_command (unchanged) alongside
+        // whatever field is actually being edited — the timestamp must not
+        // move just because the row was saved.
+        $this->actingAs($this->authorizedUser())
+            ->put(route('lot-makings.update', $lm), [
+                'part_id' => $part->id,
+                'pulling_command' => 14,
+                'row' => 'NEW-ROW',
+            ])
+            ->assertRedirect(route('lot-makings.index'));
+
+        $fresh = $lm->fresh();
+        $this->assertSame('NEW-ROW', $fresh->row);
+        $this->assertSame(14, $fresh->pulling_command);
+        $this->assertTrue($originalSetAt->equalTo($fresh->pulling_command_set_at));
+    }
+
+    public function test_clearing_pulling_command_also_clears_its_set_at_time(): void
+    {
+        $part = Part::create(['part_no' => 'P1']);
+        $lm = LotMaking::create(['part_id' => $part->id]);
+        $lm->update(['pulling_command' => 14, 'pulling_command_set_at' => now()]);
+
+        $this->actingAs($this->authorizedUser())
+            ->put(route('lot-makings.update', $lm), [
+                'part_id' => $part->id,
+            ])
+            ->assertRedirect(route('lot-makings.index'));
+
+        $fresh = $lm->fresh();
+        $this->assertNull($fresh->pulling_command);
+        $this->assertNull($fresh->pulling_command_set_at);
+    }
+
     public function test_index_defaults_to_10_rows_per_page(): void
     {
         foreach (range(1, 12) as $i) {

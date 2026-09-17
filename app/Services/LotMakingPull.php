@@ -10,15 +10,26 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
- * The pulling command for Lot Making parts — same rolling 15-minute
- * stock-based target/scanned/remaining math as Kesei's Finish Goods card
- * (see KeseiPull::demandRow), unaffected by which scanner card (LotMaking::
- * LEVELS) a part is grouped under: level only decides where it's listed,
- * never how its target is computed. Lot Making has no closing time, so
- * there's nothing to fold: the accumulation window is simply a fixed
- * history floor, and it never resets on its own (that's an entirely
- * separate concept — see LotMakingCycleTracker for the slot-fill/roller
- * side of scanning).
+ * The pulling command for Lot Making parts. Which scanner card a part's
+ * level (LotMaking::LEVELS) puts it on decides its MODE, exactly like it
+ * does for a Kesei part on the same card (see KeseiPull::LOCATIONS):
+ *
+ *  - 'finish-goods' (demand) — the same rolling 15-minute stock-based
+ *    target/scanned/remaining math as Kesei's own Finish Goods card (see
+ *    demandRow), on top of which a manually-set "Perintah Pulling"
+ *    (LotMaking::pulling_command) can seed/correct the target at any time —
+ *    see demandRow() for exactly how. Lot Making has no closing time, so
+ *    there's nothing to fold: the accumulation window is simply a fixed
+ *    history floor, and it never resets on its own (a pulling_command does,
+ *    once it ages out of that floor).
+ *  - 'store-3' (free) — no target at all, just an unlimited running scan
+ *    count within that same fixed floor (see freeRow) — the part is free
+ *    to be pulled and scanned any number of times, not tied to a stock
+ *    decrease the way Finish Goods is.
+ *
+ * Either way this is entirely separate from LotMakingCycleTracker's own
+ * slot-fill/roller side of scanning, which every Lot Making scan advances
+ * regardless of level.
  */
 class LotMakingPull
 {
@@ -29,20 +40,28 @@ class LotMakingPull
      * merged onto that scanner card alongside its Kesei rows (see
      * ScannerController::location()).
      *
-     * @return Collection<int, array{part_no: string, needed: int, scanned: int, remaining: int, last_update: ?string, done: bool}>
+     * @return Collection<int, array{part_no: string, needed: ?int, scanned: int, remaining: ?int, last_update: ?string, done: bool}>
      */
     public function list(string $level): Collection
     {
-        $now = now();
-        $floor = $now->copy()->subDays(self::HISTORY_DAYS);
-
         $lotMakings = LotMaking::with('part')->where('level', $level)->get()
             ->filter(fn (LotMaking $lm) => $lm->part?->part_no !== null);
-        $partNos = $lotMakings->map(fn (LotMaking $lm) => $lm->part->part_no)->unique()->values()->all();
 
-        if ($partNos === []) {
+        if ($lotMakings->isEmpty()) {
             return collect();
         }
+
+        $floor = now()->copy()->subDays(self::HISTORY_DAYS);
+
+        if (KeseiPull::isFree($level)) {
+            return $lotMakings
+                ->map(fn (LotMaking $lm) => $this->freeRow($lm->part->part_no, $floor))
+                ->sortBy('done')
+                ->values();
+        }
+
+        $now = now();
+        $partNos = $lotMakings->map(fn (LotMaking $lm) => $lm->part->part_no)->unique()->values()->all();
 
         $snapshotsByPart = StockSnapshot::whereIn('part_no', $partNos)
             ->whereBetween('captured_at', [$floor->copy()->subDay(), $now])
@@ -62,7 +81,9 @@ class LotMakingPull
                 $lm->part->qty_kbn,
                 $floor,
                 $snapshotsByPart->get($lm->part->part_no, collect()),
-                $scansByPart->get($lm->part->part_no, collect())->pluck('scanned_at')
+                $scansByPart->get($lm->part->part_no, collect())->pluck('scanned_at'),
+                $lm->pulling_command,
+                $lm->pulling_command_set_at
             ))
             ->filter(fn (array $r) => $r['needed'] > 0 || $r['scanned'] > 0)
             ->sortBy('done')
@@ -75,7 +96,7 @@ class LotMakingPull
      * part isn't a Lot Making part, or its level doesn't match $level (the
      * scanner card being scanned from).
      *
-     * @return array{part_no: string, needed: int, scanned: int, remaining: int, last_update: ?string, done: bool}|null
+     * @return array{part_no: string, needed: ?int, scanned: int, remaining: ?int, last_update: ?string, done: bool}|null
      */
     public function scanRow(string $partNo, string $level): ?array
     {
@@ -88,8 +109,13 @@ class LotMakingPull
             return null;
         }
 
+        $floor = now()->copy()->subDays(self::HISTORY_DAYS);
+
+        if (KeseiPull::isFree($level)) {
+            return $this->freeRow($partNo, $floor);
+        }
+
         $now = now();
-        $floor = $now->copy()->subDays(self::HISTORY_DAYS);
 
         $snapshots = StockSnapshot::where('part_no', $partNo)
             ->whereBetween('captured_at', [$floor->copy()->subDay(), $now])
@@ -101,7 +127,22 @@ class LotMakingPull
             ->orderBy('scanned_at')
             ->pluck('scanned_at');
 
-        return $this->demandRow($partNo, $lm->part->qty_kbn, $floor, $snapshots, $scanTimes);
+        return $this->demandRow($partNo, $lm->part->qty_kbn, $floor, $snapshots, $scanTimes, $lm->pulling_command, $lm->pulling_command_set_at);
+    }
+
+    /**
+     * @return array{part_no: string, needed: null, scanned: int, remaining: null, last_update: null, done: false}
+     */
+    private function freeRow(string $partNo, Carbon $floor): array
+    {
+        return [
+            'part_no' => $partNo,
+            'needed' => null,
+            'scanned' => LotMakingScan::where('part_no', $partNo)->where('scanned_at', '>', $floor)->count(),
+            'remaining' => null,
+            'last_update' => null,
+            'done' => false,
+        ];
     }
 
     /**
@@ -180,11 +221,31 @@ class LotMakingPull
      * @param  Collection<int, Carbon>  $scanTimes
      * @return array{part_no: string, needed: int, scanned: int, remaining: int, last_update: ?string, done: bool}
      */
-    private function demandRow(string $partNo, ?string $qtyKbn, Carbon $from, Collection $snapshots, Collection $scanTimes): array
+    private function demandRow(string $partNo, ?string $qtyKbn, Carbon $from, Collection $snapshots, Collection $scanTimes, ?int $pullingCommand = null, ?Carbon $pullingCommandSetAt = null): array
     {
         $events = $this->decreaseEvents($qtyKbn, $from, $snapshots);
+
+        // "Perintah Pulling" — same idea as KeseiPull::demandRow: a
+        // manually-set target that REPLACES whatever had already
+        // accumulated before it — decrease events at/before the moment it
+        // was typed are dropped, only ones after it still count on top —
+        // as long as it's still within the history floor (once it ages out
+        // of $from, it's been dealt with along with the rest of that
+        // window — see LotMaking::pulling_command).
+        $baseline = 0;
+        $useBaseline = $pullingCommandSetAt !== null && $pullingCommandSetAt->gte($from);
+
+        if ($useBaseline) {
+            $events = $events->filter(fn (array $e) => $e['at']->gt($pullingCommandSetAt));
+            $baseline = $pullingCommand ?? 0;
+        }
+
         $totalDecrease = (int) $events->sum('kanban');
         $lastUpdateAt = $events->pluck('at')->max();
+
+        if ($useBaseline) {
+            $lastUpdateAt = $lastUpdateAt === null ? $pullingCommandSetAt : $lastUpdateAt->max($pullingCommandSetAt);
+        }
 
         if ($lastUpdateAt !== null) {
             $absorbed = $scanTimes->filter(fn (Carbon $t) => $t->lte($lastUpdateAt))->count();
@@ -194,7 +255,7 @@ class LotMakingPull
             $scanned = $scanTimes->count();
         }
 
-        $needed = max(0, $totalDecrease - $absorbed);
+        $needed = max(0, $totalDecrease + $baseline - $absorbed);
 
         return [
             'part_no' => $partNo,

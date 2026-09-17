@@ -66,14 +66,30 @@ class LotMakingController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        LotMaking::create($this->validated($request));
+        $validated = $this->validated($request);
+        $pullingCommand = $validated['pulling_command'] ?? null;
+        $validated['pulling_command_set_at'] = $pullingCommand !== null ? now() : null;
+
+        LotMaking::create($validated);
 
         return redirect()->route('lot-makings.index')->with('status', 'Lot Making berhasil ditambahkan.');
     }
 
     public function update(Request $request, LotMaking $lotMaking): RedirectResponse
     {
-        $lotMaking->update($this->validated($request));
+        $validated = $this->validated($request);
+        $pullingCommand = $validated['pulling_command'] ?? null;
+
+        // Only bump the "set at" timestamp when the value actually changes —
+        // saving the rest of the form (Row, Kolom, ...) must not silently
+        // reset an unrelated Perintah Pulling baseline (see LotMakingPull::
+        // demandRow()).
+        if ($pullingCommand !== $lotMaking->pulling_command) {
+            $validated['pulling_command'] = $pullingCommand;
+            $validated['pulling_command_set_at'] = $pullingCommand !== null ? now() : null;
+        }
+
+        $lotMaking->update($validated);
 
         return redirect()->route('lot-makings.index')->with('status', 'Lot Making berhasil diperbarui.');
     }
@@ -99,6 +115,10 @@ class LotMakingController extends Controller
             'no' => ['nullable', 'integer', 'min:0'],
             'part_id' => ['required', 'exists:parts,id'],
             'level' => ['nullable', Rule::in(array_keys(LotMaking::LEVELS))],
+            // The Finish Goods target as of right now — see LotMakingPull::
+            // demandRow() for how it seeds/corrects the rolling stock-based
+            // count. Editable any time, not just once.
+            'pulling_command' => ['nullable', 'integer', 'min:0'],
             'row' => ['nullable', 'string', 'max:50'],
             'kolom' => ['nullable', 'string', 'max:50'],
             'lot_produksi' => ['nullable', 'integer', 'min:0'],

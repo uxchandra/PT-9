@@ -52,6 +52,14 @@
     <x-input-error :messages="$errors->get('level')" class="mt-2" />
 </div>
 
+<div class="mt-5">
+    <x-input-label for="lm-pulling_command-{{ $idSuffix }}" :value="__('Perintah Pulling')" />
+    <x-text-input id="lm-pulling_command-{{ $idSuffix }}" name="pulling_command" type="number" min="0" class="block w-full mt-1"
+                  :value="old('pulling_command', $lm?->pulling_command)" />
+    <p class="mt-1 text-xs text-gray-400">{{ __('Target Finish Goods saat ini — otomatis lanjut mengikuti penurunan stok & scan setelah diisi. Boleh diubah kapan saja.') }}</p>
+    <x-input-error :messages="$errors->get('pulling_command')" class="mt-2" />
+</div>
+
 <div class="grid grid-cols-2 gap-4 mt-5">
     <div>
         <x-input-label for="lm-lot_produksi-{{ $idSuffix }}" :value="__('Lot Produksi')" />

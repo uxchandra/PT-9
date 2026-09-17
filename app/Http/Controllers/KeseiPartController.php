@@ -61,6 +61,10 @@ class KeseiPartController extends Controller
         $validated = $request->validate([
             'stock_source' => ['sometimes', 'nullable', 'string', 'max:255'],
             'level' => ['sometimes', 'nullable', 'string', 'max:50'],
+            // The Finish Goods target as of right now — see KeseiPull::
+            // demandRow() for how it seeds/corrects the rolling stock-based
+            // count. Editable any time, not just once.
+            'pulling_command' => ['sometimes', 'nullable', 'integer', 'min:0'],
             // The full set of closing times for this row — sending it replaces
             // whatever was there before (same "sync" shape as pattern_board_ids).
             'closings' => ['sometimes', 'array'],
@@ -78,6 +82,12 @@ class KeseiPartController extends Controller
         }
         if (array_key_exists('level', $validated)) {
             $updates['level'] = $validated['level'] ?: null;
+        }
+        if (array_key_exists('pulling_command', $validated)) {
+            // Clearing it back to blank drops the set-at too, so it stops
+            // contributing anything rather than lingering with no value.
+            $updates['pulling_command'] = $validated['pulling_command'];
+            $updates['pulling_command_set_at'] = $validated['pulling_command'] !== null ? now() : null;
         }
         if ($updates !== []) {
             $keseiPart->update($updates);
@@ -98,6 +108,7 @@ class KeseiPartController extends Controller
                 'ok' => true,
                 'stock_source' => $keseiPart->stock_source,
                 'level' => $keseiPart->level,
+                'pulling_command' => $keseiPart->pulling_command,
                 'closings' => $keseiPart->closings->map(fn (KeseiPartClosing $c) => [
                     'closing_time' => $c->closing_time->format('H:i'),
                     'closing_mode' => $c->closing_mode,
