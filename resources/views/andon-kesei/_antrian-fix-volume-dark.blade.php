@@ -20,7 +20,7 @@
                     <th class="py-1 pr-2 font-semibold">{{ __('Created') }}</th>
                     <th class="py-1 pr-2 font-semibold">{{ __('No Part') }}</th>
                     <th class="py-1 font-semibold text-center">{{ __('Lot') }}</th>
-                    <th class="py-1 font-semibold text-center">{{ __('Proses') }}</th>
+                    <th class="py-1 font-semibold text-center">{{ __('Machine') }}</th>
                 </tr>
             </thead>
             <tbody class="text-slate-300">
@@ -29,8 +29,8 @@
                         <td class="py-1 pr-2 whitespace-nowrap">{{ $row['created_at'] }}</td>
                         <td class="py-1 pr-2 truncate" title="{{ $row['part_no'] }}">{{ $row['part_no'] }}</td>
                         <td class="py-1 text-center whitespace-nowrap">{{ $row['lot'] }}</td>
-                        <td class="py-1 text-center whitespace-nowrap font-semibold text-white">
-                            {{ $row['proses'] !== null ? $row['proses'].'/'.$row['jumlah_proses'] : '-' }}
+                        <td class="py-1 text-center truncate font-semibold text-white" title="{{ $row['machine'] ?? '-' }}">
+                            {{ $row['machine'] ?? '-' }}
                         </td>
                     </tr>
                 @empty

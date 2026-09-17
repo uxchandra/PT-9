@@ -6,6 +6,7 @@ use App\Models\CalendarEntry;
 use App\Models\KeseiPart;
 use App\Models\KeseiPartClosing;
 use App\Models\KeseiScan;
+use App\Models\LotMakingAssignment;
 use App\Models\LotMakingPlanning;
 use App\Models\PatternGroupItem;
 use App\Models\StockSnapshot;
@@ -504,7 +505,7 @@ class KeseiBoard
      * assignment yet. created_at is pre-formatted (not left as Carbon) since
      * this whole array round-trips through KeseiBoard's cache.
      *
-     * @return array<int, array{created_at: string, part_no: string, lot: int, proses: ?int, jumlah_proses: ?int}>
+     * @return array<int, array{created_at: string, part_no: string, lot: int, proses: ?int, jumlah_proses: ?int, machine: ?string}>
      */
     private function loadOpenLotMakingQueue(): array
     {
@@ -512,11 +513,22 @@ class KeseiBoard
             ->orderBy('created_at')
             ->get();
 
+        // "Assignment Machine" master data (see LotMakingAssignment) — which
+        // machine(s) are set up to run each part+proses, independent of
+        // whether today's specific lot has actually been scheduled to one
+        // yet. Shown purely for reference on an otherwise-still-Open row.
+        $partIds = $plannings->pluck('part_id')->unique()->filter()->values();
+        $assignmentsByPart = LotMakingAssignment::whereIn('part_id', $partIds)
+            ->with('machine')
+            ->get()
+            ->groupBy('part_id');
+
         $rows = [];
 
         foreach ($plannings as $planning) {
             $jumlahProses = $planning->part?->lotMaking?->jumlah_proses;
             $partNo = $planning->part?->part_no ?? '(part terhapus)';
+            $partAssignments = $assignmentsByPart->get($planning->part_id, collect());
 
             if ($jumlahProses === null) {
                 // No steps definable yet — the whole lot counts as one Open
@@ -531,6 +543,9 @@ class KeseiBoard
                         'lot' => $planning->lot,
                         'proses' => null,
                         'jumlah_proses' => null,
+                        // No specific step known yet — list every machine
+                        // this part is set up to run on at all.
+                        'machine' => $partAssignments->pluck('machine.name')->filter()->unique()->sort()->implode(', ') ?: null,
                     ];
                 }
 
@@ -550,6 +565,7 @@ class KeseiBoard
                     'lot' => $planning->lot,
                     'proses' => $n,
                     'jumlah_proses' => $jumlahProses,
+                    'machine' => $partAssignments->firstWhere('proses', $n)?->machine?->name,
                 ];
             }
         }

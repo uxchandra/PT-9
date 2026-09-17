@@ -14,7 +14,7 @@
         .grid-line-dark { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255,255,255,0.1); }
         {{-- Base color is overridden inline per row with that row's own pola
              colour (see KeseiBoard::polaColor) — this is just the fallback. --}}
-        .closing-time-marker { width: 0; border-left: 2px dashed #94a3b8; }
+        .closing-time-marker { width: 0; border-left: 6px dashed #94a3b8; }
     </style>
 </head>
 <body class="h-screen w-screen overflow-hidden bg-black font-sans antialiased text-white">
@@ -42,8 +42,9 @@
             <div class="flex items-center gap-6">
                 <span class="text-slate-400">{{ __('Closing Time') }}:</span>
                 @foreach ($polaLegend as $pola => $color)
-                    <span class="flex items-center gap-1">
-                        <span class="w-0 h-4 border-l-2 border-dashed" style="border-color: {{ $color }};"></span>
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-5 h-5 rounded-sm border border-white/30 shrink-0"
+                              style="background-image: repeating-linear-gradient(45deg, {{ $color }} 0, {{ $color }} 2px, transparent 2px, transparent 5px);"></span>
                         <span class="text-white">{{ $pola }}</span>
                     </span>
                 @endforeach
@@ -135,15 +136,18 @@
         // Slow, looping auto-scroll of the part timeline (top -> bottom) so a
         // row list taller than the screen is fully visible over time on this
         // unattended wall board — jumps straight back to the top the instant
-        // it hits bottom, no pause (a pending setTimeout pause used to be
-        // able to outlive a panel refresh — replacePanel() swaps in a fresh
-        // .andon-scroll element via innerHTML, and the old timer's delay
-        // could land on a scroller that had already moved on, leaving it
-        // looking stuck). Re-queries the scroller live every tick instead so
-        // there's no state that can go stale across a refresh.
+        // it hits bottom (no pause there), then holds still at the top for
+        // TOP_PAUSE_MS so the first row is actually readable before it starts
+        // moving again. The pause is a plain timestamp checked fresh every
+        // tick — not a setTimeout — so (unlike an earlier version of this)
+        // it can't outlive a panel refresh: replacePanel() swaps in a fresh
+        // .andon-scroll element via innerHTML, and a live re-query every tick
+        // means there's no reference to a scroller that could go stale.
         (function () {
             const STEP_PX = 0.6;
             const TICK_MS = 40;
+            const TOP_PAUSE_MS = 3000;
+            let resumeAt = Date.now() + TOP_PAUSE_MS;
 
             setInterval(function () {
                 const scroller = document.querySelector('#kesei-panel-timeline .andon-scroll');
@@ -152,8 +156,15 @@
                 const max = scroller.scrollHeight - scroller.clientHeight;
                 if (max <= 0) return;
 
+                if (Date.now() < resumeAt) return;
+
                 const next = scroller.scrollTop + STEP_PX;
-                scroller.scrollTop = next >= max ? 0 : next;
+                if (next >= max) {
+                    scroller.scrollTop = 0;
+                    resumeAt = Date.now() + TOP_PAUSE_MS;
+                } else {
+                    scroller.scrollTop = next;
+                }
             }, TICK_MS);
         })();
 

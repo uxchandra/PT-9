@@ -47,7 +47,7 @@
             </p>
 
             <div class="kesei-table-scroll mx-6 my-6 overflow-x-auto overflow-y-auto border-2 border-gray-300 rounded-lg" style="max-height: calc(105vh - 380px);">
-                <table class="min-w-full text-xs border-separate border-spacing-0">
+                <table class="min-w-full text-xs whitespace-nowrap border-separate border-spacing-0">
                     <thead>
                         <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
                             <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-gray-300 w-8"></th>

@@ -35,7 +35,7 @@
         }
         .closing-time-marker {
             width: 0;
-            border-left: 2px dashed #22c55e;
+            border-left: 6px dashed #22c55e;
             filter: drop-shadow(0 0 3px rgba(34,197,94,0.7));
         }
         /* Closing time that really sits before 07:00 — pinned to the left edge
@@ -48,7 +48,7 @@
         .closing-time-marker--pinned::after {
             content: '\00AB';
             position: absolute;
-            left: 2px;
+            left: 6px;
             top: 2px;
             font-size: 11px;
             line-height: 1;
