@@ -73,7 +73,7 @@
                         <div class="flex border-b border-white/10 transition-colors {{ $rowBg }}"
                              style="height: 48px;"
                              @unless ($row['runs_today']) title="{{ __('Part ini tidak jalan di pattern yang sedang berjalan') }}" @endunless>
-                            <div class="sticky left-0 z-10 flex shrink-0" style="width: {{ $sidebarWidth }}px;">
+                            <div class="sticky left-0 z-20 flex shrink-0" style="width: {{ $sidebarWidth }}px;">
                                 <div class="flex flex-col justify-center px-3 shrink-0 border-r border-white/10"
                                      style="width: {{ $labelWidth }}px; background-color: {{ $labelBg }};">
                                     <span class="font-bold text-white text-xs truncate">{{ $row['label'] }}</span>

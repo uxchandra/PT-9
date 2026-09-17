@@ -17,15 +17,20 @@ use Illuminate\Http\Response;
  * here works backwards from the standalone board: the "now" line stays put
  * on screen and the timeline scrolls underneath it instead — see
  * andon-production._kesei-timeline.
+ *
+ * Both Kesei and Lot Making read their ticks from real operator scans here
+ * (same source as /andon-kesei-scan and the scan flavour of /andon-lot-
+ * making) — not the realtime-SOS/stock-decrease feed — so it's polled fast
+ * like those scan-driven boards.
  */
 class AndonProductionController extends Controller
 {
     public function show(Request $request, KeseiBoard $keseiBoard, LotMakingBoard $lotMakingBoard): Response|JsonResponse
     {
-        $viewData = $keseiBoard->data('stock');
-        $viewData['lotMakingRows'] = $lotMakingBoard->data('demand')['rows'];
+        $viewData = $keseiBoard->data('scan');
+        $viewData['lotMakingRows'] = $lotMakingBoard->data('scan')['rows'];
         $viewData['boardTitle'] = 'ANDON PRODUCTION LINE 9';
-        $viewData['pollMs'] = 15000;
+        $viewData['pollMs'] = 3000;
 
         // Polled regularly so the board never goes stale on an unattended
         // wall display — never served from a browser/proxy cache (see the

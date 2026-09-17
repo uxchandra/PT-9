@@ -66,4 +66,15 @@ class AndonProductionTest extends TestCase
         $response->assertHeader('Cache-Control');
         $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
     }
+
+    public function test_the_three_panels_are_resizable_with_a_divider_between_each(): void
+    {
+        $html = $this->get(route('andon-production.show'))->getContent();
+
+        $this->assertStringContainsString('id="andon-production-panel-kesei"', $html);
+        $this->assertStringContainsString('id="andon-production-column-lotmaking"', $html);
+        $this->assertStringContainsString('id="andon-production-column-sidebar"', $html);
+        // Two dividers for three panels.
+        $this->assertSame(2, substr_count($html, 'class="andon-production-divider"'));
+    }
 }

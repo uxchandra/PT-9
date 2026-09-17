@@ -15,6 +15,29 @@
         {{-- Base color is overridden inline per row with that row's own pola
              colour (see KeseiBoard::polaColor) — this is just the fallback. --}}
         .closing-time-marker { width: 0; border-left: 6px dashed #94a3b8; }
+
+        {{-- Draggable divider between resizable panels — a wide invisible hit
+             zone (comfortable to grab, including by touch) with a thin white
+             line centered inside it, matching the old static border look. --}}
+        .andon-production-divider {
+            flex: 0 0 10px;
+            position: relative;
+            cursor: col-resize;
+            touch-action: none;
+        }
+        .andon-production-divider::after {
+            content: '';
+            position: absolute;
+            top: 0; bottom: 0; left: 4px;
+            width: 2px;
+            background: #ffffff;
+        }
+        .andon-production-divider:hover::after,
+        .andon-production-divider.is-dragging::after {
+            left: 3px;
+            width: 4px;
+            background: #22d3ee;
+        }
     </style>
 </head>
 <body class="h-screen w-screen overflow-hidden bg-black font-sans antialiased text-white">
@@ -33,11 +56,14 @@
             </div>
         </div>
 
-        <div class="flex-1 min-h-0 flex bg-black">
-            <div id="andon-production-panel-kesei" class="h-full min-w-0 border-r-2 border-white" style="flex: 5 1 0%;">
+        <div id="andon-production-columns" class="flex-1 min-h-0 flex bg-black">
+            <div id="andon-production-panel-kesei" class="h-full min-w-0" style="flex: 45 45 0%;">
                 @include('andon-production._kesei-timeline')
             </div>
-            <div class="h-full min-w-0 flex flex-col border-r-2 border-white" style="flex: 3 1 0%;">
+
+            <div class="andon-production-divider" data-divider-index="0" title="{{ __('Geser untuk mengubah lebar panel') }}"></div>
+
+            <div id="andon-production-column-lotmaking" class="h-full min-w-0 flex flex-col" style="flex: 30 30 0%;">
                 <div class="shrink-0 px-3 py-1.5 border-b-2 border-white">
                     <span class="text-xs font-bold text-white tracking-wide">{{ __('LOT MAKING') }}</span>
                 </div>
@@ -45,7 +71,10 @@
                     @include('andon-lot-making._grid', ['rows' => $lotMakingRows])
                 </div>
             </div>
-            <div class="h-full min-w-0 flex flex-col" style="flex: 2 1 0%;">
+
+            <div class="andon-production-divider" data-divider-index="1" title="{{ __('Geser untuk mengubah lebar panel') }}"></div>
+
+            <div id="andon-production-column-sidebar" class="h-full min-w-0 flex flex-col" style="flex: 20 20 0%;">
                 <div id="andon-production-panel-closing" class="min-h-0 shrink-0 border-b-2 border-white overflow-hidden" style="max-height: 45%;">
                     @include('andon-kesei._closing-table-dark')
                 </div>
@@ -163,6 +192,95 @@
                 if (!base || parseFloat(el.dataset.now) !== base.now) { sync(el); return; }
                 place(el);
             }, 1000);
+        })();
+
+        // Drag-to-resize the three panels — live-session only, on purpose: a
+        // poll's innerHTML swap only touches each panel's CONTENTS (never
+        // these outer elements), so a drag survives every poll, but nothing
+        // is saved anywhere — a plain refresh (or the 30-min auto-reload)
+        // always comes back to the default 45/30/20 split.
+        //
+        // Widths are applied as flex-grow RATIOS (flex: n n 0%), not frozen
+        // pixel widths — with a 0% basis, the three panels always divide up
+        // exactly whatever space is actually left after the two fixed-width
+        // dividers, so nothing can go visibly out of sync with the real
+        // container width (a frozen px snapshot would, e.g. across a browser
+        // zoom change after the snapshot was taken).
+        (function () {
+            const MIN_WIDTH = 220;
+
+            const panels = [
+                document.getElementById('andon-production-panel-kesei'),
+                document.getElementById('andon-production-column-lotmaking'),
+                document.getElementById('andon-production-column-sidebar'),
+            ];
+            const dividers = Array.from(document.querySelectorAll('.andon-production-divider'));
+            if (panels.some((p) => !p) || dividers.length !== panels.length - 1) return;
+
+            function currentWidths() {
+                return panels.map((p) => p.getBoundingClientRect().width);
+            }
+
+            function applyRatios(widths) {
+                panels.forEach((p, i) => {
+                    if (typeof widths[i] === 'number' && widths[i] > 0) {
+                        p.style.flex = widths[i] + ' ' + widths[i] + ' 0%';
+                    }
+                });
+            }
+
+            let dragging = null; // { index, startX, startWidths }
+
+            function beginDrag(index, clientX) {
+                dragging = { index, startX: clientX, startWidths: currentWidths() };
+                dividers[index].classList.add('is-dragging');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+            }
+
+            function updateDrag(clientX) {
+                if (!dragging) return;
+                const dx = clientX - dragging.startX;
+                const widths = dragging.startWidths.slice();
+                const left = dragging.index;
+                const right = dragging.index + 1;
+                let newLeft = widths[left] + dx;
+                let newRight = widths[right] - dx;
+
+                // Both sides must stay usable — clamp without letting the
+                // total width the drag controls silently change.
+                if (newLeft < MIN_WIDTH) { newRight -= (MIN_WIDTH - newLeft); newLeft = MIN_WIDTH; }
+                if (newRight < MIN_WIDTH) { newLeft -= (MIN_WIDTH - newRight); newRight = MIN_WIDTH; }
+                widths[left] = Math.max(MIN_WIDTH, newLeft);
+                widths[right] = Math.max(MIN_WIDTH, newRight);
+
+                applyRatios(widths);
+            }
+
+            function endDrag() {
+                if (!dragging) return;
+                dividers[dragging.index].classList.remove('is-dragging');
+                dragging = null;
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
+
+            dividers.forEach((divider, index) => {
+                divider.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    beginDrag(index, e.clientX);
+                });
+                divider.addEventListener('touchstart', (e) => {
+                    if (e.touches[0]) beginDrag(index, e.touches[0].clientX);
+                }, { passive: true });
+            });
+
+            window.addEventListener('mousemove', (e) => updateDrag(e.clientX));
+            window.addEventListener('touchmove', (e) => {
+                if (dragging && e.touches[0]) updateDrag(e.touches[0].clientX);
+            }, { passive: true });
+            window.addEventListener('mouseup', endDrag);
+            window.addEventListener('touchend', endDrag);
         })();
     </script>
 </body>
