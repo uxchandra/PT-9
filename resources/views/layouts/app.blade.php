@@ -178,6 +178,9 @@
                                 </svg>
                                 {{ __('Kesei v2') }}
                             </a>
+                            {{-- Heijunka menu link temporarily hidden — the board itself
+                                 still lives at route('andon-kesei.heijunka'), just not
+                                 linked from the sidebar for now.
                             <a href="{{ route('andon-kesei.heijunka') }}" target="_blank"
                                class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">
                                 <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -185,6 +188,7 @@
                                 </svg>
                                 {{ __('Heijunka') }}
                             </a>
+                            --}}
                             <a href="{{ route('andon-lot-making.show') }}" target="_blank"
                                class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">
                                 <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
