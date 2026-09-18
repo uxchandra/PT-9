@@ -374,8 +374,13 @@ class KeseiTest extends TestCase
         }
     }
 
-    public function test_antrian_fix_volume_lists_open_lot_making_planning_steps(): void
+    public function test_antrian_fix_volume_lists_one_row_per_still_open_lot_not_per_proses_step(): void
     {
+        // While still Open, proses doesn't matter yet (it's only decided once
+        // staff actually submits an assignment) — so a lot with 3 still-open
+        // steps and zero assignments is ONE Open row, not three. Three
+        // identical-looking rows (same part, same lot, same time) would just
+        // read as duplicates on the board.
         $open = Part::create(['part_no' => 'OPEN-PART']);
         LotMaking::create(['part_id' => $open->id, 'jumlah_proses' => 3]);
         LotMakingPlanning::create(['part_id' => $open->id, 'lot' => 27]);
@@ -386,12 +391,31 @@ class KeseiTest extends TestCase
         $antrian = substr($html, strpos($html, 'ANTRIAN (FIX VOLUME)'));
 
         $this->assertStringContainsString('OPEN-PART', $antrian);
-        // No Assignment Machine master data for this part — each of the 3
-        // still-Open steps shows a blank Machine column.
-        $this->assertSame(3, substr_count($antrian, 'title="-"'));
+        $this->assertSame(1, substr_count($antrian, '<tr class="border-b border-white/10">'));
+        // No Assignment Machine master data for this part — the one row
+        // shows a blank Machine column.
+        $this->assertStringContainsString('title="-"', $antrian);
     }
 
-    public function test_antrian_fix_volume_shows_the_assignment_machine_for_each_open_step(): void
+    public function test_antrian_fix_volume_lists_one_row_even_with_a_mix_of_open_and_assigned_steps(): void
+    {
+        // 2 of 4 steps assigned, 2 still open — still just one Open row for
+        // the lot (not one per remaining open step).
+        $part = Part::create(['part_no' => 'PARTIAL-PART']);
+        LotMaking::create(['part_id' => $part->id, 'jumlah_proses' => 4]);
+        $planning = LotMakingPlanning::create(['part_id' => $part->id, 'lot' => 27]);
+        $machine = \App\Models\Machine::create(['name' => 'PT91']);
+        $planning->assignments()->create(['proses' => 1, 'machine_id' => $machine->id, 'shift' => 1]);
+        $planning->assignments()->create(['proses' => 2, 'machine_id' => $machine->id, 'shift' => 1]);
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+        $antrian = substr($html, strpos($html, 'ANTRIAN (FIX VOLUME)'));
+
+        $this->assertStringContainsString('PARTIAL-PART', $antrian);
+        $this->assertSame(1, substr_count($antrian, '<tr class="border-b border-white/10">'));
+    }
+
+    public function test_antrian_fix_volume_shows_every_configured_machine_for_the_still_open_lot(): void
     {
         $part = Part::create(['part_no' => 'MACHINE-PART']);
         LotMaking::create(['part_id' => $part->id, 'jumlah_proses' => 2]);
@@ -405,11 +429,12 @@ class KeseiTest extends TestCase
         $html = $this->get(route('andon-kesei.show'))->getContent();
         $antrian = substr($html, strpos($html, 'ANTRIAN (FIX VOLUME)'));
 
-        // Both steps are still Open, each showing the machine set up for its
-        // own proses via Assignment Machine master data — not an actual
-        // scheduling (there is none yet), just a reference lookup.
-        $this->assertStringContainsString('PT91', $antrian);
-        $this->assertStringContainsString('PT92', $antrian);
+        // Still Open, no specific step known yet — the one row lists every
+        // machine this part is set up to run on at all (Assignment Machine
+        // master data), not an actual scheduling (there is none yet).
+        $this->assertStringContainsString('MACHINE-PART', $antrian);
+        $this->assertSame(1, substr_count($antrian, '<tr class="border-b border-white/10">'));
+        $this->assertStringContainsString('PT91, PT92', $antrian);
     }
 
     public function test_antrian_fix_volume_drops_a_step_once_its_no_longer_open(): void

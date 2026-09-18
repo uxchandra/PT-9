@@ -17,9 +17,12 @@ use Illuminate\Support\Carbon;
  * count implicitly starts over — nothing about past scans is touched, the
  * next lookup just only counts scans after the new completion.
  *
- * A completed cycle here is also thrown into the Lot Making Planning queue
- * (same as LotMakingDemandCycleTracker's demand-sourced completions), so
- * it's ready to be scheduled onto a machine's Andon timeline.
+ * A completed cycle here is also thrown into the Lot Making Planning queue,
+ * ready to be scheduled onto a machine's Andon timeline. Unlike
+ * LotMakingDemandCycleTracker's demand-sourced completions (which only log a
+ * LotMakingCycle for the Lot Making 2 Andon board), this is the ONLY tracker
+ * that feeds the shared Planning queue — see LotMakingDemandCycleTracker's
+ * class doc for why.
  */
 class LotMakingCycleTracker
 {

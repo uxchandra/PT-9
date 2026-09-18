@@ -85,8 +85,15 @@ class LotMakingPlanningTest extends TestCase
         $this->assertSame(LotMakingCycle::first()->id, $planning->lot_making_cycle_id);
     }
 
-    public function test_a_completed_demand_cycle_also_throws_the_lot_into_planning(): void
+    public function test_a_completed_demand_cycle_logs_a_cycle_but_does_not_throw_the_lot_into_planning(): void
     {
+        // A physical lot finishing shows up as both an operator scan AND a
+        // stock decrease — if this also fed the Planning queue (like
+        // LotMakingCycleTracker's scan-side completion does), every
+        // completed lot would double up into two Antrian (Fix Volume) / Lot
+        // Making Planning rows instead of one. Only the scan side is allowed
+        // to create Planning rows; this one only logs its own LotMakingCycle,
+        // which exists purely to drive the Lot Making 2 Andon board.
         $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
         LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 4, 'slot' => 2]);
 
@@ -96,19 +103,15 @@ class LotMakingPlanningTest extends TestCase
         app(LotMakingDemandCycleTracker::class)->checkForCompletion('P1');
 
         $this->assertSame(1, LotMakingCycle::where('source', 'demand')->count());
-
-        $planning = LotMakingPlanning::first();
-        $this->assertNotNull($planning);
-        $this->assertSame($part->id, $planning->part_id);
-        $this->assertSame(4, $planning->lot);
-        $this->assertSame(LotMakingCycle::first()->id, $planning->lot_making_cycle_id);
+        $this->assertSame(0, LotMakingPlanning::count());
     }
 
-    public function test_several_demand_completions_in_one_tick_each_throw_their_own_planning_row(): void
+    public function test_several_demand_completions_in_one_tick_still_do_not_throw_any_planning_rows(): void
     {
         // Mirrors the multi-lot-per-tick scenario already covered for the
-        // tracker itself (StockSnapshotTest) — every completion logged, from
-        // a single stock-snapshot event or several, gets its own row here.
+        // tracker itself (StockSnapshotTest) — every completion logs its own
+        // LotMakingCycle, but none of them reach the Planning queue (see
+        // test_a_completed_demand_cycle_logs_a_cycle_but_does_not_throw_the_lot_into_planning).
         $part = Part::create(['part_no' => 'P1', 'qty_kbn' => 1]);
         LotMaking::create(['part_id' => $part->id, 'lot_produksi' => 5, 'slot' => 2]);
 
@@ -118,7 +121,7 @@ class LotMakingPlanningTest extends TestCase
         app(LotMakingDemandCycleTracker::class)->checkForCompletion('P1');
 
         $this->assertSame(2, LotMakingCycle::where('source', 'demand')->count());
-        $this->assertSame(2, LotMakingPlanning::count());
+        $this->assertSame(0, LotMakingPlanning::count());
     }
 
     public function test_index_requires_the_manage_lot_making_permission(): void

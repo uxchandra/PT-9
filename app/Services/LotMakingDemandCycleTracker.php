@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Models\LotMaking;
 use App\Models\LotMakingCycle;
-use App\Models\LotMakingPlanning;
 use Illuminate\Support\Carbon;
 
 /**
@@ -21,8 +20,14 @@ use Illuminate\Support\Carbon;
  * events in order and logs one completion per lot_produksi crossed, each
  * stamped with the actual event time it happened at, not "now".
  *
- * Each completion here is also thrown into the Lot Making Planning queue
- * (same as the scan tracker) — see LotMakingPlanning.
+ * Unlike the scan tracker, a completion here does NOT get thrown into the
+ * shared Lot Making Planning queue — only LotMakingCycleTracker's scan-side
+ * completions do. A physical lot finishing shows up as both an operator scan
+ * and a stock decrease, so if both trackers fed the same Planning queue,
+ * every completed lot would double up into two entries there (and in Andon
+ * Kesei's Antrian (Fix Volume) panel, which reads straight from it) instead
+ * of one. This tracker's own LotMakingCycle rows still exist purely to drive
+ * the Lot Making 2 Andon board.
  */
 class LotMakingDemandCycleTracker
 {
@@ -79,17 +84,18 @@ class LotMakingDemandCycleTracker
             $running += $event['kanban'];
 
             while ($running >= $lotMaking->lot_produksi) {
-                $cycle = LotMakingCycle::create([
+                // Logged for the Lot Making 2 (demand) Andon board only — NOT
+                // thrown into the shared LotMakingPlanning queue. A physical
+                // lot completing shows up as both an operator scan and a
+                // stock decrease, so if this also created a Planning row
+                // (like LotMakingCycleTracker's scan-side completion does),
+                // every completed lot would double up into two Antrian (Fix
+                // Volume) / Lot Making Planning entries instead of one.
+                LotMakingCycle::create([
                     'part_no' => $partNo,
                     'lot_produksi' => $lotMaking->lot_produksi,
                     'source' => LotMakingCycle::SOURCE_DEMAND,
                     'completed_at' => $event['at'],
-                ]);
-
-                LotMakingPlanning::create([
-                    'part_id' => $lotMaking->part_id,
-                    'lot' => $lotMaking->lot_produksi,
-                    'lot_making_cycle_id' => $cycle->id,
                 ]);
 
                 $running -= $lotMaking->lot_produksi;

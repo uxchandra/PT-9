@@ -613,20 +613,26 @@ class KeseiBoard
                 continue;
             }
 
-            $byProses = $planning->assignments->keyBy('proses');
+            // While still Open, proses doesn't matter yet — it's only decided
+            // once staff actually submits an assignment for a specific step
+            // (see LotMakingPlanningController::assign). So as long as ANY
+            // step of this lot is still unassigned, it's one Open row for
+            // the part as a whole, not one row per still-open step — those
+            // would otherwise look like plain duplicates here (same part,
+            // same lot, same time), which is exactly what they'd look like
+            // since nothing distinguishes them until they're assigned.
+            $openStepCount = $jumlahProses - $planning->assignments->count();
 
-            for ($n = 1; $n <= $jumlahProses; $n++) {
-                if ($byProses->has($n)) {
-                    continue;
-                }
-
+            if ($openStepCount > 0) {
                 $rows[] = [
                     'created_at' => $planning->created_at->format('d/m H:i'),
                     'part_no' => $partNo,
                     'lot' => $planning->lot,
-                    'proses' => $n,
+                    'proses' => null,
                     'jumlah_proses' => $jumlahProses,
-                    'machine' => $partAssignments->firstWhere('proses', $n)?->machine?->name,
+                    // No specific step known yet — list every machine this
+                    // part is set up to run on at all.
+                    'machine' => $partAssignments->pluck('machine.name')->filter()->unique()->sort()->implode(', ') ?: null,
                 ];
             }
         }
