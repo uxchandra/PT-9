@@ -39,16 +39,18 @@
         </div>
 
         <div class="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-1 border-b-2 border-white px-4 py-2 text-base text-slate-300">
-            <div class="flex items-center gap-6">
-                <span class="text-slate-400">{{ __('Closing Time') }}:</span>
-                @foreach ($polaLegend as $pola => $color)
-                    <span class="flex items-center gap-1.5">
-                        <span class="w-5 h-5 rounded-sm border border-white/30 shrink-0"
-                              style="background-image: repeating-linear-gradient(45deg, {{ $color }} 0, {{ $color }} 2px, transparent 2px, transparent 5px);"></span>
-                        <span class="text-white">{{ $pola }}</span>
-                    </span>
-                @endforeach
-            </div>
+            @unless ($isHeijunka ?? false)
+                <div class="flex items-center gap-6">
+                    <span class="text-slate-400">{{ __('Closing Time') }}:</span>
+                    @foreach ($polaLegend as $pola => $color)
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-5 h-5 rounded-sm border border-white/30 shrink-0"
+                                  style="background-image: repeating-linear-gradient(45deg, {{ $color }} 0, {{ $color }} 2px, transparent 2px, transparent 5px);"></span>
+                            <span class="text-white">{{ $pola }}</span>
+                        </span>
+                    @endforeach
+                </div>
+            @endunless
             <div class="flex items-center gap-1.5 ml-auto">
                 <span class="flex items-center gap-px h-4">
                     <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b;"></span>
@@ -66,6 +68,12 @@
             @include('andon-kesei._board-dark')
         </div>
     </div>
+
+    <button id="kesei-scroll-pause-btn" type="button" aria-pressed="false"
+            class="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full border border-white/30 bg-black/70 px-4 py-2 text-sm font-bold text-white shadow-lg hover:bg-black/90">
+        <span id="kesei-scroll-pause-icon">&#10074;&#10074;</span>
+        <span id="kesei-scroll-pause-label">{{ __('Pause') }}</span>
+    </button>
 
     <script>
         (function () {
@@ -88,12 +96,17 @@
         // AndonKeseiController); a full reload only as a 30-min safety net.
         // Scroll position of each panel is preserved across swaps.
         (function () {
+            // The heijunka board drops the closing/antrian sidebar entirely
+            // (see AndonKeseiController::showHeijunka) — those elements
+            // simply don't exist there, so every read/write against them is
+            // guarded rather than assumed present.
             let lastTimeline = document.getElementById('kesei-panel-timeline').innerHTML;
-            let lastAntrian = document.getElementById('kesei-panel-antrian').innerHTML;
-            let lastClosing = document.getElementById('kesei-panel-closing').innerHTML;
+            let lastAntrian = document.getElementById('kesei-panel-antrian')?.innerHTML ?? null;
+            let lastClosing = document.getElementById('kesei-panel-closing')?.innerHTML ?? null;
 
             function replacePanel(id, html) {
                 const panel = document.getElementById(id);
+                if (!panel) return;
                 const scrollEl = panel.querySelector('.andon-scroll');
                 const prevLeft = scrollEl ? scrollEl.scrollLeft : null;
                 const prevTop = scrollEl ? scrollEl.scrollTop : null;
@@ -118,8 +131,8 @@
                         lastTimeline = data.timeline;
                         if (window.__keseiNowSync) window.__keseiNowSync();
                     }
-                    if (data.closingTable !== lastClosing) { replacePanel('kesei-panel-closing', data.closingTable); lastClosing = data.closingTable; }
-                    if (data.antrianFixVolume !== lastAntrian) { replacePanel('kesei-panel-antrian', data.antrianFixVolume); lastAntrian = data.antrianFixVolume; }
+                    if (lastClosing !== null && data.closingTable !== lastClosing) { replacePanel('kesei-panel-closing', data.closingTable); lastClosing = data.closingTable; }
+                    if (lastAntrian !== null && data.antrianFixVolume !== lastAntrian) { replacePanel('kesei-panel-antrian', data.antrianFixVolume); lastAntrian = data.antrianFixVolume; }
                 } catch (e) {
                     // Network hiccup — next tick retries.
                 }
@@ -149,6 +162,22 @@
             const TOP_PAUSE_MS = 3000;
             let resumeAt = Date.now() + TOP_PAUSE_MS;
 
+            // Manual pause/resume — an operator can freeze the auto-scroll to
+            // actually read a row instead of chasing it, then resume where it
+            // left off (no jump back to top on resume).
+            let paused = false;
+            const btn = document.getElementById('kesei-scroll-pause-btn');
+            const icon = document.getElementById('kesei-scroll-pause-icon');
+            const label = document.getElementById('kesei-scroll-pause-label');
+            if (btn) {
+                btn.addEventListener('click', function () {
+                    paused = !paused;
+                    btn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+                    if (icon) icon.innerHTML = paused ? '&#9654;' : '&#10074;&#10074;';
+                    if (label) label.textContent = paused ? @json(__('Play')) : @json(__('Pause'));
+                });
+            }
+
             setInterval(function () {
                 const scroller = document.querySelector('#kesei-panel-timeline .andon-scroll');
                 if (!scroller) return;
@@ -156,6 +185,7 @@
                 const max = scroller.scrollHeight - scroller.clientHeight;
                 if (max <= 0) return;
 
+                if (paused) return;
                 if (Date.now() < resumeAt) return;
 
                 const next = scroller.scrollTop + STEP_PX;

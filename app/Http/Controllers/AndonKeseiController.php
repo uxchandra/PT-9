@@ -42,10 +42,12 @@ class AndonKeseiController extends Controller
     {
         // Every heijunka tick is already exactly 1 kanban (that's the whole
         // point of pacing them one at a time), so the little count label
-        // next to each tick would only ever read "1" — noise, not signal —
-        // hence it's hidden just for this board.
+        // next to each tick would only ever read "1" — noise, not signal.
+        // Closing time isn't part of this board's story either — hide the
+        // markers, the legend, and the whole right sidebar so the timeline
+        // gets the full width.
         $viewData = $board->data('heijunka');
-        $viewData['hideTickNumbers'] = true;
+        $viewData['isHeijunka'] = true;
 
         return $this->render($request, $viewData, 'HEIJUNKA LINE 9', 60000);
     }

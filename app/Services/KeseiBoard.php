@@ -207,12 +207,16 @@ class KeseiBoard
         // Heijunka: the raw stock-decrease events aren't shown as-is — each
         // row's own pile is re-timed through its Lead Time per Kanban first
         // (see heijunkaRelease()), same underlying stock feed as the normal
-        // board, just paced instead of appearing all at once.
+        // board, just paced instead of appearing all at once. And unlike
+        // the normal board's ticks (which pile up until closing), a
+        // heijunka tick only shows while it's still queued/not yet due —
+        // the moment the progress bar reaches it, it's counted into
+        // Perintah Pulling instead (see KeseiPull) and drops off the board.
         if ($tickSource === 'heijunka') {
             $ltByRowId = $keseiRows->pluck('lt_per_kbn', 'id');
 
             $allEvents = collect($allEvents)
-                ->map(fn (array $events, $rowId) => $this->heijunkaEvents(collect($events), (int) ($ltByRowId[$rowId] ?? 0))->all())
+                ->map(fn (array $events, $rowId) => $this->heijunkaPendingEvents(collect($events), (int) ($ltByRowId[$rowId] ?? 0))->all())
                 ->all();
         }
 
@@ -647,18 +651,17 @@ class KeseiBoard
     }
 
     /**
-     * Heijunka-paced version of a part's raw decrease events (used by the
-     * Andon Kesei Heijunka board, and by KeseiPull for every part's
-     * "Perintah Pulling" demand — see KeseiPull::demandRow()): instead of
-     * every kanban in a batch becoming a tick all at once, they "release"
-     * one at a time, lt_per_kbn minutes apart, queued FIFO — see
-     * heijunkaRelease() for the queueing itself. Only releases at/before
-     * right now are returned; the rest haven't been "crossed" by the
-     * progress bar/now-line yet, so they don't count as due yet either
-     * visually or for demand. lt_per_kbn <= 0 is a no-op — every kanban
-     * releases at its own arrival time, mathematically identical to the raw
-     * events (just exploded to one entry per unit) — so a part with no
-     * Lead Time per Kanban set behaves exactly as it always has.
+     * Heijunka-paced version of a part's raw decrease events, used by
+     * KeseiPull for every part's "Perintah Pulling" demand (see
+     * KeseiPull::demandRow()): instead of every kanban in a batch becoming
+     * due all at once, they "release" one at a time, lt_per_kbn minutes
+     * apart, queued FIFO — see heijunkaRelease() for the queueing itself.
+     * Only releases at/before right now are returned — the rest haven't
+     * been "crossed" by the progress bar/now-line yet, so they don't count
+     * toward demand yet. lt_per_kbn <= 0 is a no-op — every kanban releases
+     * at its own arrival time, mathematically identical to the raw events
+     * (just exploded to one entry per unit) — so a part with no Lead Time
+     * per Kanban set behaves exactly as it always has.
      *
      * @param  Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>  $events
      * @return Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>
@@ -669,6 +672,27 @@ class KeseiBoard
 
         return $this->heijunkaRelease($events, $ltPerKbn)
             ->filter(fn (array $e) => $e['at']->lte($now))
+            ->values();
+    }
+
+    /**
+     * The Andon Kesei Heijunka board's own tick set — the flip side of
+     * heijunkaEvents(): a red tick there is the still-queued kanban waiting
+     * for its paced release, so it shows only what has NOT been crossed by
+     * the progress bar yet. The instant "now" reaches a release, it's
+     * simultaneously counted into Perintah Pulling demand (heijunkaEvents())
+     * and stops being returned here — it doesn't linger on the board once
+     * it's been "thrown" to the scanner.
+     *
+     * @param  Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>  $events
+     * @return Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>
+     */
+    public function heijunkaPendingEvents(Collection $events, int $ltPerKbn): Collection
+    {
+        $now = now();
+
+        return $this->heijunkaRelease($events, $ltPerKbn)
+            ->filter(fn (array $e) => $e['at']->gt($now))
             ->values();
     }
 

@@ -31,30 +31,33 @@ class KeseiHeijunkaTest extends TestCase
         // -4 kanban, captured (arrival) at 08:30 — releases due at 09:00, 09:30, 10:00, 10:30.
         StockSnapshot::create(['part_no' => 'HJ-1', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]);
 
-        // Right at arrival — nothing has been released yet.
+        // Right at arrival — all four are queued/pending, so all four show.
         Carbon::setTestNow('2026-09-15 08:30:00');
         $html = $this->get(route('andon-kesei.heijunka'))->getContent();
-        $this->assertStringNotContainsString('stok turun', $html);
+        $this->assertSame(4, substr_count($html, 'stok turun'));
 
-        // One minute before the first release — still nothing.
+        // One minute before the first release — still all four pending.
         Carbon::setTestNow('2026-09-15 08:59:00');
         $html = $this->get(route('andon-kesei.heijunka'))->getContent();
-        $this->assertSame(0, substr_count($html, 'stok turun'));
+        $this->assertSame(4, substr_count($html, 'stok turun'));
 
-        // Exactly at the first release — one tick.
+        // Exactly at the first release — it's "thrown" to Perintah Pulling
+        // and drops off the board, leaving three still pending.
         Carbon::setTestNow('2026-09-15 09:00:00');
         $html = $this->get(route('andon-kesei.heijunka'))->getContent();
-        $this->assertSame(1, substr_count($html, 'stok turun'));
+        $this->assertSame(3, substr_count($html, 'stok turun'));
 
-        // Halfway to the third release — still only two.
+        // Halfway to the third release — two have crossed (09:00, 09:30),
+        // two still pending (10:00, 10:30).
         Carbon::setTestNow('2026-09-15 09:45:00');
         $html = $this->get(route('andon-kesei.heijunka'))->getContent();
         $this->assertSame(2, substr_count($html, 'stok turun'));
 
-        // Past the last (30*4 = 120min after arrival) — all four released.
+        // Past the last (30*4 = 120min after arrival) — all four have
+        // crossed and none remain on the board.
         Carbon::setTestNow('2026-09-15 10:31:00');
         $html = $this->get(route('andon-kesei.heijunka'))->getContent();
-        $this->assertSame(4, substr_count($html, 'stok turun'));
+        $this->assertSame(0, substr_count($html, 'stok turun'));
 
         Carbon::setTestNow();
     }

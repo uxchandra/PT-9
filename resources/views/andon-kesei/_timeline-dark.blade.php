@@ -93,7 +93,9 @@
                                 $ck = collect($stockDecreaseEvents[$row['id']] ?? [])->sum('kanban');
                             @endphp
                             {{-- A row can carry more than one closing time a day (e.g. 05:00
-                                 and 15:00) — one marker per definition. --}}
+                                 and 15:00) — one marker per definition. Not part of the
+                                 heijunka board's story, so left out there. --}}
+                            @unless ($isHeijunka ?? false)
                             @foreach ($row['closing_markers'] as $marker)
                                 {{-- Coloured per the row's own pola (see KeseiBoard::polaColor)
                                      instead of a flat green, so a marker also says which
@@ -108,6 +110,7 @@
                                           class="absolute bottom-0.5 left-1 text-[9px] font-bold leading-none whitespace-nowrap {{ $ck > 0 ? 'text-green-700' : 'text-slate-500' }}">{{ $ck }}</span>
                                 </div>
                             @endforeach
+                            @endunless
                             @foreach ($stockDecreaseEvents[$row['id']] ?? [] as $event)
                                 {{-- The controller already drops ticks that folded at the last run-day
                                      closing; whatever is left here is the live pile and always shows. --}}
@@ -119,7 +122,7 @@
                                             <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b; box-shadow: 0 0 3px rgba(255,59,59,0.9);"></span>
                                         @endfor
                                     </div>
-                                    @unless ($hideTickNumbers ?? false)
+                                    @unless ($isHeijunka ?? false)
                                         <span class="text-[9px] leading-none font-bold mt-0.5" style="color: #ff5252;">{{ $event['kanban'] }}</span>
                                     @endunless
                                 </div>
