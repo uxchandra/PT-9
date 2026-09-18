@@ -40,7 +40,14 @@ class AndonKeseiController extends Controller
 
     public function showHeijunka(Request $request, KeseiBoard $board): Response|JsonResponse
     {
-        return $this->render($request, $board->data('heijunka'), 'HEIJUNKA LINE 9', 60000);
+        // Every heijunka tick is already exactly 1 kanban (that's the whole
+        // point of pacing them one at a time), so the little count label
+        // next to each tick would only ever read "1" — noise, not signal —
+        // hence it's hidden just for this board.
+        $viewData = $board->data('heijunka');
+        $viewData['hideTickNumbers'] = true;
+
+        return $this->render($request, $viewData, 'HEIJUNKA LINE 9', 60000);
     }
 
     private function render(Request $request, array $viewData, string $title, int $pollMs): Response|JsonResponse

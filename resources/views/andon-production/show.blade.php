@@ -50,6 +50,10 @@
             <div class="flex flex-1 items-center justify-center py-3">
                 <h1 class="text-2xl sm:text-4xl font-extrabold uppercase tracking-wide text-white">{{ $boardTitle ?? __('ANDON PRODUCTION LINE 9') }}</h1>
             </div>
+            <div class="flex shrink-0 flex-col items-center justify-center gap-0.5 border-l-2 border-white px-6" style="width: 240px;">
+                <span class="text-lg font-extrabold uppercase tracking-wide text-white">{{ __('Pattern') }}</span>
+                <span class="text-2xl sm:text-4xl font-extrabold uppercase tracking-wide text-white truncate">{{ $currentPattern ?? '—' }}</span>
+            </div>
             <div class="flex shrink-0 flex-col items-center justify-center border-l-2 border-white px-6 font-bold" style="width: 190px;">
                 <div class="text-lg">{{ now()->format('d/m/Y') }}</div>
                 <div id="andon-production-clock" class="text-lg tabular-nums" data-server-time="{{ now()->format('H:i:s') }}"></div>

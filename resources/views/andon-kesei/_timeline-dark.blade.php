@@ -119,7 +119,9 @@
                                             <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b; box-shadow: 0 0 3px rgba(255,59,59,0.9);"></span>
                                         @endfor
                                     </div>
-                                    <span class="text-[9px] leading-none font-bold mt-0.5" style="color: #ff5252;">{{ $event['kanban'] }}</span>
+                                    @unless ($hideTickNumbers ?? false)
+                                        <span class="text-[9px] leading-none font-bold mt-0.5" style="color: #ff5252;">{{ $event['kanban'] }}</span>
+                                    @endunless
                                 </div>
                             @endforeach
                         </div>
