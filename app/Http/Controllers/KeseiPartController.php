@@ -69,6 +69,12 @@ class KeseiPartController extends Controller
             // release queue takes to mature one kanban. Blank/0 = no pacing
             // (see KeseiBoard::heijunkaRelease()).
             'lt_per_kbn' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            // Material (RM): the raw material this part is built from — a
+            // free-form part_no + level, not tied to the Part List. Its
+            // stock is looked up by part_no for the Andon Kesei Closing
+            // Time panel's Ready/Empty status.
+            'material_part_no' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'material_level' => ['sometimes', 'nullable', 'string', 'max:50'],
             // The full set of closing times for this row — sending it replaces
             // whatever was there before (same "sync" shape as pattern_board_ids).
             'closings' => ['sometimes', 'array'],
@@ -96,6 +102,12 @@ class KeseiPartController extends Controller
         if (array_key_exists('lt_per_kbn', $validated)) {
             $updates['lt_per_kbn'] = $validated['lt_per_kbn'];
         }
+        if (array_key_exists('material_part_no', $validated)) {
+            $updates['material_part_no'] = $validated['material_part_no'] ?: null;
+        }
+        if (array_key_exists('material_level', $validated)) {
+            $updates['material_level'] = $validated['material_level'] ?: null;
+        }
         if ($updates !== []) {
             $keseiPart->update($updates);
         }
@@ -117,6 +129,8 @@ class KeseiPartController extends Controller
                 'level' => $keseiPart->level,
                 'pulling_command' => $keseiPart->pulling_command,
                 'lt_per_kbn' => $keseiPart->lt_per_kbn,
+                'material_part_no' => $keseiPart->material_part_no,
+                'material_level' => $keseiPart->material_level,
                 'closings' => $keseiPart->closings->map(fn (KeseiPartClosing $c) => [
                     'closing_time' => $c->closing_time->format('H:i'),
                     'closing_mode' => $c->closing_mode,

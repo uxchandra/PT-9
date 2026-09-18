@@ -179,13 +179,68 @@ class KeseiTest extends TestCase
 
         $this->assertLessThan(strpos($table, 'No Part'), strpos($table, 'Close'));
         // DONE row: Pattern A, Qty Kbn 3.
-        $this->assertMatchesRegularExpression('/DONE.*?>\s*A\s*<\/td>.*?>\s*3\s*<\/td>\s*<\/tr>/s', $table);
+        $this->assertMatchesRegularExpression('/DONE.*?>\s*A\s*<\/td>.*?>\s*3\s*<\/td>/s', $table);
         $this->assertStringNotContainsString('WAITING', $table);
         $this->assertStringNotContainsString('OFFRUN', $table);
 
         // Plain text — no coloured badges or pills.
         $this->assertStringNotContainsString('bg-slate-200', $table);
         $this->assertStringNotContainsString('bg-brand-100', $table);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_closing_table_shows_material_rm_and_ready_empty_status_from_its_own_stock(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+
+        $a = PatternBoard::create(['name' => 'A']);
+        CalendarEntry::create(['date' => '2026-09-15', 'pattern_board_id' => $a->id]);
+
+        $ready = KeseiPart::create([
+            'part_id' => Part::create(['part_no' => 'HASMAT', 'qty_kbn' => 1])->id,
+            'urutan' => 1,
+            'material_part_no' => 'RM-001',
+            'material_level' => 'L1',
+        ]);
+        $ready->addClosing('09:00', 'end_of_day');
+        $ready->patternBoards()->sync([$a->id]);
+
+        $empty = KeseiPart::create([
+            'part_id' => Part::create(['part_no' => 'NOMATSTOCK', 'qty_kbn' => 1])->id,
+            'urutan' => 2,
+            'material_part_no' => 'RM-002',
+        ]);
+        $empty->addClosing('09:00', 'end_of_day');
+        $empty->patternBoards()->sync([$a->id]);
+
+        $none = KeseiPart::create([
+            'part_id' => Part::create(['part_no' => 'NOMAT', 'qty_kbn' => 1])->id,
+            'urutan' => 3,
+        ]);
+        $none->addClosing('09:00', 'end_of_day');
+        $none->patternBoards()->sync([$a->id]);
+
+        StockSnapshot::create(['part_no' => 'HASMAT', 'stock' => 20, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'NOMATSTOCK', 'stock' => 20, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'NOMAT', 'stock' => 20, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        // RM-001 has stock -> Ready. RM-002 has a reading of 0 -> Empty.
+        // NOMAT's row carries no material_part_no at all -> neither.
+        StockSnapshot::create(['part_no' => 'RM-001', 'stock' => 50, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'RM-002', 'stock' => 0, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+
+        $html = $this->get(route('andon-kesei.show'))->getContent();
+
+        $closingPos = strpos($html, 'CLOSING TIME');
+        $antrianPos = strpos($html, 'ANTRIAN (FIX VOLUME)');
+        $table = substr($html, $closingPos, $antrianPos - $closingPos);
+
+        $this->assertStringContainsString('>RM<', $table);
+        $this->assertStringContainsString('>Status<', $table);
+
+        $this->assertMatchesRegularExpression('/HASMAT.*?RM-001.*?>Ready</s', $table);
+        $this->assertMatchesRegularExpression('/NOMATSTOCK.*?RM-002.*?>Empty</s', $table);
+        $this->assertMatchesRegularExpression('/NOMAT<.*?<td[^>]*>-<\/td>\s*<td[^>]*>\s*<span[^>]*>-<\/span>/s', $table);
 
         Carbon::setTestNow();
     }
@@ -236,7 +291,7 @@ class KeseiTest extends TestCase
         $html = $this->get(route('andon-kesei.show'))->getContent();
         $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'ANTRIAN (FIX VOLUME)') - strpos($html, 'CLOSING TIME'));
 
-        $this->assertMatchesRegularExpression('/PLANNED.*?>\s*4\s*<\/td>\s*<\/tr>/s', $table);
+        $this->assertMatchesRegularExpression('/PLANNED.*?>\s*4\s*<\/td>/s', $table);
         // No closing time → never enters the closing table.
         $this->assertStringNotContainsString('NOCLOSE', $table);
 
@@ -502,6 +557,28 @@ class KeseiTest extends TestCase
         $this->assertNull($entry->fresh()->lt_per_kbn);
     }
 
+    public function test_material_part_no_and_level_can_be_set_inline_via_patch(): void
+    {
+        $entry = KeseiPart::create(['part_id' => Part::create(['part_no' => 'P1'])->id, 'urutan' => 1]);
+
+        $this->actingAs($this->authorizedUser())
+            ->patchJson(route('kesei.update', $entry), ['material_part_no' => 'RM-001', 'material_level' => 'L1'])
+            ->assertOk()
+            ->assertJson(['ok' => true, 'material_part_no' => 'RM-001', 'material_level' => 'L1']);
+
+        $entry->refresh();
+        $this->assertSame('RM-001', $entry->material_part_no);
+        $this->assertSame('L1', $entry->material_level);
+
+        $this->actingAs($this->authorizedUser())
+            ->patchJson(route('kesei.update', $entry), ['material_part_no' => '', 'material_level' => ''])
+            ->assertOk();
+
+        $entry->refresh();
+        $this->assertNull($entry->material_part_no);
+        $this->assertNull($entry->material_level);
+    }
+
     public function test_import_sets_and_updates_stock_source(): void
     {
         $existing = Part::create(['part_no' => 'EXISTING']);
@@ -611,7 +688,7 @@ class KeseiTest extends TestCase
 
         // Closing Time table: the 05:00 -> 15:00 span (3 kanban) folded at 15:00.
         $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'ANTRIAN (FIX VOLUME)') - strpos($html, 'CLOSING TIME'));
-        $this->assertMatchesRegularExpression('/P1.*?>\s*3\s*<\/td>\s*<\/tr>/s', $table);
+        $this->assertMatchesRegularExpression('/P1.*?>\s*3\s*<\/td>/s', $table);
         $this->assertStringContainsString('15:00', $table); // whichever closing fired, not a static column
 
         Carbon::setTestNow();
@@ -645,7 +722,7 @@ class KeseiTest extends TestCase
         $this->assertStringContainsString('stok turun 5 kanban (5 pcs)', $html);
         // The folded 4 + 3 = 7 lands in the Closing Time table.
         $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'ANTRIAN (FIX VOLUME)') - strpos($html, 'CLOSING TIME'));
-        $this->assertMatchesRegularExpression('/P1.*?>\s*7\s*<\/td>\s*<\/tr>/s', $table);
+        $this->assertMatchesRegularExpression('/P1.*?>\s*7\s*<\/td>/s', $table);
 
         Carbon::setTestNow();
     }
@@ -725,7 +802,7 @@ class KeseiTest extends TestCase
         $this->assertStringContainsString('stok turun 2 kanban (2 pcs)', $html);
         // The folded 4 + 6 = 10 lands in the Closing Time table.
         $table = substr($html, strpos($html, 'CLOSING TIME'), strpos($html, 'ANTRIAN (FIX VOLUME)') - strpos($html, 'CLOSING TIME'));
-        $this->assertMatchesRegularExpression('/EVERY4.*?>\s*10\s*<\/td>\s*<\/tr>/s', $table);
+        $this->assertMatchesRegularExpression('/EVERY4.*?>\s*10\s*<\/td>/s', $table);
 
         Carbon::setTestNow();
     }

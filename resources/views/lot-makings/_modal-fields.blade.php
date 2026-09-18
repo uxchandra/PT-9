@@ -96,6 +96,21 @@
     </div>
 </div>
 
+<div class="grid grid-cols-2 gap-4 mt-5">
+    <div>
+        <x-input-label for="lm-material_part_no-{{ $idSuffix }}" :value="__('Material — No Part')" />
+        <x-text-input id="lm-material_part_no-{{ $idSuffix }}" name="material_part_no" type="text" class="block w-full mt-1"
+                      :value="old('material_part_no', $lm?->material_part_no)" />
+        <x-input-error :messages="$errors->get('material_part_no')" class="mt-2" />
+    </div>
+    <div>
+        <x-input-label for="lm-material_level-{{ $idSuffix }}" :value="__('Material — Level')" />
+        <x-text-input id="lm-material_level-{{ $idSuffix }}" name="material_level" type="text" class="block w-full mt-1"
+                      :value="old('material_level', $lm?->material_level)" />
+        <x-input-error :messages="$errors->get('material_level')" class="mt-2" />
+    </div>
+</div>
+
 @if ($lm && $lm->slot_fix !== null)
     <div class="flex gap-6 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 mt-5">
         <span>{{ __('Avg Slot') }}: <strong class="text-gray-800">{{ number_format($lm->avg_slot, 2) }}</strong></span>

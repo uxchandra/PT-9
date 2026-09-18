@@ -131,6 +131,10 @@ class LotMakingController extends Controller
             // The denominator in the "2/3" label on the Andon block — total
             // process steps this part goes through.
             'jumlah_proses' => ['nullable', 'integer', 'min:1'],
+            // Material (RM): the raw material this part is built from — a
+            // free-form part_no + level, not tied to the Part List.
+            'material_part_no' => ['nullable', 'string', 'max:255'],
+            'material_level' => ['nullable', 'string', 'max:50'],
         ], [], ['part_id' => 'part']);
     }
 }

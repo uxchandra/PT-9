@@ -156,6 +156,10 @@ class KeseiBoard
                     // Lead Time per Kanban (minutes) — see
                     // KeseiBoard::heijunkaRelease() / KeseiPull::demandRow().
                     'lt_per_kbn' => $kesei->lt_per_kbn,
+                    // Material (RM) this part is built from — its own stock
+                    // status ('material_status') is filled in below, once
+                    // every row's material_part_no is known.
+                    'material_part_no' => $kesei->material_part_no,
                     'qty_kbn' => $kesei->part?->qty_kbn,
                     'sources' => $kesei->sourcePartNos(),
                     'patterns' => $kesei->patternBoards->pluck('name')->all(),
@@ -194,6 +198,17 @@ class KeseiBoard
             // its normal urutan/id order.
             ->sortByDesc('runs_today')
             ->values();
+
+        $materialStock = $this->latestStockByPartNo(
+            $keseiRows->pluck('material_part_no')->filter()->unique()->values()->all()
+        );
+        $keseiRows = $keseiRows->map(function (array $row) use ($materialStock) {
+            $row['material_status'] = $row['material_part_no'] === null
+                ? null
+                : (($materialStock[$row['material_part_no']] ?? 0) > 0 ? 'ready' : 'empty');
+
+            return $row;
+        });
 
         $queryStart = $this->queryStart($keseiRows, $now, $historyFloor);
 
@@ -452,6 +467,31 @@ class KeseiBoard
         }
 
         return [$seedStock, $byTime];
+    }
+
+    /**
+     * The most recent captured stock for each part_no, regardless of how old
+     * — used for the Material (RM) Ready/Empty status on the Closing Time
+     * panel, which cares about "is there any known stock at all" rather than
+     * a specific time window.
+     *
+     * @param  array<int, string>  $partNos
+     * @return array<string, int>
+     */
+    private function latestStockByPartNo(array $partNos): array
+    {
+        if ($partNos === []) {
+            return [];
+        }
+
+        return StockSnapshot::whereIn('part_no', $partNos)
+            ->orderBy('part_no')
+            ->orderByDesc('captured_at')
+            ->get(['part_no', 'stock'])
+            ->unique('part_no')
+            ->pluck('stock', 'part_no')
+            ->map(fn ($stock) => (int) $stock)
+            ->all();
     }
 
     /**

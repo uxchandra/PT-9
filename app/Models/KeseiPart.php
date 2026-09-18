@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
-#[Fillable(['part_id', 'stock_source', 'level', 'urutan', 'pulling_command', 'pulling_command_set_at', 'lt_per_kbn'])]
+#[Fillable(['part_id', 'stock_source', 'level', 'urutan', 'pulling_command', 'pulling_command_set_at', 'lt_per_kbn', 'material_part_no', 'material_level'])]
 class KeseiPart extends Model
 {
     /**

@@ -48,18 +48,23 @@
 
             <div class="kesei-table-scroll mx-6 my-6 overflow-x-auto overflow-y-auto border-2 border-gray-300 rounded-lg" style="max-height: calc(105vh - 380px);">
                 <table class="min-w-full text-xs whitespace-nowrap border-separate border-spacing-0">
-                    <thead>
+                    <thead class="sticky top-0 z-10">
                         <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                            <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-gray-300 w-8"></th>
-                            <th class="sticky top-0 z-10 bg-gray-50 px-6 py-3 border-b-2 border-l border-gray-300">{{ __('No') }}</th>
-                            <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-28 whitespace-nowrap">{{ __('Part No') }}</th>
-                            <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-20 whitespace-nowrap">{{ __('Level') }}</th>
-                            <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-28 whitespace-nowrap">{{ __('Perintah Pulling') }}</th>
-                            <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-24 whitespace-nowrap">{{ __('LT/KBN') }}</th>
-                            <th class="sticky top-0 z-10 bg-gray-50 px-6 py-3 border-b-2 border-l border-gray-300">{{ __('SOS Code') }}</th>
-                            <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 w-40">{{ __('Closing Time') }}</th>
-                            <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 w-40">{{ __('Pattern') }}</th>
-                            <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-12 text-center">{{ __('Aksi') }}</th>
+                            <th rowspan="2" class="align-bottom bg-gray-50 px-3 py-3 border-b-2 border-gray-300 w-8"></th>
+                            <th rowspan="2" class="align-bottom bg-gray-50 px-6 py-3 border-b-2 border-l border-gray-300">{{ __('No') }}</th>
+                            <th rowspan="2" class="align-bottom bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-28 whitespace-nowrap">{{ __('Part No') }}</th>
+                            <th rowspan="2" class="align-bottom bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-20 whitespace-nowrap">{{ __('Level') }}</th>
+                            <th rowspan="2" class="align-bottom bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-28 whitespace-nowrap">{{ __('Perintah Pulling') }}</th>
+                            <th rowspan="2" class="align-bottom bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-24 whitespace-nowrap">{{ __('LT/KBN') }}</th>
+                            <th colspan="2" class="bg-gray-50 px-3 py-1.5 border-b border-l border-gray-300 text-center">{{ __('Material') }}</th>
+                            <th rowspan="2" class="align-bottom bg-gray-50 px-6 py-3 border-b-2 border-l border-gray-300">{{ __('SOS Code') }}</th>
+                            <th rowspan="2" class="align-bottom bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 w-40">{{ __('Closing Time') }}</th>
+                            <th rowspan="2" class="align-bottom bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 w-40">{{ __('Pattern') }}</th>
+                            <th rowspan="2" class="align-bottom bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-12 text-center">{{ __('Aksi') }}</th>
+                        </tr>
+                        <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <th class="bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-24 whitespace-nowrap">{{ __('No Part') }}</th>
+                            <th class="bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-24 whitespace-nowrap">{{ __('Level') }}</th>
                         </tr>
                     </thead>
                     <tbody id="kesei-sortable" class="divide-y divide-gray-100"
@@ -97,6 +102,25 @@
                                            value="{{ $item->lt_per_kbn }}"
                                            placeholder="—"
                                            title="{{ __('Lead Time per Kanban (menit) — jeda antar tick di Andon Heijunka & Perintah Pulling. Kosong/0 = tidak ada jeda (langsung seperti biasa).') }}">
+                                    <span class="kesei-status ml-1 text-xs"></span>
+                                </td>
+                                <td class="px-3 py-3 border-b border-l border-gray-300">
+                                    <input type="text"
+                                           class="kesei-inline w-24 rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
+                                           data-field="material_part_no"
+                                           data-url="{{ route('kesei.update', $item) }}"
+                                           value="{{ $item->material_part_no }}"
+                                           placeholder="—"
+                                           title="{{ __('Part No material (RM) — dipakai untuk kolom RM/Status di panel Closing Time Andon Kesei.') }}">
+                                    <span class="kesei-status ml-1 text-xs"></span>
+                                </td>
+                                <td class="px-3 py-3 border-b border-l border-gray-300">
+                                    <input type="text"
+                                           class="kesei-inline w-24 rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
+                                           data-field="material_level"
+                                           data-url="{{ route('kesei.update', $item) }}"
+                                           value="{{ $item->material_level }}"
+                                           placeholder="—">
                                     <span class="kesei-status ml-1 text-xs"></span>
                                 </td>
                                 <td class="px-6 py-3 border-b border-l border-gray-300">
@@ -172,7 +196,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="10" class="px-6 py-8 text-center text-gray-400 border-b border-gray-300">{{ __('Belum ada part di Kesei.') }}</td>
+                                <td colspan="12" class="px-6 py-8 text-center text-gray-400 border-b border-gray-300">{{ __('Belum ada part di Kesei.') }}</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -266,6 +290,8 @@
                                 if (field.dataset.field === 'level') field.value = d.level ?? '';
                                 if (field.dataset.field === 'pulling_command') field.value = d.pulling_command ?? '';
                                 if (field.dataset.field === 'lt_per_kbn') field.value = d.lt_per_kbn ?? '';
+                                if (field.dataset.field === 'material_part_no') field.value = d.material_part_no ?? '';
+                                if (field.dataset.field === 'material_level') field.value = d.material_level ?? '';
                             });
                     });
                 });

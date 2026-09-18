@@ -1,7 +1,8 @@
 @php
-    $columns = [
-        'Row', 'Kolom', 'Part No', 'Level', 'Perintah Pulling', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses',
-    ];
+    $beforeMaterial = ['Row', 'Kolom', 'Part No', 'Level'];
+    $afterMaterial = ['Perintah Pulling', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses'];
+    $rightAligned = ['Perintah Pulling', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses'];
+    $totalColumns = 1 + count($beforeMaterial) + 2 + count($afterMaterial) + 1;
 @endphp
 
 <p class="px-6 pt-4 text-sm text-gray-500">
@@ -10,13 +11,21 @@
 
 <div class="mx-6 my-6 overflow-auto border-2 border-gray-300 rounded-lg" style="max-height: calc(100vh - 340px);">
     <table class="min-w-full text-xs whitespace-nowrap border-separate border-spacing-0">
-        <thead>
+        <thead class="sticky top-0 z-10">
             <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
-                <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-gray-300">{{ __('No') }}</th>
-                @foreach ($columns as $label)
-                    <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 {{ in_array($label, ['Perintah Pulling', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses']) ? 'text-right' : '' }}">{{ __($label) }}</th>
+                <th rowspan="2" class="align-bottom bg-gray-50 px-4 py-3 border-b-2 border-gray-300">{{ __('No') }}</th>
+                @foreach ($beforeMaterial as $label)
+                    <th rowspan="2" class="align-bottom bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300">{{ __($label) }}</th>
                 @endforeach
-                <th class="sticky top-0 right-0 z-20 bg-gray-50 px-4 py-3 border-b-2 border-l-2 border-gray-300 text-right">{{ __('Aksi') }}</th>
+                <th colspan="2" class="bg-gray-50 px-4 py-1.5 border-b border-l border-gray-300 text-center">{{ __('Material') }}</th>
+                @foreach ($afterMaterial as $label)
+                    <th rowspan="2" class="align-bottom bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 {{ in_array($label, $rightAligned) ? 'text-right' : '' }}">{{ __($label) }}</th>
+                @endforeach
+                <th rowspan="2" class="align-bottom sticky right-0 z-20 bg-gray-50 px-4 py-3 border-b-2 border-l-2 border-gray-300 text-right">{{ __('Aksi') }}</th>
+            </tr>
+            <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <th class="bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300">{{ __('No Part') }}</th>
+                <th class="bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300">{{ __('Level') }}</th>
             </tr>
         </thead>
         <tbody>
@@ -27,6 +36,8 @@
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-gray-700">{{ $lotMaking->kolom ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 font-semibold text-gray-800">{{ $lotMaking->part?->part_no ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-gray-600">{{ \App\Models\LotMaking::LEVELS[$lotMaking->level] ?? '-' }}</td>
+                    <td class="px-4 py-2 border-b border-l border-gray-200 text-gray-600">{{ $lotMaking->material_part_no ?? '-' }}</td>
+                    <td class="px-4 py-2 border-b border-l border-gray-200 text-gray-600">{{ $lotMaking->material_level ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->pulling_command ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->lot_produksi ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->slot ?? '-' }}</td>
@@ -47,7 +58,7 @@
                 </tr>
             @empty
                 <tr>
-                    <td colspan="{{ count($columns) + 2 }}" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada data lot making.') }}</td>
+                    <td colspan="{{ $totalColumns }}" class="px-6 py-8 text-center text-gray-400">{{ __('Belum ada data lot making.') }}</td>
                 </tr>
             @endforelse
         </tbody>

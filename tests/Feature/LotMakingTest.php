@@ -81,6 +81,35 @@ class LotMakingTest extends TestCase
         $this->assertSame(7, $lm->dandori);
     }
 
+    public function test_material_part_no_and_level_can_be_set_and_updated(): void
+    {
+        $part = Part::create(['part_no' => 'P1']);
+
+        $this->actingAs($this->authorizedUser())
+            ->post(route('lot-makings.store'), [
+                'part_id' => $part->id,
+                'material_part_no' => 'RM-001',
+                'material_level' => 'L1',
+            ])
+            ->assertRedirect(route('lot-makings.index'));
+
+        $lm = LotMaking::first();
+        $this->assertSame('RM-001', $lm->material_part_no);
+        $this->assertSame('L1', $lm->material_level);
+
+        $this->actingAs($this->authorizedUser())
+            ->put(route('lot-makings.update', $lm), [
+                'part_id' => $part->id,
+                'material_part_no' => 'RM-002',
+                'material_level' => 'L2',
+            ])
+            ->assertRedirect(route('lot-makings.index'));
+
+        $lm->refresh();
+        $this->assertSame('RM-002', $lm->material_part_no);
+        $this->assertSame('L2', $lm->material_level);
+    }
+
     public function test_no_is_the_manually_set_position_that_drives_listing_order(): void
     {
         $partA = Part::create(['part_no' => 'AAA-111']);
