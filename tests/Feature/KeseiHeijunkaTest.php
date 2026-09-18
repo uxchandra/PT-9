@@ -13,15 +13,47 @@ class KeseiHeijunkaTest extends TestCase
 {
     use RefreshDatabase;
 
+    /**
+     * The page header always carries a static red "Kanban Pull" legend
+     * swatch (2 spans, unrelated to any actual tick) — tick-colour
+     * assertions scope to the timeline panel itself so that swatch can't be
+     * mistaken for an overdue tick.
+     */
+    private function timelinePanel(string $html): string
+    {
+        return substr($html, strpos($html, 'id="kesei-panel-timeline"'));
+    }
+
+    public function test_every_part_renders_as_active_regardless_of_todays_pattern(): void
+    {
+        // The Heijunka board isn't pattern-driven at all — a part with no
+        // pattern board assigned (never "running" on a normal Kesei/Scan
+        // board) must still render active (amber row, no "tidak jalan di
+        // pattern" dimming) here.
+        $part = Part::create(['part_no' => 'HJ-NOPATTERN']);
+        KeseiPart::create(['part_id' => $part->id, 'urutan' => 1]);
+
+        $html = $this->get(route('andon-kesei.heijunka'))->getContent();
+        $timeline = $this->timelinePanel($html);
+
+        $this->assertStringNotContainsString('opacity-40', $timeline);
+        $this->assertStringNotContainsString('tidak jalan di pattern', $timeline);
+        $this->assertStringContainsString('bg-amber', $timeline);
+
+        // The normal Kesei board is unaffected — the same part still dims.
+        $normal = $this->get(route('andon-kesei.show'))->getContent();
+        $this->assertStringContainsString('tidak jalan di pattern', $normal);
+    }
+
     public function test_the_board_is_public_and_shows_the_title(): void
     {
         $response = $this->get(route('andon-kesei.heijunka'));
 
         $response->assertOk();
-        $response->assertSee('HEIJUNKA LINE 9');
+        $response->assertSee('HEIJUNKA PULLING LINE STORE');
     }
 
-    public function test_ticks_release_one_at_a_time_paced_by_lt_per_kbn_instead_of_all_at_once(): void
+    public function test_ticks_release_one_at_a_time_paced_by_lt_per_kbn_and_stay_on_the_board_once_crossed(): void
     {
         Carbon::setTestNow('2026-09-15 08:30:00');
         $part = Part::create(['part_no' => 'HJ-1', 'qty_kbn' => 1]);
@@ -42,22 +74,80 @@ class KeseiHeijunkaTest extends TestCase
         $this->assertSame(4, substr_count($html, 'stok turun'));
 
         // Exactly at the first release — it's "thrown" to Perintah Pulling
-        // and drops off the board, leaving three still pending.
+        // (see the KeseiPull-focused test below) but NOT removed from the
+        // board — no scans have happened, so it's just unscanned-but-fresh
+        // (still green) for the first 15 minutes.
         Carbon::setTestNow('2026-09-15 09:00:00');
         $html = $this->get(route('andon-kesei.heijunka'))->getContent();
-        $this->assertSame(3, substr_count($html, 'stok turun'));
+        $this->assertSame(4, substr_count($html, 'stok turun'));
+        $this->assertSame(4, substr_count($this->timelinePanel($html), 'background-color: #22c55e'));
 
-        // Halfway to the third release — two have crossed (09:00, 09:30),
-        // two still pending (10:00, 10:30).
-        Carbon::setTestNow('2026-09-15 09:45:00');
+        // 16 minutes after the first release, still unscanned — it flips to
+        // overdue (red); the rest (not yet crossed) stay green.
+        Carbon::setTestNow('2026-09-15 09:16:00');
         $html = $this->get(route('andon-kesei.heijunka'))->getContent();
-        $this->assertSame(2, substr_count($html, 'stok turun'));
+        $this->assertSame(4, substr_count($html, 'stok turun'));
+        $this->assertSame(1, substr_count($this->timelinePanel($html), 'background-color: #ff3b3b'));
+        $this->assertSame(3, substr_count($this->timelinePanel($html), 'background-color: #22c55e'));
 
-        // Past the last (30*4 = 120min after arrival) — all four have
-        // crossed and none remain on the board.
-        Carbon::setTestNow('2026-09-15 10:31:00');
+        // Long after every release — all four crossed, none scanned, all
+        // overdue. Still all four present, none removed.
+        Carbon::setTestNow('2026-09-15 12:00:00');
         $html = $this->get(route('andon-kesei.heijunka'))->getContent();
-        $this->assertSame(0, substr_count($html, 'stok turun'));
+        $this->assertSame(4, substr_count($html, 'stok turun'));
+        $this->assertSame(4, substr_count($this->timelinePanel($html), 'background-color: #ff3b3b'));
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_scanned_crossed_tick_turns_blue(): void
+    {
+        Carbon::setTestNow('2026-09-15 12:00:00');
+        $part = Part::create(['part_no' => 'HJ-SCAN', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+
+        StockSnapshot::create(['part_no' => 'HJ-SCAN', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:00')]);
+        // -1 kanban, no LT/KBN pacing, so it releases (and crosses) immediately at 10:00.
+        StockSnapshot::create(['part_no' => 'HJ-SCAN', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 10:00')]);
+
+        \App\Models\KeseiScan::create(['part_no' => 'HJ-SCAN', 'location' => 'finish-goods', 'raw' => 'HJ-SCAN', 'scanned_by' => \App\Models\User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-15 10:05')]);
+
+        $html = $this->get(route('andon-kesei.heijunka'))->getContent();
+        $timeline = $this->timelinePanel($html);
+
+        $this->assertSame(1, substr_count($html, 'stok turun'));
+        $this->assertSame(1, substr_count($timeline, 'background-color: #3b82f6'));
+        $this->assertStringNotContainsString('background-color: #ff3b3b', $timeline);
+        $this->assertStringNotContainsString('background-color: #22c55e', $timeline);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_scanned_tick_disappears_once_its_crossing_is_more_than_3_hours_old_but_a_fresher_one_does_not(): void
+    {
+        Carbon::setTestNow('2026-09-15 12:00:00');
+        $part = Part::create(['part_no' => 'HJ-STALE', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+
+        StockSnapshot::create(['part_no' => 'HJ-STALE', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:00')]);
+        // Crossed 4 hours ago — once matched to a scan, it's stale and drops.
+        StockSnapshot::create(['part_no' => 'HJ-STALE', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        // Crossed 1 hour ago — matched to a scan too, but recent enough to stay (blue).
+        StockSnapshot::create(['part_no' => 'HJ-STALE', 'stock' => 98, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 11:00')]);
+
+        // Two scans — enough to mark BOTH crossed ticks as scanned (FIFO,
+        // oldest release first).
+        \App\Models\KeseiScan::create(['part_no' => 'HJ-STALE', 'location' => 'finish-goods', 'raw' => 'HJ-STALE', 'scanned_by' => \App\Models\User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-15 08:05')]);
+        \App\Models\KeseiScan::create(['part_no' => 'HJ-STALE', 'location' => 'finish-goods', 'raw' => 'HJ-STALE', 'scanned_by' => \App\Models\User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-15 11:05')]);
+
+        $html = $this->get(route('andon-kesei.heijunka'))->getContent();
+        $timeline = $this->timelinePanel($html);
+
+        // Only the 1-hour-old one remains, still blue.
+        $this->assertSame(1, substr_count($html, 'stok turun'));
+        $this->assertSame(1, substr_count($timeline, 'background-color: #3b82f6'));
+        $this->assertStringNotContainsString('08:00 — stok turun', $html);
+        $this->assertStringContainsString('11:00 — stok turun', $html);
 
         Carbon::setTestNow();
     }

@@ -112,14 +112,38 @@
                             @endforeach
                             @endunless
                             @foreach ($stockDecreaseEvents[$row['id']] ?? [] as $event)
+                                @php
+                                    // Heijunka recolours its ticks by status
+                                    // instead of the flat red every other
+                                    // board uses — see KeseiBoard::
+                                    // heijunkaVisualEvents().
+                                    $tickColor = '#ff3b3b';
+                                    $tickGlow = 'rgba(255,59,59,0.9)';
+                                    $tickTitleSuffix = '';
+                                    if ($isHeijunka ?? false) {
+                                        $status = $event['heijunka_status'] ?? 'pending';
+                                        if ($status === 'scanned') {
+                                            $tickColor = '#3b82f6';
+                                            $tickGlow = 'rgba(59,130,246,0.9)';
+                                            $tickTitleSuffix = ' — sudah discan';
+                                        } elseif ($status === 'overdue') {
+                                            $tickColor = '#ff3b3b';
+                                            $tickGlow = 'rgba(255,59,59,0.9)';
+                                            $tickTitleSuffix = ' — belum discan >15 menit';
+                                        } else {
+                                            $tickColor = '#22c55e';
+                                            $tickGlow = 'rgba(34,197,94,0.9)';
+                                        }
+                                    }
+                                @endphp
                                 {{-- The controller already drops ticks that folded at the last run-day
                                      closing; whatever is left here is the live pile and always shows. --}}
                                 <div class="absolute top-1 bottom-0.5 z-10 flex flex-col items-center"
                                      style="left: {{ ($event['minute'] - $dayStart) * $pxPerMinute }}px;"
-                                     title="{{ $event['time'] }} — stok turun {{ $event['kanban'] }} kanban ({{ $event['pcs'] }} pcs)">
+                                     title="{{ $event['time'] }} — stok turun {{ $event['kanban'] }} kanban ({{ $event['pcs'] }} pcs){{ $tickTitleSuffix }}">
                                     <div class="flex-1 flex items-end gap-px">
                                         @for ($i = 0; $i < $event['kanban']; $i++)
-                                            <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b; box-shadow: 0 0 3px rgba(255,59,59,0.9);"></span>
+                                            <span class="block w-0.5 h-full rounded-sm" style="background-color: {{ $tickColor }}; box-shadow: 0 0 3px {{ $tickGlow }};"></span>
                                         @endfor
                                     </div>
                                     @unless ($isHeijunka ?? false)

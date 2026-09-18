@@ -134,7 +134,7 @@ class KeseiBoard
             ->orderBy('urutan')
             ->orderBy('id')
             ->get()
-            ->map(function (KeseiPart $kesei) use ($now, $historyFloor) {
+            ->map(function (KeseiPart $kesei) use ($now, $historyFloor, $tickSource) {
                 [$foldStart, $cycleStart] = $kesei->foldBoundaries($now);
                 // Canonical "pola" — every pattern this row belongs to,
                 // alphabetised into one string (e.g. "AC", "ABCD") so it
@@ -167,8 +167,11 @@ class KeseiBoard
                     'pola_color' => $this->polaColor($pola),
                     // The pattern of the run this closing is for.
                     'planned_pattern' => $kesei->plannedPatternName($now),
-                    // Is this part actively running under today's Calendar pattern?
-                    'runs_today' => $kesei->isRunningNow($now),
+                    // Is this part actively running under today's Calendar
+                    // pattern? The Heijunka board isn't pattern-driven at
+                    // all — every part is treated as active there,
+                    // regardless of what's running today.
+                    'runs_today' => $tickSource === 'heijunka' ? true : $kesei->isRunningNow($now),
                     // Has it passed its closing for the current run? Only then
                     // does it appear in the Closing Time table.
                     'closed_now' => $kesei->closedForCurrentRun($now),
@@ -222,16 +225,22 @@ class KeseiBoard
         // Heijunka: the raw stock-decrease events aren't shown as-is — each
         // row's own pile is re-timed through its Lead Time per Kanban first
         // (see heijunkaRelease()), same underlying stock feed as the normal
-        // board, just paced instead of appearing all at once. And unlike
-        // the normal board's ticks (which pile up until closing), a
-        // heijunka tick only shows while it's still queued/not yet due —
-        // the moment the progress bar reaches it, it's counted into
-        // Perintah Pulling instead (see KeseiPull) and drops off the board.
+        // board, just paced instead of appearing all at once. Every release
+        // stays on the board once crossed by the progress bar (unlike
+        // Perintah Pulling demand, which drops it the instant it's crossed —
+        // see KeseiPull) — see heijunkaVisualEvents() for the green/red/blue
+        // colour states this tags each one with, and when a stale scanned
+        // one finally gets dropped.
         if ($tickSource === 'heijunka') {
             $ltByRowId = $keseiRows->pluck('lt_per_kbn', 'id');
+            $scannedCountByRowId = $this->heijunkaScannedCounts($keseiRows);
 
             $allEvents = collect($allEvents)
-                ->map(fn (array $events, $rowId) => $this->heijunkaPendingEvents(collect($events), (int) ($ltByRowId[$rowId] ?? 0))->all())
+                ->map(fn (array $events, $rowId) => $this->heijunkaVisualEvents(
+                    collect($events),
+                    (int) ($ltByRowId[$rowId] ?? 0),
+                    $scannedCountByRowId[$rowId] ?? 0
+                )->all())
                 ->all();
         }
 
@@ -722,24 +731,121 @@ class KeseiBoard
     }
 
     /**
-     * The Andon Kesei Heijunka board's own tick set — the flip side of
-     * heijunkaEvents(): a red tick there is the still-queued kanban waiting
-     * for its paced release, so it shows only what has NOT been crossed by
-     * the progress bar yet. The instant "now" reaches a release, it's
-     * simultaneously counted into Perintah Pulling demand (heijunkaEvents())
-     * and stops being returned here — it doesn't linger on the board once
-     * it's been "thrown" to the scanner.
+     * The Andon Kesei Heijunka board's own tick set — every release, paced
+     * or not, tagged with a 'heijunka_status' the blade uses to colour it
+     * (see andon-kesei/_timeline-dark.blade.php):
+     *
+     *  - 'pending' (green) — not yet crossed by the progress bar, OR just
+     *    crossed within the last 15 minutes and not yet scanned (a grace
+     *    period before it's flagged as overdue).
+     *  - 'overdue' (red) — crossed more than 15 minutes ago and still not
+     *    scanned.
+     *  - 'scanned' (blue) — crossed, and matched to an actual scan (see
+     *    below).
+     *
+     * Unlike heijunkaEvents() (used for Perintah Pulling demand), a crossed
+     * tick is NOT dropped the instant it's crossed — it stays on the board so
+     * staff can see what's overdue. It only disappears once it's 'scanned'
+     * AND that crossing happened more than 3 hours ago (stale housekeeping —
+     * an old fulfilled tick isn't useful to keep looking at forever).
+     *
+     * "Scanned" isn't tracked per-tick anywhere (KeseiScan only records that
+     * a scan happened, not which specific kanban it fulfilled), so it's
+     * approximated by FIFO: of the $scannedCount most recent scans logged
+     * for this row, the EARLIEST-crossed ticks are assumed fulfilled first —
+     * the same oldest-demand-first assumption a real kanban pull follows.
      *
      * @param  Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>  $events
-     * @return Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>
+     * @return Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon, heijunka_status: string}>
      */
-    public function heijunkaPendingEvents(Collection $events, int $ltPerKbn): Collection
+    public function heijunkaVisualEvents(Collection $events, int $ltPerKbn, int $scannedCount): Collection
     {
         $now = now();
+        $released = $this->heijunkaRelease($events, $ltPerKbn)->sortBy('at')->values();
 
-        return $this->heijunkaRelease($events, $ltPerKbn)
-            ->filter(fn (array $e) => $e['at']->gt($now))
-            ->values();
+        $crossedTotal = $released->filter(fn (array $e) => $e['at']->lte($now))->count();
+        $scannedOfCrossed = min($scannedCount, $crossedTotal);
+
+        $crossedSeen = 0;
+        $result = collect();
+
+        foreach ($released as $event) {
+            if ($event['at']->gt($now)) {
+                $event['heijunka_status'] = 'pending';
+                $result->push($event);
+
+                continue;
+            }
+
+            $crossedSeen++;
+            $minutesSinceCrossed = $event['at']->diffInMinutes($now);
+
+            if ($crossedSeen <= $scannedOfCrossed) {
+                if ($minutesSinceCrossed > 180) {
+                    continue; // Scanned and stale (>3h) — drop it.
+                }
+
+                $event['heijunka_status'] = 'scanned';
+            } else {
+                $event['heijunka_status'] = $minutesSinceCrossed > 15 ? 'overdue' : 'pending';
+            }
+
+            $result->push($event);
+        }
+
+        return $result->values();
+    }
+
+    /**
+     * How many scans have landed for each row since its own fold_start —
+     * used by heijunkaVisualEvents() to work out which crossed ticks have
+     * actually been fulfilled. One query covers every row.
+     *
+     * @param  Collection<int, array<string, mixed>>  $keseiRows
+     * @return array<int, int>
+     */
+    private function heijunkaScannedCounts(Collection $keseiRows): array
+    {
+        if ($keseiRows->isEmpty()) {
+            return [];
+        }
+
+        $rowByPartNo = [];
+        foreach ($keseiRows as $row) {
+            foreach (array_merge([$row['label']], $row['sources']) as $partNo) {
+                $rowByPartNo[$partNo] = $row['id'];
+            }
+        }
+
+        $foldStartByRow = $keseiRows->pluck('fold_start', 'id');
+        $earliestFoldStart = $foldStartByRow->min();
+
+        $counts = array_fill_keys($keseiRows->pluck('id')->all(), 0);
+
+        if ($rowByPartNo === [] || $earliestFoldStart === null) {
+            return $counts;
+        }
+
+        KeseiScan::whereIn('part_no', array_keys($rowByPartNo))
+            ->where('scanned_at', '>', $earliestFoldStart)
+            ->get(['part_no', 'scanned_at'])
+            ->each(function (KeseiScan $scan) use (&$counts, $rowByPartNo, $foldStartByRow) {
+                $rowId = $rowByPartNo[$scan->part_no] ?? null;
+
+                if ($rowId === null) {
+                    return;
+                }
+
+                $foldStart = $foldStartByRow[$rowId] ?? null;
+
+                if ($foldStart !== null && $scan->scanned_at->lte($foldStart)) {
+                    return;
+                }
+
+                $counts[$rowId] = ($counts[$rowId] ?? 0) + 1;
+            });
+
+        return $counts;
     }
 
     /**

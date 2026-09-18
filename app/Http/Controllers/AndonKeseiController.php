@@ -49,7 +49,7 @@ class AndonKeseiController extends Controller
         $viewData = $board->data('heijunka');
         $viewData['isHeijunka'] = true;
 
-        return $this->render($request, $viewData, 'HEIJUNKA LINE 9', 60000);
+        return $this->render($request, $viewData, 'HEIJUNKA PULLING LINE STORE', 60000);
     }
 
     private function render(Request $request, array $viewData, string $title, int $pollMs): Response|JsonResponse
