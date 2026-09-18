@@ -178,6 +178,13 @@
                                 </svg>
                                 {{ __('Kesei v2') }}
                             </a>
+                            <a href="{{ route('andon-kesei.heijunka') }}" target="_blank"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l2.5 2.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                {{ __('Heijunka') }}
+                            </a>
                             <a href="{{ route('andon-lot-making.show') }}" target="_blank"
                                class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">
                                 <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

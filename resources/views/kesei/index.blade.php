@@ -55,6 +55,7 @@
                             <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-28 whitespace-nowrap">{{ __('Part No') }}</th>
                             <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-20 whitespace-nowrap">{{ __('Level') }}</th>
                             <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-28 whitespace-nowrap">{{ __('Perintah Pulling') }}</th>
+                            <th class="sticky top-0 z-10 bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-24 whitespace-nowrap">{{ __('LT/KBN') }}</th>
                             <th class="sticky top-0 z-10 bg-gray-50 px-6 py-3 border-b-2 border-l border-gray-300">{{ __('SOS Code') }}</th>
                             <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 w-40">{{ __('Closing Time') }}</th>
                             <th class="sticky top-0 z-10 bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 w-40">{{ __('Pattern') }}</th>
@@ -86,6 +87,16 @@
                                            value="{{ $item->pulling_command }}"
                                            placeholder="—"
                                            title="{{ __('Target Finish Goods saat ini — otomatis lanjut mengikuti penurunan stok & scan setelah diisi.') }}">
+                                    <span class="kesei-status ml-1 text-xs"></span>
+                                </td>
+                                <td class="px-3 py-3 border-b border-l border-gray-300">
+                                    <input type="number" min="0" inputmode="numeric"
+                                           class="kesei-inline w-16 rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
+                                           data-field="lt_per_kbn"
+                                           data-url="{{ route('kesei.update', $item) }}"
+                                           value="{{ $item->lt_per_kbn }}"
+                                           placeholder="—"
+                                           title="{{ __('Lead Time per Kanban (menit) — jeda antar tick di Andon Heijunka & Perintah Pulling. Kosong/0 = tidak ada jeda (langsung seperti biasa).') }}">
                                     <span class="kesei-status ml-1 text-xs"></span>
                                 </td>
                                 <td class="px-6 py-3 border-b border-l border-gray-300">
@@ -161,7 +172,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="9" class="px-6 py-8 text-center text-gray-400 border-b border-gray-300">{{ __('Belum ada part di Kesei.') }}</td>
+                                <td colspan="10" class="px-6 py-8 text-center text-gray-400 border-b border-gray-300">{{ __('Belum ada part di Kesei.') }}</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -254,6 +265,7 @@
                                 if (field.dataset.field === 'stock_source') field.value = d.stock_source ?? '';
                                 if (field.dataset.field === 'level') field.value = d.level ?? '';
                                 if (field.dataset.field === 'pulling_command') field.value = d.pulling_command ?? '';
+                                if (field.dataset.field === 'lt_per_kbn') field.value = d.lt_per_kbn ?? '';
                             });
                     });
                 });

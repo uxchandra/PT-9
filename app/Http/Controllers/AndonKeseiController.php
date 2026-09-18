@@ -14,9 +14,14 @@ use Illuminate\Http\Response;
  * pattern-driven /andon board, so this page's dark styling never bleeds
  * into that one.
  *
- * Two flavours, identical except for where the red ticks come from:
- *  - show()     — ticks from the Stock Part All API feed
- *  - showScan() — ticks from scanned SOS labels (kesei_scans)
+ * Three flavours, identical except for where the red ticks come from:
+ *  - show()         — ticks from the Stock Part All API feed
+ *  - showScan()      — ticks from scanned SOS labels (kesei_scans)
+ *  - showHeijunka()  — the same Stock Part All feed as show(), but each
+ *    part's pile is paced through its own Lead Time per Kanban first (see
+ *    KeseiBoard::heijunkaEvents()) instead of appearing all at once —
+ *    exactly what KeseiPull's own "Perintah Pulling" demand now uses too,
+ *    for every part board-wide, not just this one.
  */
 class AndonKeseiController extends Controller
 {
@@ -31,6 +36,11 @@ class AndonKeseiController extends Controller
         // tick lands on the wall board almost immediately, not on the stock
         // board's 60s cadence (stock only moves every 15 minutes anyway).
         return $this->render($request, $board->data('scan'), 'KESEI SCAN LINE 9', 3000);
+    }
+
+    public function showHeijunka(Request $request, KeseiBoard $board): Response|JsonResponse
+    {
+        return $this->render($request, $board->data('heijunka'), 'HEIJUNKA LINE 9', 60000);
     }
 
     private function render(Request $request, array $viewData, string $title, int $pollMs): Response|JsonResponse

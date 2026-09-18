@@ -153,6 +153,9 @@ class KeseiBoard
                     // cache's freeze/thaw round-trip without special-casing.
                     'pulling_command' => $kesei->pulling_command,
                     'pulling_command_set_at' => $kesei->pulling_command_set_at?->toDateTimeString(),
+                    // Lead Time per Kanban (minutes) — see
+                    // KeseiBoard::heijunkaRelease() / KeseiPull::demandRow().
+                    'lt_per_kbn' => $kesei->lt_per_kbn,
                     'qty_kbn' => $kesei->part?->qty_kbn,
                     'sources' => $kesei->sourcePartNos(),
                     'patterns' => $kesei->patternBoards->pluck('name')->all(),
@@ -200,6 +203,19 @@ class KeseiBoard
         $allEvents = $tickSource === 'scan'
             ? $this->buildScanEvents($keseiRows, $queryStart, $now)
             : $this->buildStockDecreaseEvents($keseiRows, $seedStock, $stockByTime);
+
+        // Heijunka: the raw stock-decrease events aren't shown as-is — each
+        // row's own pile is re-timed through its Lead Time per Kanban first
+        // (see heijunkaRelease()), same underlying stock feed as the normal
+        // board, just paced instead of appearing all at once.
+        if ($tickSource === 'heijunka') {
+            $ltByRowId = $keseiRows->pluck('lt_per_kbn', 'id');
+
+            $allEvents = collect($allEvents)
+                ->map(fn (array $events, $rowId) => $this->heijunkaEvents(collect($events), (int) ($ltByRowId[$rowId] ?? 0))->all())
+                ->all();
+        }
+
         [$stockDecreaseEvents, $closingKanban] = $this->splitEvents($keseiRows, $allEvents);
 
         return [
@@ -262,6 +278,7 @@ class KeseiBoard
             'label' => $part->part?->part_no ?? '(part terhapus)',
             'pulling_command' => $part->pulling_command,
             'pulling_command_set_at' => $part->pulling_command_set_at?->toDateTimeString(),
+            'lt_per_kbn' => $part->lt_per_kbn,
             'qty_kbn' => $part->part?->qty_kbn,
             'sources' => $sources,
             'closing_reached' => $foldStart !== null,
@@ -627,6 +644,70 @@ class KeseiBoard
         }
 
         return $events;
+    }
+
+    /**
+     * Heijunka-paced version of a part's raw decrease events (used by the
+     * Andon Kesei Heijunka board, and by KeseiPull for every part's
+     * "Perintah Pulling" demand — see KeseiPull::demandRow()): instead of
+     * every kanban in a batch becoming a tick all at once, they "release"
+     * one at a time, lt_per_kbn minutes apart, queued FIFO — see
+     * heijunkaRelease() for the queueing itself. Only releases at/before
+     * right now are returned; the rest haven't been "crossed" by the
+     * progress bar/now-line yet, so they don't count as due yet either
+     * visually or for demand. lt_per_kbn <= 0 is a no-op — every kanban
+     * releases at its own arrival time, mathematically identical to the raw
+     * events (just exploded to one entry per unit) — so a part with no
+     * Lead Time per Kanban set behaves exactly as it always has.
+     *
+     * @param  Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>  $events
+     * @return Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>
+     */
+    public function heijunkaEvents(Collection $events, int $ltPerKbn): Collection
+    {
+        $now = now();
+
+        return $this->heijunkaRelease($events, $ltPerKbn)
+            ->filter(fn (array $e) => $e['at']->lte($now))
+            ->values();
+    }
+
+    /**
+     * A single-server FIFO queue: each event's kanban units wait for their
+     * turn, lt_per_kbn minutes apart, starting no earlier than the event's
+     * own arrival — but if the queue is still busy releasing an earlier
+     * batch when this one arrives, its units queue up right behind them
+     * (starting at whichever is later: this event's arrival, or the moment
+     * the queue frees up) instead of bursting in on top of them.
+     *
+     * @param  Collection<int, array{kanban: int, at: Carbon}>  $events
+     * @return Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>
+     */
+    private function heijunkaRelease(Collection $events, int $ltPerKbn): Collection
+    {
+        $released = collect();
+        $queueFreeAt = null; // Carbon|null — when the queue is next free to start releasing a new unit.
+
+        foreach ($events->sortBy('at')->values() as $event) {
+            $start = $ltPerKbn > 0 && $queueFreeAt !== null && $queueFreeAt->gt($event['at'])
+                ? $queueFreeAt
+                : $event['at'];
+
+            for ($i = 1; $i <= $event['kanban']; $i++) {
+                $at = $ltPerKbn > 0 ? $start->copy()->addMinutes($ltPerKbn * $i) : $start->copy();
+                $released->push([
+                    'minute' => $this->clockMinute($at),
+                    'kanban' => 1,
+                    'pcs' => 1,
+                    'time' => $at->format('H:i'),
+                    'at' => $at,
+                ]);
+            }
+
+            $queueFreeAt = $ltPerKbn > 0 ? $start->copy()->addMinutes($ltPerKbn * $event['kanban']) : $start;
+        }
+
+        return $released->values();
     }
 
     /**

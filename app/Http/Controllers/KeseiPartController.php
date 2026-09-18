@@ -65,6 +65,10 @@ class KeseiPartController extends Controller
             // demandRow() for how it seeds/corrects the rolling stock-based
             // count. Editable any time, not just once.
             'pulling_command' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            // Lead Time per Kanban (minutes) — how long a heijunka-paced
+            // release queue takes to mature one kanban. Blank/0 = no pacing
+            // (see KeseiBoard::heijunkaRelease()).
+            'lt_per_kbn' => ['sometimes', 'nullable', 'integer', 'min:0'],
             // The full set of closing times for this row — sending it replaces
             // whatever was there before (same "sync" shape as pattern_board_ids).
             'closings' => ['sometimes', 'array'],
@@ -89,6 +93,9 @@ class KeseiPartController extends Controller
             $updates['pulling_command'] = $validated['pulling_command'];
             $updates['pulling_command_set_at'] = $validated['pulling_command'] !== null ? now() : null;
         }
+        if (array_key_exists('lt_per_kbn', $validated)) {
+            $updates['lt_per_kbn'] = $validated['lt_per_kbn'];
+        }
         if ($updates !== []) {
             $keseiPart->update($updates);
         }
@@ -109,6 +116,7 @@ class KeseiPartController extends Controller
                 'stock_source' => $keseiPart->stock_source,
                 'level' => $keseiPart->level,
                 'pulling_command' => $keseiPart->pulling_command,
+                'lt_per_kbn' => $keseiPart->lt_per_kbn,
                 'closings' => $keseiPart->closings->map(fn (KeseiPartClosing $c) => [
                     'closing_time' => $c->closing_time->format('H:i'),
                     'closing_mode' => $c->closing_mode,

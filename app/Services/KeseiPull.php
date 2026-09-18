@@ -17,6 +17,14 @@ use Illuminate\Support\Collection;
  *        needed_new = needed_old - scanned_old + decrease_this_interval
  *    The page's "last update" is the time of the newest stock-feed capture (the
  *    same 15-minute cadence as Timeline Stok). Over-scanning is rejected.
+ *
+ *    The stock decrease itself isn't added to the target the instant it's
+ *    captured, though — every part's own Lead Time per Kanban paces it
+ *    through KeseiBoard::heijunkaEvents() first (a part with none set, the
+ *    common case, releases every kanban immediately — mathematically a
+ *    no-op — so this doesn't change anything for it). Only once the
+ *    "now"/progress-bar has actually crossed a given kanban's paced release
+ *    moment does it count toward `needed` at all.
  *  - free (Store 3): every part with the right `level` is listed with no
  *    target — the operator may scan it any number of times. Scanning a part
  *    that is not on the list is still rejected.
@@ -68,7 +76,10 @@ class KeseiPull
             ->filter(fn (array $row) => in_array(strtoupper(trim((string) $row['level'])), $levels, true))
             ->map(fn (array $row) => $free
                 ? $this->freeRow($row)
-                : $this->demandRow($row, collect($data['stockDecreaseEvents'][$row['id']] ?? [])))
+                : $this->demandRow($row, $this->board->heijunkaEvents(
+                    collect($data['stockDecreaseEvents'][$row['id']] ?? []),
+                    (int) ($row['lt_per_kbn'] ?? 0)
+                )))
             // demand mode only lists parts that still have something to do.
             ->when(! $free, fn (Collection $c) => $c->filter(fn (array $r) => $r['needed'] > 0 || $r['scanned'] > 0))
             ->sortBy('done')
@@ -140,7 +151,9 @@ class KeseiPull
             return null;
         }
 
-        return $this->demandRow($ctx['row'], collect($ctx['events']));
+        $events = $this->board->heijunkaEvents(collect($ctx['events']), (int) ($part->lt_per_kbn ?? 0));
+
+        return $this->demandRow($ctx['row'], $events);
     }
 
     /**

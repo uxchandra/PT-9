@@ -484,6 +484,24 @@ class KeseiTest extends TestCase
         $this->assertNull($fresh->pulling_command_set_at);
     }
 
+    public function test_lt_per_kbn_can_be_set_inline_via_patch(): void
+    {
+        $entry = KeseiPart::create(['part_id' => Part::create(['part_no' => 'P1'])->id, 'urutan' => 1]);
+
+        $this->actingAs($this->authorizedUser())
+            ->patchJson(route('kesei.update', $entry), ['lt_per_kbn' => 30])
+            ->assertOk()
+            ->assertJson(['ok' => true, 'lt_per_kbn' => 30]);
+
+        $this->assertSame(30, $entry->fresh()->lt_per_kbn);
+
+        $this->actingAs($this->authorizedUser())
+            ->patchJson(route('kesei.update', $entry), ['lt_per_kbn' => ''])
+            ->assertOk();
+
+        $this->assertNull($entry->fresh()->lt_per_kbn);
+    }
+
     public function test_import_sets_and_updates_stock_source(): void
     {
         $existing = Part::create(['part_no' => 'EXISTING']);
