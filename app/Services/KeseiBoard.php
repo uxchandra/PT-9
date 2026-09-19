@@ -196,6 +196,15 @@ class KeseiBoard
                 ];
             })
             ->filter(fn (array $row) => $row['sources'] !== [])
+            // Heijunka only paces Finish Goods demand (that's the only card
+            // its releases feed into — see KeseiPull) — other levels (e.g.
+            // Store 3) have no heijunka story, so they're left off this
+            // board entirely rather than showing up with nothing useful to
+            // say. Same level values KeseiPull::LOCATIONS['finish-goods']
+            // matches against.
+            ->when($tickSource === 'heijunka', fn (Collection $rows) => $rows->filter(
+                fn (array $row) => in_array(strtoupper(trim((string) $row['level'])), ['FINISH GOODS', 'FINISH GOOD', 'FG'], true)
+            ))
             // Parts actively running under today's pattern float to the top —
             // stable sort, so within "running" and "not running" each keeps
             // its normal urutan/id order.

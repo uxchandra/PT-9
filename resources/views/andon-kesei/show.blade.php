@@ -154,6 +154,7 @@
                         replacePanel('kesei-panel-timeline', data.timeline);
                         lastTimeline = data.timeline;
                         if (window.__keseiNowSync) window.__keseiNowSync();
+                        if (window.__keseiHeaderSync) window.__keseiHeaderSync();
                     }
                     if (lastClosing !== null && data.closingTable !== lastClosing) { replacePanel('kesei-panel-closing', data.closingTable); lastClosing = data.closingTable; }
                     if (lastAntrian !== null && data.antrianFixVolume !== lastAntrian) { replacePanel('kesei-panel-antrian', data.antrianFixVolume); lastAntrian = data.antrianFixVolume; }
@@ -220,6 +221,38 @@
                     scroller.scrollTop = next;
                 }
             }, TICK_MS);
+        })();
+
+        // Keeps the time-axis header's horizontal scroll position mirroring
+        // the rows below it — the header is a structurally separate scroller
+        // now (see andon-kesei/_timeline-dark.blade.php) so it can never
+        // disappear on a vertical scroll the way a "position: sticky" row
+        // could in some browsers, but that means its own horizontal position
+        // has to be driven explicitly instead of coming along for free. A
+        // panel refresh replaces both elements via innerHTML, so the scroll
+        // listener is (re)bound every time this runs, same reasoning as
+        // __keseiNowSync below.
+        (function () {
+            let boundRows = null;
+            let onScroll = null;
+
+            function sync() {
+                const header = document.getElementById('kesei-timeline-header-scroll');
+                const rows = document.getElementById('kesei-timeline-rows-scroll');
+                if (!header || !rows) return;
+
+                if (rows !== boundRows) {
+                    if (boundRows && onScroll) boundRows.removeEventListener('scroll', onScroll);
+                    onScroll = function () { header.scrollLeft = rows.scrollLeft; };
+                    rows.addEventListener('scroll', onScroll);
+                    boundRows = rows;
+                }
+
+                header.scrollLeft = rows.scrollLeft;
+            }
+
+            window.__keseiHeaderSync = sync;
+            sync();
         })();
 
         // Vertical "now" line on the Kesei timeline — nudged forward every

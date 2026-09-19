@@ -12,11 +12,18 @@
         $polaWidth = 56;
         $sidebarWidth = $labelWidth + $polaWidth;
     @endphp
-    <div class="andon-scroll h-full overflow-auto bg-black">
-        <div class="h-full flex flex-col" style="width: {{ $sidebarWidth + $totalWidth }}px;">
+    <div class="h-full flex flex-col bg-black">
 
-            {{-- Time axis header --}}
-            <div class="shrink-0 flex sticky top-0 z-30 bg-black border-b-2 border-white">
+        {{-- Time axis header — a separate scroller from the rows below (kept
+             in sync horizontally via JS, see show.blade.php's
+             __keseiHeaderSync), instead of "position: sticky" inside the same
+             scroller. This guarantees it can never scroll out of view no
+             matter how tall the row list gets — the same guarantee the
+             page's own title bar and legend row have, since it now sits
+             structurally outside the vertically-scrolling rows container
+             entirely, not just visually pinned within it. --}}
+        <div id="kesei-timeline-header-scroll" class="shrink-0 overflow-x-hidden overflow-y-hidden bg-black border-b-2 border-white">
+            <div class="flex" style="width: {{ $sidebarWidth + $totalWidth }}px;">
                 <div class="sticky left-0 z-40 bg-black shrink-0 flex" style="width: {{ $sidebarWidth }}px;">
                     <div class="shrink-0" style="width: {{ $labelWidth }}px;"></div>
                     <div class="shrink-0 flex items-center justify-center border-l border-white/10 text-[9px] uppercase tracking-wide text-slate-400 font-semibold" style="width: {{ $polaWidth }}px;">
@@ -32,9 +39,11 @@
                     @endfor
                 </div>
             </div>
+        </div>
 
-            {{-- Part rows --}}
-            <div class="relative flex-1">
+        {{-- Part rows — the only element that actually scrolls vertically. --}}
+        <div id="kesei-timeline-rows-scroll" class="andon-scroll flex-1 min-h-0 overflow-auto bg-black">
+            <div class="relative" style="width: {{ $sidebarWidth + $totalWidth }}px; min-height: 100%;">
                 @for ($t = $dayStart; $t <= $timelineEnd; $t += 60)
                     <div class="grid-line-dark z-0" style="left: {{ $sidebarWidth + ($t - $dayStart) * $pxPerMinute }}px;"></div>
                 @endfor

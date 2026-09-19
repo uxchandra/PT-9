@@ -32,7 +32,7 @@ class KeseiHeijunkaTest extends TestCase
         // its own neutral slate row colour instead of the amber the other
         // boards use for "active" — see _timeline-dark.blade.php.
         $part = Part::create(['part_no' => 'HJ-NOPATTERN']);
-        KeseiPart::create(['part_id' => $part->id, 'urutan' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
 
         $html = $this->get(route('andon-kesei.heijunka'))->getContent();
         $timeline = $this->timelinePanel($html);
@@ -45,6 +45,29 @@ class KeseiHeijunkaTest extends TestCase
         // The normal Kesei board is unaffected — the same part still dims.
         $normal = $this->get(route('andon-kesei.show'))->getContent();
         $this->assertStringContainsString('tidak jalan di pattern', $normal);
+    }
+
+    public function test_only_finish_goods_level_parts_are_shown(): void
+    {
+        $fg = Part::create(['part_no' => 'HJ-FG']);
+        KeseiPart::create(['part_id' => $fg->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+
+        $store3 = Part::create(['part_no' => 'HJ-STORE3']);
+        KeseiPart::create(['part_id' => $store3->id, 'level' => 'STORE 3', 'urutan' => 2]);
+
+        $blank = Part::create(['part_no' => 'HJ-BLANK']);
+        KeseiPart::create(['part_id' => $blank->id, 'urutan' => 3]);
+
+        $html = $this->get(route('andon-kesei.heijunka'))->getContent();
+
+        $this->assertStringContainsString('HJ-FG', $html);
+        $this->assertStringNotContainsString('HJ-STORE3', $html);
+        $this->assertStringNotContainsString('HJ-BLANK', $html);
+
+        // The normal Kesei board is unaffected — it still shows every level.
+        $normal = $this->get(route('andon-kesei.show'))->getContent();
+        $this->assertStringContainsString('HJ-STORE3', $normal);
+        $this->assertStringContainsString('HJ-BLANK', $normal);
     }
 
     public function test_the_board_is_public_and_shows_the_title(): void
