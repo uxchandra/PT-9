@@ -1,7 +1,7 @@
 @php
     $beforeMaterial = ['Row', 'Kolom', 'Part No', 'Level'];
-    $afterMaterial = ['Perintah Pulling', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses'];
-    $rightAligned = ['Perintah Pulling', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses'];
+    $afterMaterial = ['Perintah Pulling', 'LT/KBN', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses'];
+    $rightAligned = ['Perintah Pulling', 'LT/KBN', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses'];
     $totalColumns = 1 + count($beforeMaterial) + 2 + count($afterMaterial) + 1;
 @endphp
 
@@ -39,6 +39,7 @@
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-gray-600">{{ $lotMaking->material_part_no ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-gray-600">{{ $lotMaking->material_level ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->pulling_command ?? '-' }}</td>
+                    <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->lt_per_kbn ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->lot_produksi ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->slot ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->avg_slot !== null ? number_format($lotMaking->avg_slot, 2) : '-' }}</td>

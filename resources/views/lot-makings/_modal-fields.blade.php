@@ -111,6 +111,14 @@
     </div>
 </div>
 
+<div class="mt-5">
+    <x-input-label for="lm-lt_per_kbn-{{ $idSuffix }}" :value="__('LT/KBN (menit)')" />
+    <x-text-input id="lm-lt_per_kbn-{{ $idSuffix }}" name="lt_per_kbn" type="number" min="0" class="block w-full mt-1"
+                  :value="old('lt_per_kbn', $lm?->lt_per_kbn)" />
+    <p class="mt-1 text-xs text-gray-400">{{ __('Lead Time per Kanban (menit).') }}</p>
+    <x-input-error :messages="$errors->get('lt_per_kbn')" class="mt-2" />
+</div>
+
 @if ($lm && $lm->slot_fix !== null)
     <div class="flex gap-6 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600 mt-5">
         <span>{{ __('Avg Slot') }}: <strong class="text-gray-800">{{ number_format($lm->avg_slot, 2) }}</strong></span>

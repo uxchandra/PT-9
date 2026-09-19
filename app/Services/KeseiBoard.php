@@ -754,9 +754,16 @@ class KeseiBoard
      *
      * Unlike heijunkaEvents() (used for Perintah Pulling demand), a crossed
      * tick is NOT dropped the instant it's crossed — it stays on the board so
-     * staff can see what's overdue. It only disappears once it's 'scanned'
-     * AND that crossing happened more than 3 hours ago (stale housekeeping —
-     * an old fulfilled tick isn't useful to keep looking at forever).
+     * staff can see what's overdue. A 'scanned' (blue) tick never disappears
+     * on its own either — it's kept forever precisely so the release order
+     * stays visually auditable (was each kanban actually pulled in the
+     * right sequence?). Only a still-unscanned tick gets capped, at 24h
+     * (WINDOW_MINUTES) — without that, a part with no closing time
+     * configured would pile up tick lines from many different calendar days
+     * onto the one wrapping 24h clock face, aliasing on top of each other
+     * into what looks like a random mess. Either way, Perintah Pulling
+     * demand (KeseiPull) is untouched — old unfulfilled kanban still count
+     * there regardless of age.
      *
      * "Scanned" isn't tracked per-tick anywhere (KeseiScan only records that
      * a scan happened, not which specific kanban it fulfilled), so it's
@@ -790,12 +797,14 @@ class KeseiBoard
             $minutesSinceCrossed = $event['at']->diffInMinutes($now);
 
             if ($crossedSeen <= $scannedOfCrossed) {
-                if ($minutesSinceCrossed > 180) {
-                    continue; // Scanned and stale (>3h) — drop it.
-                }
-
                 $event['heijunka_status'] = 'scanned';
             } else {
+                // Only an unscanned tick is capped — see the class doc above
+                // for why a scanned one is exempt.
+                if ($minutesSinceCrossed > self::WINDOW_MINUTES) {
+                    continue;
+                }
+
                 $event['heijunka_status'] = $minutesSinceCrossed > 15 ? 'overdue' : 'pending';
             }
 

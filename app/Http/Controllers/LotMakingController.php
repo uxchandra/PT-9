@@ -135,6 +135,9 @@ class LotMakingController extends Controller
             // free-form part_no + level, not tied to the Part List.
             'material_part_no' => ['nullable', 'string', 'max:255'],
             'material_level' => ['nullable', 'string', 'max:50'],
+            // Lead Time per Kanban (minutes) — same attribute as
+            // KeseiPart::lt_per_kbn, not wired into any pacing logic here.
+            'lt_per_kbn' => ['nullable', 'integer', 'min:0'],
         ], [], ['part_id' => 'part']);
     }
 }

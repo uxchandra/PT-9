@@ -110,6 +110,31 @@ class LotMakingTest extends TestCase
         $this->assertSame('L2', $lm->material_level);
     }
 
+    public function test_lt_per_kbn_can_be_set_and_updated(): void
+    {
+        $part = Part::create(['part_no' => 'P1']);
+
+        $this->actingAs($this->authorizedUser())
+            ->post(route('lot-makings.store'), [
+                'part_id' => $part->id,
+                'lt_per_kbn' => 30,
+            ])
+            ->assertRedirect(route('lot-makings.index'));
+
+        $lm = LotMaking::first();
+        $this->assertSame(30, $lm->lt_per_kbn);
+
+        $this->actingAs($this->authorizedUser())
+            ->put(route('lot-makings.update', $lm), [
+                'part_id' => $part->id,
+                'lt_per_kbn' => 45,
+            ])
+            ->assertRedirect(route('lot-makings.index'));
+
+        $lm->refresh();
+        $this->assertSame(45, $lm->lt_per_kbn);
+    }
+
     public function test_no_is_the_manually_set_position_that_drives_listing_order(): void
     {
         $partA = Part::create(['part_no' => 'AAA-111']);

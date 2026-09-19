@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['no', 'part_id', 'level', 'pulling_command', 'pulling_command_set_at', 'row', 'kolom', 'lot_produksi', 'slot', 'loading_time', 'dandori', 'jumlah_proses', 'material_part_no', 'material_level'])]
+#[Fillable(['no', 'part_id', 'level', 'pulling_command', 'pulling_command_set_at', 'row', 'kolom', 'lot_produksi', 'slot', 'loading_time', 'dandori', 'jumlah_proses', 'material_part_no', 'material_level', 'lt_per_kbn'])]
 class LotMaking extends Model
 {
     /**
