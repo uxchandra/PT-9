@@ -39,7 +39,31 @@
         </div>
 
         <div class="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-1 border-b-2 border-white px-4 py-2 text-base text-slate-300">
-            @unless ($isHeijunka ?? false)
+            @if ($isHeijunka ?? false)
+                {{-- Heijunka's own tick colours (see KeseiBoard::heijunkaVisualEvents)
+                     — the green one, not red, is the actual "Kanban Pull" (still
+                     queued, hasn't crossed the progress bar or is within its
+                     15-minute grace period yet). All grouped on the right, same
+                     diagonal-stripe boxed swatch style as the Closing Time legend
+                     below (not a bare line). --}}
+                <div class="flex items-center gap-6 ml-auto">
+                    @foreach ([
+                        '#22c55e' => __('Kanban Pull'),
+                        '#ff3b3b' => __('Not Pulled (>15 min)'),
+                        '#3b82f6' => __('Pulled'),
+                    ] as $color => $label)
+                        <span class="flex items-center gap-1.5">
+                            <span class="w-5 h-5 rounded-sm border border-white/30 shrink-0"
+                                  style="background-image: repeating-linear-gradient(45deg, {{ $color }} 0, {{ $color }} 2px, transparent 2px, transparent 5px);"></span>
+                            <span class="text-white">{{ $label }}</span>
+                        </span>
+                    @endforeach
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-0 h-4 border-l-2" style="border-color:#22d3ee;"></span>
+                        <span>{{ __('Progress Bar') }}</span>
+                    </div>
+                </div>
+            @else
                 <div class="flex items-center gap-6">
                     <span class="text-slate-400">{{ __('Closing Time') }}:</span>
                     @foreach ($polaLegend as $pola => $color)
@@ -50,18 +74,18 @@
                         </span>
                     @endforeach
                 </div>
-            @endunless
-            <div class="flex items-center gap-1.5 ml-auto">
-                <span class="flex items-center gap-px h-4">
-                    <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b;"></span>
-                    <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b;"></span>
-                </span>
-                <span>{{ __('Kanban Pull') }}</span>
-            </div>
-            <div class="flex items-center gap-1.5">
-                <span class="w-0 h-4 border-l-2" style="border-color:#22d3ee;"></span>
-                <span>{{ __('Progress Bar') }}</span>
-            </div>
+                <div class="flex items-center gap-1.5 ml-auto">
+                    <span class="flex items-center gap-px h-4">
+                        <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b;"></span>
+                        <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b;"></span>
+                    </span>
+                    <span>{{ __('Kanban Pull') }}</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <span class="w-0 h-4 border-l-2" style="border-color:#22d3ee;"></span>
+                    <span>{{ __('Progress Bar') }}</span>
+                </div>
+            @endif
         </div>
 
         <div class="flex-1 min-h-0">

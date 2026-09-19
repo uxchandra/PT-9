@@ -60,6 +60,30 @@
             </div>
         </div>
 
+        <div class="shrink-0 flex flex-wrap items-center gap-x-4 gap-y-1 border-b-2 border-white px-4 py-2 text-base text-slate-300">
+            <div class="flex items-center gap-6">
+                <span class="text-slate-400">{{ __('Closing Time') }}:</span>
+                @foreach ($polaLegend as $pola => $color)
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-5 h-5 rounded-sm border border-white/30 shrink-0"
+                              style="background-image: repeating-linear-gradient(45deg, {{ $color }} 0, {{ $color }} 2px, transparent 2px, transparent 5px);"></span>
+                        <span class="text-white">{{ $pola }}</span>
+                    </span>
+                @endforeach
+            </div>
+            <div class="flex items-center gap-1.5 ml-auto">
+                <span class="flex items-center gap-px h-4">
+                    <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b;"></span>
+                    <span class="block w-0.5 h-full rounded-sm" style="background-color: #ff3b3b;"></span>
+                </span>
+                <span>{{ __('Kanban Pull') }}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+                <span class="w-0 h-4 border-l-2" style="border-color:#22d3ee;"></span>
+                <span>{{ __('Progress Bar') }}</span>
+            </div>
+        </div>
+
         <div id="andon-production-columns" class="flex-1 min-h-0 flex bg-black">
             <div id="andon-production-panel-kesei" class="h-full min-w-0" style="flex: 38 38 0%;">
                 @include('andon-production._kesei-timeline')

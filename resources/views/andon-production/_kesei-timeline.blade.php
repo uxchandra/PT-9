@@ -63,11 +63,15 @@
 
                     @foreach ($keseiRows as $row)
                         @php
+                            // Same neutral slate palette as the standalone Andon
+                            // Kesei board (see andon-kesei/_timeline-dark.blade.php)
+                            // instead of amber, kept in sync so both boards read
+                            // consistently.
                             $rowBg = $row['runs_today']
-                                ? ($loop->even ? 'bg-amber-500/25' : 'bg-amber-600/30')
+                                ? ($loop->even ? 'bg-slate-800/70' : 'bg-slate-700/50')
                                 : 'bg-black opacity-40';
                             $labelBg = $row['runs_today']
-                                ? ($loop->even ? '#b45309' : '#92400e')
+                                ? ($loop->even ? '#1e293b' : '#334155')
                                 : '#000000';
                         @endphp
                         <div class="flex border-b border-white/10 transition-colors {{ $rowBg }}"
