@@ -200,34 +200,40 @@ class KeseiHeijunkaTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_a_scanned_tick_never_disappears_no_matter_how_old_the_crossing_is(): void
+    public function test_a_scanned_tick_disappears_once_its_crossing_is_more_than_24_hours_old_but_a_fresher_one_does_not(): void
     {
-        // A pulled (blue) tick is kept forever on purpose — staff need to be
-        // able to look back and visually confirm the release order/spacing
-        // was correct, not just the most recent hour of it.
+        // A scanned (blue) tick was briefly kept forever, but a part with no
+        // closing time configured would then pile up tick lines from many
+        // different calendar days onto the one wrapping 24h clock face,
+        // aliasing on top of each other at the same clock position — more
+        // confusing than useful. So it's capped at 24h too, same as an
+        // unscanned/overdue one.
         Carbon::setTestNow('2026-09-17 12:00:00');
-        $part = Part::create(['part_no' => 'HJ-KEEP', 'qty_kbn' => 1]);
+        $part = Part::create(['part_no' => 'HJ-STALE', 'qty_kbn' => 1]);
         KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
 
-        StockSnapshot::create(['part_no' => 'HJ-KEEP', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:00')]);
-        // Crossed 2 days ago — well past both the old 3h rule and the 24h
-        // unscanned cap, but it's scanned, so it must still show.
-        StockSnapshot::create(['part_no' => 'HJ-KEEP', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
-        // Crossed 4 hours ago, also scanned.
-        StockSnapshot::create(['part_no' => 'HJ-KEEP', 'stock' => 98, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-17 08:00')]);
+        StockSnapshot::create(['part_no' => 'HJ-STALE', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:00')]);
+        // Crossed 2 days ago — scanned, but stale (>24h) — must drop.
+        StockSnapshot::create(['part_no' => 'HJ-STALE', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        // Crossed 4 hours ago, also scanned — recent enough to stay (blue).
+        StockSnapshot::create(['part_no' => 'HJ-STALE', 'stock' => 98, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-17 08:00')]);
 
         // Two scans — enough to mark BOTH crossed ticks as scanned (FIFO,
         // oldest release first).
-        \App\Models\KeseiScan::create(['part_no' => 'HJ-KEEP', 'location' => 'finish-goods', 'raw' => 'HJ-KEEP', 'scanned_by' => \App\Models\User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-15 08:05')]);
-        \App\Models\KeseiScan::create(['part_no' => 'HJ-KEEP', 'location' => 'finish-goods', 'raw' => 'HJ-KEEP', 'scanned_by' => \App\Models\User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-17 08:05')]);
+        \App\Models\KeseiScan::create(['part_no' => 'HJ-STALE', 'location' => 'finish-goods', 'raw' => 'HJ-STALE', 'scanned_by' => \App\Models\User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-15 08:05')]);
+        \App\Models\KeseiScan::create(['part_no' => 'HJ-STALE', 'location' => 'finish-goods', 'raw' => 'HJ-STALE', 'scanned_by' => \App\Models\User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-17 08:05')]);
 
         $html = $this->get(route('andon-kesei.heijunka'))->getContent();
         $timeline = $this->timelinePanel($html);
 
-        // Both stay, both blue — neither the 2-day-old nor the 4-hour-old one drops.
-        $this->assertSame(2, substr_count($html, 'stok turun'));
-        $this->assertSame(2, substr_count($timeline, 'background-color: #3b82f6'));
-        $this->assertStringContainsString('08:00 — stok turun', $html);
+        // Only the 4-hour-old one remains, still blue.
+        $this->assertSame(1, substr_count($html, 'stok turun'));
+        $this->assertSame(1, substr_count($timeline, 'background-color: #3b82f6'));
+        $this->assertStringNotContainsString('15/09', $html);
+
+        // The fixed "Total" footer's 08:00 bucket only counts the surviving one.
+        $footer = substr($html, strpos($html, 'id="kesei-timeline-footer-scroll"'));
+        $this->assertStringContainsString('color: #facc15;">1</span>', $footer);
 
         Carbon::setTestNow();
     }

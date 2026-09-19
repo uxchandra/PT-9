@@ -270,6 +270,12 @@ class KeseiBoard
                 ->values()
                 ->all(),
             'stockDecreaseEvents' => $stockDecreaseEvents,
+            // Sum of every visible tick's kanban count, bucketed by the hour
+            // it falls in — the timeline's fixed "Total" footer row (see
+            // andon-kesei/_timeline-dark.blade.php) reads straight off this
+            // instead of summing client-side, so it always matches exactly
+            // what's drawn (heijunka's colour/expiry rules included).
+            'hourlyTotals' => $this->hourlyKanbanTotals($stockDecreaseEvents),
             'closingKanban' => $closingKanban,
             // The Timeline Stok table is a rolling 48h (captures land every
             // 15 min, so ~192 rows) — the pile-forever rule is only for the
@@ -446,6 +452,49 @@ class KeseiBoard
         }
 
         return [$visible, $closingKanban];
+    }
+
+    /**
+     * Every visible tick's kanban count, summed per hour bucket (0, 60, 120,
+     * ... up to WINDOW_MINUTES) on the looping 07:00 → 07:00 clock face —
+     * the same buckets the time-axis header's hour labels sit on. Combines
+     * every row's ticks into one total per hour, for the timeline's fixed
+     * "Total" footer.
+     *
+     * Only counts ticks from the last 24h, even on a row where the tick
+     * itself is allowed to stay visible far longer than that (e.g. a
+     * 'scanned'/blue Heijunka tick, which never expires on its own — see
+     * heijunkaVisualEvents()). The clock face only has minute-of-day
+     * resolution, not a real date, so without this cap a part with several
+     * days' worth of still-visible ticks would have them all land in the
+     * SAME hour bucket regardless of which calendar day they actually
+     * happened on — inflating "this hour's total" with kanban pulled two or
+     * three days ago instead of today.
+     *
+     * @param  array<int|string, array<int, array{minute: int, kanban: int, at: Carbon}>>  $stockDecreaseEvents
+     * @return array<int, int>
+     */
+    private function hourlyKanbanTotals(array $stockDecreaseEvents): array
+    {
+        $now = now();
+        $totals = [];
+
+        for ($t = 0; $t <= self::WINDOW_MINUTES; $t += 60) {
+            $totals[$t] = 0;
+        }
+
+        foreach ($stockDecreaseEvents as $rowEvents) {
+            foreach ($rowEvents as $event) {
+                if ($event['at']->diffInMinutes($now) > self::WINDOW_MINUTES) {
+                    continue;
+                }
+
+                $bucket = intdiv($event['minute'], 60) * 60;
+                $totals[$bucket] = ($totals[$bucket] ?? 0) + $event['kanban'];
+            }
+        }
+
+        return $totals;
     }
 
     /**
@@ -806,16 +855,15 @@ class KeseiBoard
      *
      * Unlike heijunkaEvents() (used for Perintah Pulling demand), a crossed
      * tick is NOT dropped the instant it's crossed — it stays on the board so
-     * staff can see what's overdue. A 'scanned' (blue) tick never disappears
-     * on its own either — it's kept forever precisely so the release order
-     * stays visually auditable (was each kanban actually pulled in the
-     * right sequence?). Only a still-unscanned tick gets capped, at 24h
-     * (WINDOW_MINUTES) — without that, a part with no closing time
-     * configured would pile up tick lines from many different calendar days
-     * onto the one wrapping 24h clock face, aliasing on top of each other
-     * into what looks like a random mess. Either way, Perintah Pulling
-     * demand (KeseiPull) is untouched — old unfulfilled kanban still count
-     * there regardless of age.
+     * staff can see what's overdue. Either way — scanned or not — a tick is
+     * capped at 24h (WINDOW_MINUTES) past its crossing: without that, a part
+     * with no closing time configured would pile up tick lines from many
+     * different calendar days onto the one wrapping 24h clock face, aliasing
+     * on top of each other into what looks like a random mess (a 'scanned'
+     * tick was briefly kept forever instead, but staff found that pile-up
+     * more confusing than useful — better to just drop it like an overdue
+     * one). Perintah Pulling demand (KeseiPull) is untouched either way —
+     * old unfulfilled kanban still count there regardless of age.
      *
      * "Scanned" isn't tracked per-tick anywhere (KeseiScan only records that
      * a scan happened, not which specific kanban it fulfilled), so it's
@@ -848,17 +896,15 @@ class KeseiBoard
             $crossedSeen++;
             $minutesSinceCrossed = $event['at']->diffInMinutes($now);
 
-            if ($crossedSeen <= $scannedOfCrossed) {
-                $event['heijunka_status'] = 'scanned';
-            } else {
-                // Only an unscanned tick is capped — see the class doc above
-                // for why a scanned one is exempt.
-                if ($minutesSinceCrossed > self::WINDOW_MINUTES) {
-                    continue;
-                }
-
-                $event['heijunka_status'] = $minutesSinceCrossed > 15 ? 'overdue' : 'pending';
+            // Capped at 24h regardless of scan status — see the class doc
+            // above.
+            if ($minutesSinceCrossed > self::WINDOW_MINUTES) {
+                continue;
             }
+
+            $event['heijunka_status'] = $crossedSeen <= $scannedOfCrossed
+                ? 'scanned'
+                : ($minutesSinceCrossed > 15 ? 'overdue' : 'pending');
 
             $result->push($event);
         }

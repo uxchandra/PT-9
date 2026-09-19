@@ -167,5 +167,29 @@
                 @endforeach
             </div>
         </div>
+
+        {{-- Total per hour — a fixed footer, same structural trick as the
+             time-axis header above (a separate scroller, horizontally
+             synced to the rows via __keseiHeaderSync in show.blade.php)
+             so it never scrolls out of view either. --}}
+        <div id="kesei-timeline-footer-scroll" class="shrink-0 overflow-x-hidden overflow-y-hidden bg-black border-t-2 border-white">
+            <div class="flex" style="width: {{ $sidebarWidth + $totalWidth }}px;">
+                <div class="sticky left-0 z-40 bg-black shrink-0 flex items-center px-3" style="width: {{ $sidebarWidth }}px;">
+                    <span class="text-xs uppercase tracking-wide text-slate-400 font-bold">{{ __('Total') }}</span>
+                </div>
+                <div class="relative shrink-0" style="width: {{ $totalWidth }}px; height: 34px;">
+                    @for ($t = $dayStart; $t < $timelineEnd; $t += 60)
+                        <div class="absolute top-0 h-full border-l border-white/10 flex items-center justify-center text-base font-bold"
+                             style="left: {{ ($t - $dayStart) * $pxPerMinute }}px; width: {{ 60 * $pxPerMinute }}px;">
+                            @if (($hourlyTotals[$t] ?? 0) > 0)
+                                <span style="color: #facc15;">{{ $hourlyTotals[$t] }}</span>
+                            @else
+                                <span class="text-slate-600">0</span>
+                            @endif
+                        </div>
+                    @endfor
+                </div>
+            </div>
+        </div>
     </div>
 @endif

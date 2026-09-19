@@ -223,14 +223,15 @@
             }, TICK_MS);
         })();
 
-        // Keeps the time-axis header's horizontal scroll position mirroring
-        // the rows below it — the header is a structurally separate scroller
-        // now (see andon-kesei/_timeline-dark.blade.php) so it can never
-        // disappear on a vertical scroll the way a "position: sticky" row
-        // could in some browsers, but that means its own horizontal position
-        // has to be driven explicitly instead of coming along for free. A
-        // panel refresh replaces both elements via innerHTML, so the scroll
-        // listener is (re)bound every time this runs, same reasoning as
+        // Keeps the time-axis header's AND the Total footer's horizontal
+        // scroll position mirroring the rows between them — both are
+        // structurally separate scrollers now (see andon-kesei/
+        // _timeline-dark.blade.php) so neither can disappear on a vertical
+        // scroll the way a "position: sticky" row could in some browsers,
+        // but that means their horizontal position has to be driven
+        // explicitly instead of coming along for free. A panel refresh
+        // replaces all three elements via innerHTML, so the scroll listener
+        // is (re)bound every time this runs, same reasoning as
         // __keseiNowSync below.
         (function () {
             let boundRows = null;
@@ -238,17 +239,22 @@
 
             function sync() {
                 const header = document.getElementById('kesei-timeline-header-scroll');
+                const footer = document.getElementById('kesei-timeline-footer-scroll');
                 const rows = document.getElementById('kesei-timeline-rows-scroll');
-                if (!header || !rows) return;
+                if (!rows || (!header && !footer)) return;
 
                 if (rows !== boundRows) {
                     if (boundRows && onScroll) boundRows.removeEventListener('scroll', onScroll);
-                    onScroll = function () { header.scrollLeft = rows.scrollLeft; };
+                    onScroll = function () {
+                        if (header) header.scrollLeft = rows.scrollLeft;
+                        if (footer) footer.scrollLeft = rows.scrollLeft;
+                    };
                     rows.addEventListener('scroll', onScroll);
                     boundRows = rows;
                 }
 
-                header.scrollLeft = rows.scrollLeft;
+                if (header) header.scrollLeft = rows.scrollLeft;
+                if (footer) footer.scrollLeft = rows.scrollLeft;
             }
 
             window.__keseiHeaderSync = sync;
