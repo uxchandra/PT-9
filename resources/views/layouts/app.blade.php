@@ -169,14 +169,14 @@
                                 <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V9m4 8V5m4 12v-6M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/>
                                 </svg>
-                                {{ __('Kesei v1') }}
+                                {{ __('Kesei v1 (SOS)') }}
                             </a>
                             <a href="{{ route('andon-kesei.scan') }}" target="_blank"
                                class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">
                                 <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m0 14v1m8-8h-1M5 12H4M4 8V4h4m8 0h4v4m0 8v4h-4m-8 0H4v-4"/>
                                 </svg>
-                                {{ __('Kesei v2') }}
+                                {{ __('Kesei v2 (Scan)') }}
                             </a>
                             <a href="{{ route('andon-kesei.heijunka') }}" target="_blank"
                                class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">
@@ -190,14 +190,14 @@
                                 <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M3 12h18M3 17h18"/>
                                 </svg>
-                                {{ __('Lot Making v1') }}
+                                {{ __('Lot Making v1 (Scan)') }}
                             </a>
                             <a href="{{ route('andon-lot-making.demand') }}" target="_blank"
                                class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">
                                 <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h18M3 12h18M3 17h18"/>
                                 </svg>
-                                {{ __('Lot Making v2') }}
+                                {{ __('Lot Making v2 (SOS)') }}
                             </a>
                             <a href="{{ route('andon-production.show') }}" target="_blank"
                                class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300">

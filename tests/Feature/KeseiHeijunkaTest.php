@@ -28,8 +28,9 @@ class KeseiHeijunkaTest extends TestCase
     {
         // The Heijunka board isn't pattern-driven at all — a part with no
         // pattern board assigned (never "running" on a normal Kesei/Scan
-        // board) must still render active (amber row, no "tidak jalan di
-        // pattern" dimming) here.
+        // board) must still render active (no dimming) here. It also uses
+        // its own neutral slate row colour instead of the amber the other
+        // boards use for "active" — see _timeline-dark.blade.php.
         $part = Part::create(['part_no' => 'HJ-NOPATTERN']);
         KeseiPart::create(['part_id' => $part->id, 'urutan' => 1]);
 
@@ -38,7 +39,8 @@ class KeseiHeijunkaTest extends TestCase
 
         $this->assertStringNotContainsString('opacity-40', $timeline);
         $this->assertStringNotContainsString('tidak jalan di pattern', $timeline);
-        $this->assertStringContainsString('bg-amber', $timeline);
+        $this->assertStringNotContainsString('bg-amber', $timeline);
+        $this->assertStringContainsString('bg-slate-700/50', $timeline);
 
         // The normal Kesei board is unaffected — the same part still dims.
         $normal = $this->get(route('andon-kesei.show'))->getContent();

@@ -47,7 +47,7 @@
                                 <div class="flex border-b border-white" style="height: 90px;">
                                     @foreach ($part['slots'] as $i => $capacity)
                                         @php $filled = $part['ticks'][$i] ?? 0; @endphp
-                                        <div class="flex flex-1 items-end justify-center gap-px border-white p-1 {{ $i === 0 ? '' : 'border-l' }}" style="min-width: {{ $cellWidth }}px;">
+                                        <div class="flex flex-1 items-end justify-center gap-1 border-white p-1 {{ $i === 0 ? '' : 'border-l' }}" style="min-width: {{ $cellWidth }}px;">
                                             @for ($t = 0; $t < $filled; $t++)
                                                 <span class="block w-0.5 h-full rounded-sm bg-red-500"></span>
                                             @endfor
