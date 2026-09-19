@@ -48,7 +48,7 @@
                      below (not a bare line). --}}
                 <div class="flex items-center gap-6 ml-auto">
                     @foreach ([
-                        '#22c55e' => __('Kanban Pull'),
+                        '#22c55e' => __('SOS Pull'),
                         '#ff3b3b' => __('Not Pulled (>15 min)'),
                         '#3b82f6' => __('Pulled'),
                     ] as $color => $label)
