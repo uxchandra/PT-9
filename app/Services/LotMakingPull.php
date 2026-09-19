@@ -22,6 +22,14 @@ use Illuminate\Support\Collection;
  *    there's nothing to fold: the accumulation window is simply a fixed
  *    history floor, and it never resets on its own (a pulling_command does,
  *    once it ages out of that floor).
+ *
+ *    The stock decrease itself isn't added to the target the instant it's
+ *    captured, though — same as Kesei, every part's own Lead Time per
+ *    Kanban paces it through KeseiBoard::heijunkaEvents() first (see
+ *    LotMaking::lt_per_kbn — null/0 is a no-op, so a part with none set
+ *    behaves exactly as it always has). Only once the "now"/progress-bar on
+ *    the merged Heijunka board has actually crossed a given kanban's paced
+ *    release moment does it count toward `needed` at all.
  *  - 'store-3' (free) — no target at all, just an unlimited running scan
  *    count within that same fixed floor (see freeRow) — the part is free
  *    to be pulled and scanned any number of times, not tied to a stock
@@ -34,6 +42,8 @@ use Illuminate\Support\Collection;
 class LotMakingPull
 {
     private const HISTORY_DAYS = 8;
+
+    public function __construct(private KeseiBoard $board) {}
 
     /**
      * Every Lot Making part whose level matches $level — one row per part,
@@ -83,7 +93,8 @@ class LotMakingPull
                 $snapshotsByPart->get($lm->part->part_no, collect()),
                 $scansByPart->get($lm->part->part_no, collect())->pluck('scanned_at'),
                 $lm->pulling_command,
-                $lm->pulling_command_set_at
+                $lm->pulling_command_set_at,
+                (int) ($lm->lt_per_kbn ?? 0)
             ))
             ->filter(fn (array $r) => $r['needed'] > 0 || $r['scanned'] > 0)
             ->sortBy('done')
@@ -127,7 +138,7 @@ class LotMakingPull
             ->orderBy('scanned_at')
             ->pluck('scanned_at');
 
-        return $this->demandRow($partNo, $lm->part->qty_kbn, $floor, $snapshots, $scanTimes, $lm->pulling_command, $lm->pulling_command_set_at);
+        return $this->demandRow($partNo, $lm->part->qty_kbn, $floor, $snapshots, $scanTimes, $lm->pulling_command, $lm->pulling_command_set_at, (int) ($lm->lt_per_kbn ?? 0));
     }
 
     /**
@@ -221,9 +232,13 @@ class LotMakingPull
      * @param  Collection<int, Carbon>  $scanTimes
      * @return array{part_no: string, needed: int, scanned: int, remaining: int, last_update: ?string, done: bool}
      */
-    private function demandRow(string $partNo, ?string $qtyKbn, Carbon $from, Collection $snapshots, Collection $scanTimes, ?int $pullingCommand = null, ?Carbon $pullingCommandSetAt = null): array
+    private function demandRow(string $partNo, ?string $qtyKbn, Carbon $from, Collection $snapshots, Collection $scanTimes, ?int $pullingCommand = null, ?Carbon $pullingCommandSetAt = null, int $ltPerKbn = 0): array
     {
-        $events = $this->decreaseEvents($qtyKbn, $from, $snapshots);
+        // Paced through the same heijunka release queue as Kesei (see the
+        // class doc above) before anything else touches it — a part with no
+        // Lead Time per Kanban set (the common case) is a no-op here, so
+        // this changes nothing for it.
+        $events = $this->board->heijunkaEvents($this->decreaseEvents($qtyKbn, $from, $snapshots), $ltPerKbn);
 
         // "Perintah Pulling" — same idea as KeseiPull::demandRow: a
         // manually-set target that REPLACES whatever had already

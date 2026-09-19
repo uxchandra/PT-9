@@ -76,6 +76,56 @@ class LotMakingScanTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_a_lot_making_parts_demand_is_paced_by_its_own_lt_per_kbn(): void
+    {
+        // Same heijunka pacing Kesei parts get (see KeseiBoard::heijunkaRelease)
+        // — a part with lt_per_kbn set doesn't add its stock decrease to the
+        // Finish Goods target all at once, it releases one kanban every
+        // lt_per_kbn minutes instead.
+        Carbon::setTestNow('2026-09-15 08:30:00');
+        $part = Part::create(['part_no' => 'LM-PACED', 'qty_kbn' => 1]);
+        LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods', 'lt_per_kbn' => 30]);
+
+        StockSnapshot::create(['part_no' => 'LM-PACED', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        // -2 kanban at 08:30 — releases due at 09:00, 09:30.
+        StockSnapshot::create(['part_no' => 'LM-PACED', 'stock' => 98, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]);
+
+        // Right at arrival — nothing released yet.
+        $needed = app(\App\Services\LotMakingPull::class)->scanRow('LM-PACED', 'finish-goods');
+        $this->assertSame(0, $needed['needed']);
+
+        // At 09:00 — first kanban releases.
+        Carbon::setTestNow('2026-09-15 09:00:00');
+        $needed = app(\App\Services\LotMakingPull::class)->scanRow('LM-PACED', 'finish-goods');
+        $this->assertSame(1, $needed['needed']);
+
+        // At 09:30 — second kanban releases.
+        Carbon::setTestNow('2026-09-15 09:30:00');
+        $needed = app(\App\Services\LotMakingPull::class)->scanRow('LM-PACED', 'finish-goods');
+        $this->assertSame(2, $needed['needed']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_lot_making_part_with_no_lt_per_kbn_still_releases_immediately_like_before(): void
+    {
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $part = Part::create(['part_no' => 'LM-NONE', 'qty_kbn' => 1]);
+        // lt_per_kbn left null on purpose.
+        LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods']);
+
+        StockSnapshot::create(['part_no' => 'LM-NONE', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        StockSnapshot::create(['part_no' => 'LM-NONE', 'stock' => 96, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]);
+
+        $this->actingAs($this->scannerUser())
+            ->get(route('scanner.location', 'finish-goods'))
+            ->assertOk()
+            ->assertSee('LM-NONE')
+            ->assertSee('/ 4');
+
+        Carbon::setTestNow();
+    }
+
     public function test_a_lot_making_part_with_no_level_does_not_show_up_on_any_card(): void
     {
         Carbon::setTestNow('2026-09-15 10:00:00');

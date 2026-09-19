@@ -70,6 +70,58 @@ class KeseiHeijunkaTest extends TestCase
         $this->assertStringContainsString('HJ-BLANK', $normal);
     }
 
+    public function test_lot_making_finish_goods_parts_share_the_same_board_as_kesei_ones(): void
+    {
+        $kesei = Part::create(['part_no' => 'HJ-KESEI-SIDE']);
+        KeseiPart::create(['part_id' => $kesei->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+
+        $lmFg = Part::create(['part_no' => 'HJ-LM-FG']);
+        \App\Models\LotMaking::create(['part_id' => $lmFg->id, 'level' => 'finish-goods']);
+
+        // Store 3 Lot Making parts have no heijunka story either, same as
+        // Kesei's own Store 3 rows.
+        $lmStore3 = Part::create(['part_no' => 'HJ-LM-STORE3']);
+        \App\Models\LotMaking::create(['part_id' => $lmStore3->id, 'level' => 'store-3']);
+
+        $html = $this->get(route('andon-kesei.heijunka'))->getContent();
+
+        $this->assertStringContainsString('HJ-KESEI-SIDE', $html);
+        $this->assertStringContainsString('HJ-LM-FG', $html);
+        $this->assertStringNotContainsString('HJ-LM-STORE3', $html);
+    }
+
+    public function test_a_lot_making_row_on_the_heijunka_board_releases_and_recolours_ticks_the_same_way(): void
+    {
+        Carbon::setTestNow('2026-09-15 08:30:00');
+        $part = Part::create(['part_no' => 'HJ-LM-1', 'qty_kbn' => 1]);
+        \App\Models\LotMaking::create(['part_id' => $part->id, 'level' => 'finish-goods', 'lt_per_kbn' => 30]);
+
+        StockSnapshot::create(['part_no' => 'HJ-LM-1', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:00')]);
+        // -1 kanban at 08:30 — release due 09:00.
+        StockSnapshot::create(['part_no' => 'HJ-LM-1', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 08:30')]);
+
+        // Still pending (not yet crossed) — already visible, green.
+        Carbon::setTestNow('2026-09-15 08:59:00');
+        $html = $this->get(route('andon-kesei.heijunka'))->getContent();
+        $this->assertSame(1, substr_count($html, 'stok turun'));
+        $this->assertSame(1, substr_count($this->timelinePanel($html), 'background-color: #22c55e'));
+
+        // Crossed, unscanned, still within the 15-min grace period — still green.
+        Carbon::setTestNow('2026-09-15 09:05:00');
+        $html = $this->get(route('andon-kesei.heijunka'))->getContent();
+        $this->assertSame(1, substr_count($html, 'stok turun'));
+        $this->assertSame(1, substr_count($this->timelinePanel($html), 'background-color: #22c55e'));
+
+        // A Lot Making scan (not a Kesei scan) fulfils it — turns blue.
+        \App\Models\LotMakingScan::create(['part_no' => 'HJ-LM-1', 'raw' => 'HJ-LM-1', 'scanned_at' => Carbon::parse('2026-09-15 09:06')]);
+
+        Carbon::setTestNow('2026-09-15 09:10:00');
+        $html = $this->get(route('andon-kesei.heijunka'))->getContent();
+        $this->assertSame(1, substr_count($this->timelinePanel($html), 'background-color: #3b82f6'));
+
+        Carbon::setTestNow();
+    }
+
     public function test_the_board_is_public_and_shows_the_title(): void
     {
         $response = $this->get(route('andon-kesei.heijunka'));

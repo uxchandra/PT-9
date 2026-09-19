@@ -6,8 +6,10 @@ use App\Models\CalendarEntry;
 use App\Models\KeseiPart;
 use App\Models\KeseiPartClosing;
 use App\Models\KeseiScan;
+use App\Models\LotMaking;
 use App\Models\LotMakingAssignment;
 use App\Models\LotMakingPlanning;
+use App\Models\LotMakingScan;
 use App\Models\PatternGroupItem;
 use App\Models\StockSnapshot;
 use Illuminate\Support\Carbon;
@@ -205,6 +207,10 @@ class KeseiBoard
             ->when($tickSource === 'heijunka', fn (Collection $rows) => $rows->filter(
                 fn (array $row) => in_array(strtoupper(trim((string) $row['level'])), ['FINISH GOODS', 'FINISH GOOD', 'FG'], true)
             ))
+            // Lot Making's own Finish Goods parts share this same Heijunka
+            // board/timeline — one combined pile instead of two separate
+            // boards. See heijunkaLotMakingRows().
+            ->when($tickSource === 'heijunka', fn (Collection $rows) => $rows->concat($this->heijunkaLotMakingRows($historyFloor)))
             // Parts actively running under today's pattern float to the top —
             // stable sort, so within "running" and "not running" each keeps
             // its normal urutan/id order.
@@ -740,6 +746,52 @@ class KeseiBoard
     }
 
     /**
+     * Every Lot Making part whose level is Finish Goods, shaped exactly like
+     * a KeseiPart row (see build()) so the rest of the heijunka pipeline —
+     * buildStockDecreaseEvents(), heijunkaScannedCounts(), splitEvents(),
+     * the blade — can't tell the two apart. Ids are string-prefixed
+     * ("lm-{id}") since LotMaking and KeseiPart both auto-increment from 1
+     * and would otherwise collide as array/event keys.
+     *
+     * Lot Making has no closing-time concept at all (see LotMakingPull's
+     * class doc) — every row's "pile" is simply everything within the same
+     * rolling history floor Kesei falls back to when a part has no closing
+     * configured, and it never folds on its own.
+     *
+     * @return Collection<int, array<string, mixed>>
+     */
+    private function heijunkaLotMakingRows(Carbon $historyFloor): Collection
+    {
+        return LotMaking::with('part')
+            ->where('level', LotMaking::LEVEL_FINISH_GOODS)
+            ->get()
+            ->filter(fn (LotMaking $lm) => $lm->part?->part_no !== null)
+            ->map(fn (LotMaking $lm) => [
+                'id' => 'lm-'.$lm->id,
+                'label' => $lm->part->part_no,
+                'level' => $lm->level,
+                'pulling_command' => $lm->pulling_command,
+                'pulling_command_set_at' => $lm->pulling_command_set_at?->toDateTimeString(),
+                'lt_per_kbn' => $lm->lt_per_kbn,
+                'material_part_no' => $lm->material_part_no,
+                'qty_kbn' => $lm->part->qty_kbn,
+                'sources' => [$lm->part->part_no],
+                'patterns' => [],
+                'pola' => '',
+                'pola_color' => $this->polaColor(''),
+                'planned_pattern' => '-',
+                'runs_today' => true,
+                'closed_now' => false,
+                'closing_label' => null,
+                'closing_markers' => [],
+                'closing_reached' => false,
+                'fold_start' => $historyFloor,
+                'cycle_start' => $historyFloor,
+            ])
+            ->values();
+    }
+
+    /**
      * The Andon Kesei Heijunka board's own tick set — every release, paced
      * or not, tagged with a 'heijunka_status' the blade uses to colour it
      * (see andon-kesei/_timeline-dark.blade.php):
@@ -844,24 +896,35 @@ class KeseiBoard
             return $counts;
         }
 
-        KeseiScan::whereIn('part_no', array_keys($rowByPartNo))
-            ->where('scanned_at', '>', $earliestFoldStart)
-            ->get(['part_no', 'scanned_at'])
-            ->each(function (KeseiScan $scan) use (&$counts, $rowByPartNo, $foldStartByRow) {
+        $tally = function (Collection $scans) use (&$counts, $rowByPartNo, $foldStartByRow) {
+            foreach ($scans as $scan) {
                 $rowId = $rowByPartNo[$scan->part_no] ?? null;
 
                 if ($rowId === null) {
-                    return;
+                    continue;
                 }
 
                 $foldStart = $foldStartByRow[$rowId] ?? null;
 
                 if ($foldStart !== null && $scan->scanned_at->lte($foldStart)) {
-                    return;
+                    continue;
                 }
 
                 $counts[$rowId] = ($counts[$rowId] ?? 0) + 1;
-            });
+            }
+        };
+
+        $tally(KeseiScan::whereIn('part_no', array_keys($rowByPartNo))
+            ->where('scanned_at', '>', $earliestFoldStart)
+            ->get(['part_no', 'scanned_at']));
+
+        // Merged Lot Making (Finish Goods) rows share this same board — their
+        // scans live in a separate table (see ScannerController::scan()),
+        // but a given part_no only ever belongs to one system or the other,
+        // so merging both counts here can't double-count anything.
+        $tally(LotMakingScan::whereIn('part_no', array_keys($rowByPartNo))
+            ->where('scanned_at', '>', $earliestFoldStart)
+            ->get(['part_no', 'scanned_at']));
 
         return $counts;
     }
