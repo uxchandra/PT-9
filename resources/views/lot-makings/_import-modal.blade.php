@@ -9,9 +9,12 @@
             </button>
         </div>
 
-        <div class="mb-6">
+        <div class="mb-6 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
+            <p class="mb-2">
+                {{ __('Kolomnya sama persis dengan hasil Export di halaman Lot Making — Export, edit datanya, lalu Import lagi file yang sama juga bisa.') }}
+            </p>
             <a href="{{ route('lot-makings.import.template') }}"
-               class="inline-flex items-center gap-1.5 rounded-lg border border-blue-100 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100">
+               class="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-800 hover:text-blue-900 underline">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16"/>
                 </svg>

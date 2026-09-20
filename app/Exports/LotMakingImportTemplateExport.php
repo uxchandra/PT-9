@@ -2,6 +2,7 @@
 
 namespace App\Exports;
 
+use App\Models\LotMaking;
 use Maatwebsite\Excel\Concerns\FromArray;
 use Maatwebsite\Excel\Concerns\WithColumnWidths;
 use Maatwebsite\Excel\Concerns\WithEvents;
@@ -13,6 +14,13 @@ use PhpOffice\PhpSpreadsheet\Style\Border;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
+/**
+ * Same column layout as LotMakingsExport (see LotMakingImport for how each
+ * column is read) — a real Export can be edited and re-imported directly,
+ * and this blank template is just that same shape with example rows for a
+ * fresh start. "Avg Slot" / "Slot Fix" aren't included — they're always
+ * computed, never imported.
+ */
 class LotMakingImportTemplateExport implements FromArray, WithColumnWidths, WithEvents, WithHeadings, WithStyles
 {
     public function headings(): array
@@ -20,14 +28,18 @@ class LotMakingImportTemplateExport implements FromArray, WithColumnWidths, With
         // level: Finish Goods / Store 3 (or blank) — which scanner card this
         // part's pulling command shows up under. Same free-text synonyms as
         // Kesei's own Level column (FG, 3, STORE 3, ...) — see LotMakingImport.
-        return ['no', 'row', 'kolom', 'part_no', 'level', 'lot_produksi', 'slot', 'loading_time', 'dandori'];
+        return array_merge(
+            ['No', 'Row', 'Kolom', 'Part No', 'Level', 'Material No Part', 'Material Level', 'Perintah Pulling', 'LT/KBN', 'Lot Produksi', 'Slot', 'Loading Time', 'Dandori', 'Jumlah Proses'],
+            array_map(fn ($cycle) => "C{$cycle}", LotMaking::CYCLES),
+            ['Order/Cycle'],
+        );
     }
 
     public function array(): array
     {
         return [
-            [1, '1', '1', 'GA241-04750', 'Finish Goods', 200, 40, 30, 5],
-            [2, '1', '2', '57453-BZ140', 'Store 3', 120, 30, 20, 0],
+            array_merge([1, '1', '1', 'GA241-04750', 'Finish Goods', '', '', '', '', 200, 40, 30, 5, 3], array_fill(0, 10, ''), ['']),
+            array_merge([2, '1', '2', '57453-BZ140', 'Store 3', 'B111-97502', '2', '', '', 120, 30, 20, 0, 2], array_fill(0, 10, ''), [15]),
         ];
     }
 
@@ -39,10 +51,15 @@ class LotMakingImportTemplateExport implements FromArray, WithColumnWidths, With
             'C' => 10,  // kolom
             'D' => 22,  // part_no
             'E' => 16,  // level
-            'F' => 15,  // lot_produksi
-            'G' => 10,  // slot
-            'H' => 14,  // loading_time
-            'I' => 10,  // dandori
+            'F' => 18,  // material_no_part
+            'G' => 16,  // material_level
+            'H' => 16,  // perintah_pulling
+            'I' => 10,  // lt_kbn
+            'J' => 15,  // lot_produksi
+            'K' => 10,  // slot
+            'L' => 14,  // loading_time
+            'M' => 10,  // dandori
+            'N' => 14,  // jumlah_proses
         ];
     }
 
@@ -84,7 +101,7 @@ class LotMakingImportTemplateExport implements FromArray, WithColumnWidths, With
                 // Short/numeric columns read better centred; part_no stays
                 // left-aligned since it's the one free-text-length column.
                 $sheet->getStyle("A2:C{$lastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
-                $sheet->getStyle("E2:I{$lastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
+                $sheet->getStyle("E2:{$lastColumn}{$lastRow}")->getAlignment()->setHorizontal(Alignment::HORIZONTAL_CENTER);
             },
         ];
     }

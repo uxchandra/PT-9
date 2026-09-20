@@ -113,10 +113,34 @@
 
 <div class="mt-5">
     <x-input-label for="lm-lt_per_kbn-{{ $idSuffix }}" :value="__('LT/KBN (menit)')" />
-    <x-text-input id="lm-lt_per_kbn-{{ $idSuffix }}" name="lt_per_kbn" type="number" min="0" class="block w-full mt-1"
+    <x-text-input id="lm-lt_per_kbn-{{ $idSuffix }}" name="lt_per_kbn" type="number" min="0" step="0.01" inputmode="decimal" class="block w-full mt-1"
                   :value="old('lt_per_kbn', $lm?->lt_per_kbn)" />
-    <p class="mt-1 text-xs text-gray-400">{{ __('Lead Time per Kanban (menit).') }}</p>
+    <p class="mt-1 text-xs text-gray-400">{{ __('Lead Time per Kanban (menit, boleh desimal mis. 20.8).') }}</p>
     <x-input-error :messages="$errors->get('lt_per_kbn')" class="mt-2" />
+</div>
+
+<div class="mt-5">
+    <x-input-label :value="__('Cycle')" />
+    <div class="grid grid-cols-5 gap-2 mt-1">
+        @foreach (\App\Models\LotMaking::CYCLES as $cycle)
+            <div>
+                <label for="lm-cycle{{ $cycle }}-{{ $idSuffix }}" class="block text-xs text-gray-500">C{{ $cycle }}</label>
+                <input id="lm-cycle{{ $cycle }}-{{ $idSuffix }}" type="time" name="cycles[{{ $cycle }}]"
+                       value="{{ old("cycles.$cycle", $lm?->cycleTime($cycle)) }}"
+                       class="block w-full rounded-md border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500">
+            </div>
+        @endforeach
+    </div>
+    <p class="mt-1 text-xs text-gray-400">{{ __('Jam tiap cycle (opsional, isi yang dipakai saja)') }}</p>
+    <x-input-error :messages="$errors->get('cycles')" class="mt-2" />
+</div>
+
+<div class="mt-5">
+    <x-input-label for="lm-order_per_cycle-{{ $idSuffix }}" :value="__('Order/Cycle')" />
+    <x-text-input id="lm-order_per_cycle-{{ $idSuffix }}" name="order_per_cycle" type="number" min="0" class="block w-full mt-1"
+                  :value="old('order_per_cycle', $lm?->order_per_cycle)" />
+    <p class="mt-1 text-xs text-gray-400">{{ __('Jumlah order terbanyak dalam 1 cycle.') }}</p>
+    <x-input-error :messages="$errors->get('order_per_cycle')" class="mt-2" />
 </div>
 
 @if ($lm && $lm->slot_fix !== null)

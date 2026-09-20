@@ -78,7 +78,7 @@ class KeseiPull
                 ? $this->freeRow($row)
                 : $this->demandRow($row, $this->board->heijunkaEvents(
                     collect($data['stockDecreaseEvents'][$row['id']] ?? []),
-                    (int) ($row['lt_per_kbn'] ?? 0)
+                    (float) ($row['lt_per_kbn'] ?? 0)
                 )))
             // demand mode only lists parts that still have something to do.
             ->when(! $free, fn (Collection $c) => $c->filter(fn (array $r) => $r['needed'] > 0 || $r['scanned'] > 0))
@@ -151,7 +151,7 @@ class KeseiPull
             return null;
         }
 
-        $events = $this->board->heijunkaEvents(collect($ctx['events']), (int) ($part->lt_per_kbn ?? 0));
+        $events = $this->board->heijunkaEvents(collect($ctx['events']), (float) ($part->lt_per_kbn ?? 0));
 
         return $this->demandRow($ctx['row'], $events);
     }

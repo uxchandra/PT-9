@@ -10,7 +10,18 @@
                 <h3 class="text-lg font-semibold text-gray-800">{{ __('Kesei') }}</h3>
                 <p class="mt-1 text-sm text-gray-500">{{ __('Part yang dipantau di Andon Kesei beserta timeline stoknya.') }}</p>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
+                <div class="flex items-center gap-2 text-sm text-gray-600">
+                    <span>{{ __('Tampilkan') }}</span>
+                    <select id="kesei-per-page"
+                            class="rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700">
+                        @foreach ([10, 15, 25, 50, 100] as $option)
+                            <option value="{{ $option }}">{{ $option }}</option>
+                        @endforeach
+                        <option value="all" selected>{{ __('Semua') }}</option>
+                    </select>
+                    <span>{{ __('entri') }}</span>
+                </div>
                 <div class="flex items-center gap-2">
                     <input type="text" id="kesei-search" autocomplete="off"
                            placeholder="{{ __('Cari part no / SOS code / level...') }}"
@@ -22,6 +33,10 @@
                 <a href="{{ route('kesei.import.create') }}"
                    class="inline-flex items-center justify-center px-4 py-2 bg-white border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition">
                     {{ __('Import') }}
+                </a>
+                <a id="kesei-export-link" data-base-url="{{ route('kesei.export') }}" href="{{ route('kesei.export') }}"
+                   class="inline-flex items-center justify-center px-4 py-2 bg-white border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition">
+                    {{ __('Export') }}
                 </a>
                 <button type="button" x-data="" x-on:click="$dispatch('open-modal', 'kesei-create')"
                         class="inline-flex items-center justify-center px-4 py-2 bg-brand-800 border border-transparent rounded-lg font-semibold text-sm text-white hover:bg-brand-900 transition">
@@ -60,17 +75,22 @@
                             <th rowspan="2" class="align-bottom bg-gray-50 px-6 py-3 border-b-2 border-l border-gray-300">{{ __('SOS Code') }}</th>
                             <th rowspan="2" class="align-bottom bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 w-40">{{ __('Closing Time') }}</th>
                             <th rowspan="2" class="align-bottom bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 w-40">{{ __('Pattern') }}</th>
+                            <th colspan="{{ count(\App\Models\KeseiPart::CYCLES) }}" class="bg-gray-50 px-3 py-1.5 border-b border-l border-gray-300 text-center">{{ __('Cycle') }}</th>
+                            <th rowspan="2" class="align-bottom bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-24 whitespace-nowrap">{{ __('Order/Cycle') }}</th>
                             <th rowspan="2" class="align-bottom bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-12 text-center">{{ __('Aksi') }}</th>
                         </tr>
                         <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
                             <th class="bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-24 whitespace-nowrap">{{ __('No Part') }}</th>
                             <th class="bg-gray-50 px-3 py-3 border-b-2 border-l border-gray-300 w-24 whitespace-nowrap">{{ __('Level') }}</th>
+                            @foreach (\App\Models\KeseiPart::CYCLES as $cycle)
+                                <th class="bg-gray-50 px-1.5 py-3 border-b-2 border-l border-gray-300 w-20 text-center">C{{ $cycle }}</th>
+                            @endforeach
                         </tr>
                     </thead>
                     <tbody id="kesei-sortable" class="divide-y divide-gray-100"
                            data-reorder-url="{{ route('kesei.reorder') }}">
                         @forelse ($keseiParts as $item)
-                            <tr class="hover:bg-gray-50" data-id="{{ $item->id }}">
+                            <tr class="hover:bg-gray-50" data-id="{{ $item->id }}" data-cycles-url="{{ route('kesei.update', $item) }}">
                                 <td class="kesei-drag-handle px-3 py-3 border-b border-gray-300 text-center text-gray-300 hover:text-gray-500 cursor-grab select-none"
                                     title="{{ __('Geser untuk mengatur urutan') }}">⠿</td>
                                 <td class="kesei-urutan-cell px-6 py-3 border-b border-l border-gray-300 text-gray-600">{{ $loop->iteration }}</td>
@@ -95,13 +115,13 @@
                                     <span class="kesei-status ml-1 text-xs"></span>
                                 </td>
                                 <td class="px-3 py-3 border-b border-l border-gray-300">
-                                    <input type="number" min="0" inputmode="numeric"
+                                    <input type="number" min="0" step="0.01" inputmode="decimal"
                                            class="kesei-inline w-16 rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
                                            data-field="lt_per_kbn"
                                            data-url="{{ route('kesei.update', $item) }}"
                                            value="{{ $item->lt_per_kbn }}"
                                            placeholder="—"
-                                           title="{{ __('Lead Time per Kanban (menit) — jeda antar tick di Andon Heijunka & Perintah Pulling. Kosong/0 = tidak ada jeda (langsung seperti biasa).') }}">
+                                           title="{{ __('Lead Time per Kanban (menit, boleh desimal mis. 20.8) — jeda antar tick di Andon Heijunka & Perintah Pulling. Kosong/0 = tidak ada jeda (langsung seperti biasa).') }}">
                                     <span class="kesei-status ml-1 text-xs"></span>
                                 </td>
                                 <td class="px-3 py-3 border-b border-l border-gray-300">
@@ -182,6 +202,22 @@
                                         <span class="kesei-status text-xs"></span>
                                     </div>
                                 </td>
+                                @foreach (\App\Models\KeseiPart::CYCLES as $cycle)
+                                    <td class="kesei-cycles px-1.5 py-3 border-b border-l border-gray-300 text-center">
+                                        <input type="time" data-cycle="{{ $cycle }}" value="{{ $item->cycleTime($cycle) }}"
+                                               class="kesei-cycle-time w-full rounded-md border-gray-300 text-xs focus:border-brand-500 focus:ring-brand-500">
+                                    </td>
+                                @endforeach
+                                <td class="px-3 py-3 border-b border-l border-gray-300">
+                                    <input type="number" min="0" inputmode="numeric"
+                                           class="kesei-inline w-20 rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm"
+                                           data-field="order_per_cycle"
+                                           data-url="{{ route('kesei.update', $item) }}"
+                                           value="{{ $item->order_per_cycle }}"
+                                           placeholder="—"
+                                           title="{{ __('Jumlah order terbanyak dalam 1 cycle.') }}">
+                                    <span class="kesei-status ml-1 text-xs"></span>
+                                </td>
                                 <td class="px-3 py-3 border-b border-l border-gray-300 text-center">
                                     <form action="{{ route('kesei.destroy', $item) }}" method="POST" class="inline" onsubmit="return confirm('{{ __('Hapus part ini dari Kesei?') }}');">
                                         @csrf
@@ -196,11 +232,16 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="12" class="px-6 py-8 text-center text-gray-400 border-b border-gray-300">{{ __('Belum ada part di Kesei.') }}</td>
+                                <td colspan="{{ 13 + count(\App\Models\KeseiPart::CYCLES) }}" class="px-6 py-8 text-center text-gray-400 border-b border-gray-300">{{ __('Belum ada part di Kesei.') }}</td>
                             </tr>
                         @endforelse
                     </tbody>
                 </table>
+            </div>
+
+            <div id="kesei-pagination" class="hidden flex flex-wrap items-center justify-between gap-3 px-6 pb-4">
+                <p id="kesei-pagination-info" class="text-sm text-gray-500"></p>
+                <div id="kesei-pagination-controls" class="flex items-center gap-1"></div>
             </div>
         </div>
     </div>
@@ -250,30 +291,104 @@
                         .catch(function () { set('✕', 'text-red-600'); });
                 }
 
-                // Client-side filter — the whole list is already loaded (drag
-                // reorder needs every row present), so search just hides
-                // non-matching rows instead of round-tripping to the server.
+                // Client-side filter + pagination — the whole list is already
+                // loaded (drag reorder needs every row present), so search and
+                // "entries per page" just hide non-matching/off-page rows
+                // instead of round-tripping to the server.
                 const searchInput = document.getElementById('kesei-search');
                 const searchReset = document.getElementById('kesei-search-reset');
+                const perPageSelect = document.getElementById('kesei-per-page');
                 const sortable = document.getElementById('kesei-sortable');
-                if (searchInput && sortable) {
-                    const applyFilter = function () {
-                        const q = searchInput.value.trim().toLowerCase();
-                        searchReset.classList.toggle('hidden', q === '');
-                        sortable.querySelectorAll('tr[data-id]').forEach(function (tr) {
-                            const partNo = tr.children[2]?.textContent || '';
-                            const level = tr.querySelector('[data-field="level"]')?.value || '';
-                            const sos = tr.querySelector('[data-field="stock_source"]')?.value || '';
-                            const haystack = (partNo + ' ' + level + ' ' + sos).toLowerCase();
-                            tr.classList.toggle('hidden', q !== '' && ! haystack.includes(q));
-                        });
+                const paginationWrap = document.getElementById('kesei-pagination');
+                const paginationInfo = document.getElementById('kesei-pagination-info');
+                const paginationControls = document.getElementById('kesei-pagination-controls');
+                const exportLink = document.getElementById('kesei-export-link');
+                let currentPage = 1;
+
+                function updateExportLink(q) {
+                    if (!exportLink) return;
+                    const url = new URL(exportLink.dataset.baseUrl, window.location.origin);
+                    if (q) url.searchParams.set('q', q); else url.searchParams.delete('q');
+                    exportLink.href = url.toString();
+                }
+
+                function renderPagination(totalMatched, perPageRaw, totalPages) {
+                    if (!paginationWrap) return;
+                    if (perPageRaw === 'all' || totalPages <= 1) {
+                        paginationWrap.classList.add('hidden');
+                        paginationControls.innerHTML = '';
+                        paginationInfo.textContent = '';
+                        return;
+                    }
+                    paginationWrap.classList.remove('hidden');
+                    const perPage = parseInt(perPageRaw, 10);
+                    const start = totalMatched === 0 ? 0 : (currentPage - 1) * perPage + 1;
+                    const end = Math.min(currentPage * perPage, totalMatched);
+                    paginationInfo.textContent = '{{ __('Menampilkan') }} ' + start + '-' + end + ' {{ __('dari') }} ' + totalMatched;
+
+                    const makeBtn = function (label, page, disabled, active) {
+                        const btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.textContent = label;
+                        btn.className = 'px-3 py-1.5 text-sm rounded-md border ' +
+                            (active ? 'bg-brand-800 text-white border-brand-800' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50') +
+                            (disabled ? ' opacity-40 cursor-not-allowed' : '');
+                        if (disabled) { btn.disabled = true; } else {
+                            btn.addEventListener('click', function () { currentPage = page; applyFilterAndPaginate(); });
+                        }
+                        return btn;
                     };
-                    searchInput.addEventListener('input', applyFilter);
+
+                    paginationControls.innerHTML = '';
+                    paginationControls.appendChild(makeBtn('‹', currentPage - 1, currentPage <= 1, false));
+                    for (let p = 1; p <= totalPages; p++) {
+                        paginationControls.appendChild(makeBtn(String(p), p, false, p === currentPage));
+                    }
+                    paginationControls.appendChild(makeBtn('›', currentPage + 1, currentPage >= totalPages, false));
+                }
+
+                function applyFilterAndPaginate() {
+                    const q = searchInput.value.trim().toLowerCase();
+                    searchReset.classList.toggle('hidden', q === '');
+                    updateExportLink(searchInput.value.trim());
+
+                    const rows = Array.from(sortable.querySelectorAll('tr[data-id]'));
+                    const matched = [];
+                    rows.forEach(function (tr) {
+                        const partNo = tr.children[2]?.textContent || '';
+                        const level = tr.querySelector('[data-field="level"]')?.value || '';
+                        const sos = tr.querySelector('[data-field="stock_source"]')?.value || '';
+                        const haystack = (partNo + ' ' + level + ' ' + sos).toLowerCase();
+                        if (q === '' || haystack.includes(q)) matched.push(tr);
+                    });
+
+                    const perPageRaw = perPageSelect ? perPageSelect.value : 'all';
+                    const perPage = perPageRaw === 'all' ? matched.length : parseInt(perPageRaw, 10);
+                    const totalPages = perPageRaw !== 'all' && perPage > 0 ? Math.max(1, Math.ceil(matched.length / perPage)) : 1;
+                    if (currentPage > totalPages) currentPage = totalPages;
+                    if (currentPage < 1) currentPage = 1;
+
+                    const start = perPageRaw === 'all' ? 0 : (currentPage - 1) * perPage;
+                    const end = perPageRaw === 'all' ? matched.length : start + perPage;
+                    const visible = new Set(matched.slice(start, end));
+
+                    rows.forEach(function (tr) { tr.classList.toggle('hidden', ! visible.has(tr)); });
+
+                    renderPagination(matched.length, perPageRaw, totalPages);
+                }
+
+                if (searchInput && sortable) {
+                    searchInput.addEventListener('input', function () { currentPage = 1; applyFilterAndPaginate(); });
                     searchReset.addEventListener('click', function () {
                         searchInput.value = '';
                         searchInput.focus();
-                        applyFilter();
+                        currentPage = 1;
+                        applyFilterAndPaginate();
                     });
+                    if (perPageSelect) {
+                        perPageSelect.addEventListener('change', function () { currentPage = 1; applyFilterAndPaginate(); });
+                    }
+                    applyFilterAndPaginate();
                 }
 
                 // Inline auto-save of Source / Level.
@@ -292,6 +407,7 @@
                                 if (field.dataset.field === 'lt_per_kbn') field.value = d.lt_per_kbn ?? '';
                                 if (field.dataset.field === 'material_part_no') field.value = d.material_part_no ?? '';
                                 if (field.dataset.field === 'material_level') field.value = d.material_level ?? '';
+                                if (field.dataset.field === 'order_per_cycle') field.value = d.order_per_cycle ?? '';
                             });
                     });
                 });
@@ -309,6 +425,21 @@
                     // Click anywhere outside closes the dropdown.
                     document.addEventListener('click', function (e) {
                         if (cell.open && !cell.contains(e.target)) cell.open = false;
+                    });
+                });
+
+                // Cycle: 10 time cells (C1..C10) per row. Any one of them
+                // changing re-collects every cycle's time in that row and
+                // saves the whole {cycle: "H:i"} set in a single request.
+                document.querySelectorAll('#kesei-sortable tr[data-cycles-url]').forEach(function (row) {
+                    const times = row.querySelectorAll('.kesei-cycle-time');
+                    if (! times.length) return;
+                    times.forEach(function (input) {
+                        input.addEventListener('change', function () {
+                            const cycles = {};
+                            times.forEach(function (t) { cycles[t.dataset.cycle] = t.value; });
+                            save(row.dataset.cyclesUrl, { cycles: cycles }, null);
+                        });
                     });
                 });
 

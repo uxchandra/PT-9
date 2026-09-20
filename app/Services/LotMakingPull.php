@@ -94,7 +94,7 @@ class LotMakingPull
                 $scansByPart->get($lm->part->part_no, collect())->pluck('scanned_at'),
                 $lm->pulling_command,
                 $lm->pulling_command_set_at,
-                (int) ($lm->lt_per_kbn ?? 0)
+                (float) ($lm->lt_per_kbn ?? 0)
             ))
             ->filter(fn (array $r) => $r['needed'] > 0 || $r['scanned'] > 0)
             ->sortBy('done')
@@ -138,7 +138,7 @@ class LotMakingPull
             ->orderBy('scanned_at')
             ->pluck('scanned_at');
 
-        return $this->demandRow($partNo, $lm->part->qty_kbn, $floor, $snapshots, $scanTimes, $lm->pulling_command, $lm->pulling_command_set_at, (int) ($lm->lt_per_kbn ?? 0));
+        return $this->demandRow($partNo, $lm->part->qty_kbn, $floor, $snapshots, $scanTimes, $lm->pulling_command, $lm->pulling_command_set_at, (float) ($lm->lt_per_kbn ?? 0));
     }
 
     /**
@@ -232,7 +232,7 @@ class LotMakingPull
      * @param  Collection<int, Carbon>  $scanTimes
      * @return array{part_no: string, needed: int, scanned: int, remaining: int, last_update: ?string, done: bool}
      */
-    private function demandRow(string $partNo, ?string $qtyKbn, Carbon $from, Collection $snapshots, Collection $scanTimes, ?int $pullingCommand = null, ?Carbon $pullingCommandSetAt = null, int $ltPerKbn = 0): array
+    private function demandRow(string $partNo, ?string $qtyKbn, Carbon $from, Collection $snapshots, Collection $scanTimes, ?int $pullingCommand = null, ?Carbon $pullingCommandSetAt = null, float $ltPerKbn = 0.0): array
     {
         // Paced through the same heijunka release queue as Kesei (see the
         // class doc above) before anything else touches it — a part with no

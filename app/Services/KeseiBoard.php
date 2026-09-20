@@ -191,6 +191,8 @@ class KeseiBoard
                         ->values()
                         ->all(),
                     'closing_reached' => $foldStart !== null,
+                    // Heijunka-only planning markers — see planningMarkers().
+                    'planning_markers' => $this->planningMarkers($kesei->cycles ?? [], $kesei->order_per_cycle, $kesei->lt_per_kbn),
                     // Visible pile starts after the last closing; when none has
                     // passed, show everything within the history window.
                     'fold_start' => $foldStart ?? $historyFloor,
@@ -253,7 +255,7 @@ class KeseiBoard
             $allEvents = collect($allEvents)
                 ->map(fn (array $events, $rowId) => $this->heijunkaVisualEvents(
                     collect($events),
-                    (int) ($ltByRowId[$rowId] ?? 0),
+                    (float) ($ltByRowId[$rowId] ?? 0),
                     $scannedCountByRowId[$rowId] ?? 0
                 )->all())
                 ->all();
@@ -274,8 +276,12 @@ class KeseiBoard
             // it falls in — the timeline's fixed "Total" footer row (see
             // andon-kesei/_timeline-dark.blade.php) reads straight off this
             // instead of summing client-side, so it always matches exactly
-            // what's drawn (heijunka's colour/expiry rules included).
-            'hourlyTotals' => $this->hourlyKanbanTotals($stockDecreaseEvents),
+            // what's drawn (heijunka's colour/expiry rules included). On the
+            // Heijunka board, every planning marker also counts (1 each) —
+            // it's drawn there too, so the footer should match what's on
+            // screen; the other boards never show planning markers, so their
+            // totals stay pull-ticks-only.
+            'hourlyTotals' => $this->hourlyKanbanTotals($stockDecreaseEvents, $keseiRows, $tickSource === 'heijunka'),
             'closingKanban' => $closingKanban,
             // The Timeline Stok table is a rolling 48h (captures land every
             // 15 min, so ~192 rows) — the pile-forever rule is only for the
@@ -393,6 +399,61 @@ class KeseiBoard
     }
 
     /**
+     * The Heijunka board's "planning" markers — a thin line per planned
+     * release, independent of and drawn alongside the actual pull ticks.
+     *
+     * Every populated cycle (KeseiPart/LotMaking::cycles, C1..C10) is a
+     * release-window start. From that instant, order_per_cycle releases are
+     * planned, lt_per_kbn minutes apart (the same pacing heijunkaRelease()
+     * uses for actual pulls, and lt_per_kbn carries the same fractional-minute
+     * precision — e.g. 20.8) — e.g. order_per_cycle=5, a cycle at 20:00 and
+     * lt_per_kbn=X plans releases at 20:00, 20:00+X, 20:00+2X, 20:00+3X,
+     * 20:00+4X. A blank/zero lt_per_kbn collapses every release in that
+     * cycle onto the same instant (no pacing to space them out).
+     *
+     * @param  array<int, string>  $cycles  cycle number => "H:i"
+     * @return array<int, array{minute: int, time: string, cycle_time: string, sequence: int}>
+     */
+    private function planningMarkers(array $cycles, ?int $orderPerCycle, ?float $ltPerKbn): array
+    {
+        if (($orderPerCycle ?? 0) <= 0 || $cycles === []) {
+            return [];
+        }
+
+        $ltPerKbn = max(0.0, $ltPerKbn ?? 0.0);
+        $markers = [];
+
+        foreach ($cycles as $time) {
+            try {
+                $cycleAt = Carbon::createFromFormat('H:i', (string) $time);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            for ($i = 0; $i < $orderPerCycle; $i++) {
+                // Real Carbon arithmetic (not raw modulo on the minute
+                // number) so fractional lt_per_kbn accumulates precisely —
+                // same idiom heijunkaRelease() uses — then clockMinute()
+                // folds it back onto the looping 07:00 face. 'time' is this
+                // specific release's own clock time (e.g. seq 2 of a 20:00
+                // cycle at 20.8 lt/kbn is 20:20, not the cycle's 20:00) —
+                // truncated to the minute for display, same as every other
+                // tick's label on this board; the position above already
+                // carries the full fractional precision into account.
+                $releaseAt = $ltPerKbn > 0 ? $cycleAt->copy()->addMinutes($ltPerKbn * $i) : $cycleAt->copy();
+                $markers[] = [
+                    'minute' => $this->clockMinute($releaseAt),
+                    'time' => $releaseAt->format('H:i'),
+                    'cycle_time' => $cycleAt->format('H:i'),
+                    'sequence' => $i + 1,
+                ];
+            }
+        }
+
+        return collect($markers)->sortBy('minute')->values()->all();
+    }
+
+    /**
      * The earliest instant any row needs stock history from (floored to the
      * hour, clamped to the history floor), so one query covers every row.
      * Also never later than 48h ago, so the Timeline Stok table always has a
@@ -471,10 +532,18 @@ class KeseiBoard
      * happened on — inflating "this hour's total" with kanban pulled two or
      * three days ago instead of today.
      *
+     * $includePlanning additionally folds in each row's planning_markers (see
+     * planningMarkers()), one per marker — only passed true for the Heijunka
+     * board, the only one that draws them at all. Unlike the pull ticks,
+     * planning markers have no "at" instant to age out by — they're a
+     * repeating daily plan positioned purely by clock-face minute — so every
+     * one counts, every time.
+     *
      * @param  array<int|string, array<int, array{minute: int, kanban: int, at: Carbon}>>  $stockDecreaseEvents
+     * @param  Collection<int, array<string, mixed>>  $keseiRows
      * @return array<int, int>
      */
-    private function hourlyKanbanTotals(array $stockDecreaseEvents): array
+    private function hourlyKanbanTotals(array $stockDecreaseEvents, Collection $keseiRows, bool $includePlanning = false): array
     {
         $now = now();
         $totals = [];
@@ -491,6 +560,15 @@ class KeseiBoard
 
                 $bucket = intdiv($event['minute'], 60) * 60;
                 $totals[$bucket] = ($totals[$bucket] ?? 0) + $event['kanban'];
+            }
+        }
+
+        if ($includePlanning) {
+            foreach ($keseiRows as $row) {
+                foreach ($row['planning_markers'] ?? [] as $marker) {
+                    $bucket = intdiv($marker['minute'], 60) * 60;
+                    $totals[$bucket] = ($totals[$bucket] ?? 0) + 1;
+                }
             }
         }
 
@@ -785,7 +863,7 @@ class KeseiBoard
      * @param  Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>  $events
      * @return Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>
      */
-    public function heijunkaEvents(Collection $events, int $ltPerKbn): Collection
+    public function heijunkaEvents(Collection $events, float $ltPerKbn): Collection
     {
         $now = now();
 
@@ -834,6 +912,7 @@ class KeseiBoard
                 'closing_label' => null,
                 'closing_markers' => [],
                 'closing_reached' => false,
+                'planning_markers' => $this->planningMarkers($lm->cycles ?? [], $lm->order_per_cycle, $lm->lt_per_kbn),
                 'fold_start' => $historyFloor,
                 'cycle_start' => $historyFloor,
             ])
@@ -874,7 +953,7 @@ class KeseiBoard
      * @param  Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>  $events
      * @return Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon, heijunka_status: string}>
      */
-    public function heijunkaVisualEvents(Collection $events, int $ltPerKbn, int $scannedCount): Collection
+    public function heijunkaVisualEvents(Collection $events, float $ltPerKbn, int $scannedCount): Collection
     {
         $now = now();
         $released = $this->heijunkaRelease($events, $ltPerKbn)->sortBy('at')->values();
@@ -986,7 +1065,7 @@ class KeseiBoard
      * @param  Collection<int, array{kanban: int, at: Carbon}>  $events
      * @return Collection<int, array{minute: int, kanban: int, pcs: int, time: string, at: Carbon}>
      */
-    private function heijunkaRelease(Collection $events, int $ltPerKbn): Collection
+    private function heijunkaRelease(Collection $events, float $ltPerKbn): Collection
     {
         $released = collect();
         $queueFreeAt = null; // Carbon|null — when the queue is next free to start releasing a new unit.

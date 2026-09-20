@@ -22,7 +22,7 @@
 
                     <div class="flex items-center gap-2">
                         <input type="text" id="lm-search" value="{{ $search }}" autocomplete="off"
-                               placeholder="{{ __('Cari row / kolom / part no...') }}"
+                               placeholder="{{ __('Cari row / kolom / part no / level...') }}"
                                class="rounded-lg border-gray-300 text-sm focus:ring-brand-700 focus:border-brand-700 w-64">
                         <button type="button" id="lm-search-reset"
                                 class="text-sm text-gray-500 hover:text-gray-700 {{ $search === '' ? 'hidden' : '' }}">
@@ -34,6 +34,11 @@
                             class="inline-flex items-center justify-center px-4 py-2.5 bg-white border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition ease-in-out duration-150 shadow-sm">
                         {{ __('Import') }}
                     </button>
+                    <a id="lm-export-link" data-base-url="{{ route('lot-makings.export') }}"
+                       href="{{ route('lot-makings.export', $search !== '' ? ['q' => $search] : []) }}"
+                       class="inline-flex items-center justify-center px-4 py-2.5 bg-white border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition ease-in-out duration-150 shadow-sm">
+                        {{ __('Export') }}
+                    </a>
                     <button type="button" x-data="" x-on:click="$dispatch('open-modal', 'lot-making-create')"
                             class="inline-flex items-center justify-center px-4 py-2.5 bg-brand-800 border border-transparent rounded-lg font-semibold text-sm text-white hover:bg-brand-900 transition ease-in-out duration-150 shadow-sm">
                         {{ __('Tambah Lot Making') }}
@@ -68,9 +73,17 @@
             const resetButton = document.getElementById('lm-search-reset');
             const perPageSelect = document.getElementById('lm-per-page');
             const results = document.getElementById('lm-results');
+            const exportLink = document.getElementById('lm-export-link');
 
             let debounceTimer = null;
             let controller = null;
+
+            function updateExportLink(query) {
+                if (!exportLink) return;
+                const url = new URL(exportLink.dataset.baseUrl, window.location.origin);
+                if (query) url.searchParams.set('q', query); else url.searchParams.delete('q');
+                exportLink.href = url.toString();
+            }
 
             function fetchResults(query, perPage) {
                 if (controller) controller.abort();
@@ -80,6 +93,7 @@
                 if (query) target.searchParams.set('q', query);
                 target.searchParams.set('per_page', perPage);
 
+                updateExportLink(query);
                 results.classList.add('opacity-50');
 
                 fetch(target.toString(), {
@@ -121,6 +135,11 @@
     @push('styles')
         <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
         <style>
+            .lm-table-scroll { scrollbar-width: thin; scrollbar-color: #9ca3af #f3f4f6; }
+            .lm-table-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+            .lm-table-scroll::-webkit-scrollbar-track { background: #f3f4f6; }
+            .lm-table-scroll::-webkit-scrollbar-thumb { background: #9ca3af; border-radius: 10px; border: 2px solid #f3f4f6; }
+            .lm-table-scroll::-webkit-scrollbar-thumb:hover { background: #6b7280; }
             .select2-container .select2-selection--single { height: 38px; border-color: #d1d5db; border-radius: 0.5rem; display: flex; align-items: center; }
             .select2-container--default .select2-selection--single .select2-selection__rendered { line-height: 1.5; color: #374151; padding-left: 0.75rem; }
             .select2-container--default .select2-selection--single .select2-selection__arrow { height: 36px; }
