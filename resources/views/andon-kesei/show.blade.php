@@ -15,6 +15,11 @@
         {{-- Base color is overridden inline per row with that row's own pola
              colour (see KeseiBoard::polaColor) — this is just the fallback. --}}
         .closing-time-marker { width: 0; border-left: 6px dashed #94a3b8; }
+        {{-- Heijunka-only: a thin, faint planning-release line (see
+             KeseiBoard::planningMarkers) — deliberately subtler than the
+             closing-time marker above so it reads as a background guide,
+             not competing with the actual pull ticks drawn over it. --}}
+        .planning-marker { width: 0; border-left: 1px dashed rgba(255,255,255,0.45); }
     </style>
 </head>
 <body class="h-screen w-screen overflow-hidden bg-black font-sans antialiased text-white">
@@ -61,6 +66,10 @@
                     <div class="flex items-center gap-1.5">
                         <span class="w-0 h-4 border-l-2" style="border-color:#22d3ee;"></span>
                         <span>{{ __('Progress Bar') }}</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-0 h-4 border-l" style="border-left-style: dashed; border-color: rgba(255,255,255,0.45);"></span>
+                        <span>{{ __('Planning') }}</span>
                     </div>
                 </div>
             @else

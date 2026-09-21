@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\KeseiPartsExport;
 use App\Models\KeseiPart;
 use App\Models\KeseiPartClosing;
 use App\Models\Part;
@@ -12,6 +13,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class KeseiPartController extends Controller
 {
@@ -28,6 +31,19 @@ class KeseiPartController extends Controller
         return view('kesei.index', compact('keseiParts', 'availableParts', 'patternBoards'));
     }
 
+    /**
+     * Exports every part matching the search the index page's search box
+     * currently has active (part no / SOS code / level) — the client-side
+     * "entries per page" is only a viewing convenience, not part of the
+     * export's scope.
+     */
+    public function export(Request $request): BinaryFileResponse
+    {
+        $search = trim((string) $request->query('q', ''));
+
+        return Excel::download(new KeseiPartsExport($search), 'kesei-'.now()->format('Y-m-d_H-i').'.xlsx');
+    }
+
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
@@ -38,6 +54,9 @@ class KeseiPartController extends Controller
             'closing_mode' => ['nullable', Rule::in(KeseiPart::CLOSING_MODES)],
             'pattern_board_ids' => ['nullable', 'array'],
             'pattern_board_ids.*' => ['integer', 'exists:pattern_boards,id'],
+            'cycles' => ['nullable', 'array'],
+            ...$this->cycleTimeRules(),
+            'order_per_cycle' => ['nullable', 'integer', 'min:0'],
         ], [], ['part_id' => 'part']);
 
         $keseiPart = KeseiPart::create([
@@ -45,6 +64,8 @@ class KeseiPartController extends Controller
             'stock_source' => $this->cleanStockSource($validated['stock_source'] ?? null),
             'level' => $validated['level'] ?? null,
             'urutan' => (int) KeseiPart::max('urutan') + 1,
+            'cycles' => $this->cleanCycles($validated['cycles'] ?? null),
+            'order_per_cycle' => $validated['order_per_cycle'] ?? null,
         ]);
 
         if (! empty($validated['closing_time'])) {
@@ -66,9 +87,10 @@ class KeseiPartController extends Controller
             // count. Editable any time, not just once.
             'pulling_command' => ['sometimes', 'nullable', 'integer', 'min:0'],
             // Lead Time per Kanban (minutes) — how long a heijunka-paced
-            // release queue takes to mature one kanban. Blank/0 = no pacing
-            // (see KeseiBoard::heijunkaRelease()).
-            'lt_per_kbn' => ['sometimes', 'nullable', 'integer', 'min:0'],
+            // release queue takes to mature one kanban. Decimal (e.g. 20.8),
+            // not whole minutes. Blank/0 = no pacing (see
+            // KeseiBoard::heijunkaRelease()).
+            'lt_per_kbn' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             // Material (RM): the raw material this part is built from — a
             // free-form part_no + level, not tied to the Part List. Its
             // stock is looked up by part_no for the Andon Kesei Closing
@@ -82,6 +104,12 @@ class KeseiPartController extends Controller
             'closings.*.closing_mode' => ['nullable', Rule::in(KeseiPart::CLOSING_MODES)],
             'pattern_board_ids' => ['sometimes', 'nullable', 'array'],
             'pattern_board_ids.*' => ['integer', 'exists:pattern_boards,id'],
+            'cycles' => ['sometimes', 'nullable', 'array'],
+            ...$this->cycleTimeRules(),
+            // The largest number of orders this part can carry in one
+            // production cycle — a capacity/quantity figure, separate from
+            // the per-cycle times above.
+            'order_per_cycle' => ['sometimes', 'nullable', 'integer', 'min:0'],
         ]);
 
         // Each inline field auto-saves on its own change event — only touch the
@@ -108,6 +136,18 @@ class KeseiPartController extends Controller
         if (array_key_exists('material_level', $validated)) {
             $updates['material_level'] = $validated['material_level'] ?: null;
         }
+        if (array_key_exists('order_per_cycle', $validated)) {
+            $updates['order_per_cycle'] = $validated['order_per_cycle'];
+        }
+        if ($request->has('cycles')) {
+            // Read straight off the request rather than $validated: when
+            // every cycle in the submitted set is blank, Laravel's validated()
+            // drops the "cycles" key entirely (nothing under it carried a
+            // value to reconstruct), which would silently skip clearing it.
+            // Validation above already rejected anything malformed, so the
+            // raw values here are safe to trust.
+            $updates['cycles'] = $this->cleanCycles($request->input('cycles', []));
+        }
         if ($updates !== []) {
             $keseiPart->update($updates);
         }
@@ -131,6 +171,8 @@ class KeseiPartController extends Controller
                 'lt_per_kbn' => $keseiPart->lt_per_kbn,
                 'material_part_no' => $keseiPart->material_part_no,
                 'material_level' => $keseiPart->material_level,
+                'order_per_cycle' => $keseiPart->order_per_cycle,
+                'cycles' => $keseiPart->cycles ?? [],
                 'closings' => $keseiPart->closings->map(fn (KeseiPartClosing $c) => [
                     'closing_time' => $c->closing_time->format('H:i'),
                     'closing_mode' => $c->closing_mode,
@@ -156,6 +198,38 @@ class KeseiPartController extends Controller
             ->values();
 
         return $parts->isEmpty() ? null : $parts->implode(', ');
+    }
+
+    /**
+     * One "date_format:H:i" rule per fixed cycle number (cycles.1..cycles.10)
+     * — each cycle carries a time, not a flag.
+     *
+     * @return array<string, array<int, string>>
+     */
+    private function cycleTimeRules(): array
+    {
+        $rules = [];
+        foreach (KeseiPart::CYCLES as $cycle) {
+            $rules["cycles.{$cycle}"] = ['nullable', 'date_format:H:i'];
+        }
+
+        return $rules;
+    }
+
+    /**
+     * Normalise a submitted {cycle: "H:i"} map down to only the fixed cycle
+     * numbers with a non-blank time, or null when nothing is left.
+     *
+     * @param  array<int|string, mixed>|null  $raw
+     * @return array<int, string>|null
+     */
+    private function cleanCycles(?array $raw): ?array
+    {
+        $cycles = collect(KeseiPart::CYCLES)
+            ->mapWithKeys(fn ($cycle) => [$cycle => $raw[$cycle] ?? null])
+            ->filter(fn ($time) => filled($time));
+
+        return $cycles->isEmpty() ? null : $cycles->all();
     }
 
     public function destroy(KeseiPart $keseiPart): RedirectResponse

@@ -2,14 +2,15 @@
     $beforeMaterial = ['Row', 'Kolom', 'Part No', 'Level'];
     $afterMaterial = ['Perintah Pulling', 'LT/KBN', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses'];
     $rightAligned = ['Perintah Pulling', 'LT/KBN', 'Lot Produksi', 'Slot', 'Avg Slot', 'Slot Fix', 'Loading Time', 'Dandori', 'Jumlah Proses'];
-    $totalColumns = 1 + count($beforeMaterial) + 2 + count($afterMaterial) + 1;
+    $cycles = \App\Models\LotMaking::CYCLES;
+    $totalColumns = 1 + count($beforeMaterial) + 2 + count($afterMaterial) + count($cycles) + 2;
 @endphp
 
 <p class="px-6 pt-4 text-sm text-gray-500">
     {{ $lotMakings->total() }} {{ __('data lot making') }}
 </p>
 
-<div class="mx-6 my-6 overflow-auto border-2 border-gray-300 rounded-lg" style="max-height: calc(100vh - 340px);">
+<div class="lm-table-scroll mx-6 my-6 overflow-x-auto overflow-y-auto border-2 border-gray-300 rounded-lg" style="max-height: calc(100vh - 340px);">
     <table class="min-w-full text-xs whitespace-nowrap border-separate border-spacing-0">
         <thead class="sticky top-0 z-10">
             <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -21,11 +22,16 @@
                 @foreach ($afterMaterial as $label)
                     <th rowspan="2" class="align-bottom bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 {{ in_array($label, $rightAligned) ? 'text-right' : '' }}">{{ __($label) }}</th>
                 @endforeach
+                <th colspan="{{ count($cycles) }}" class="bg-gray-50 px-4 py-1.5 border-b border-l border-gray-300 text-center">{{ __('Cycle') }}</th>
+                <th rowspan="2" class="align-bottom bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300 text-right">{{ __('Order/Cycle') }}</th>
                 <th rowspan="2" class="align-bottom sticky right-0 z-20 bg-gray-50 px-4 py-3 border-b-2 border-l-2 border-gray-300 text-right">{{ __('Aksi') }}</th>
             </tr>
             <tr class="bg-gray-50 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">
                 <th class="bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300">{{ __('No Part') }}</th>
                 <th class="bg-gray-50 px-4 py-3 border-b-2 border-l border-gray-300">{{ __('Level') }}</th>
+                @foreach ($cycles as $cycle)
+                    <th class="bg-gray-50 px-2 py-3 border-b-2 border-l border-gray-300 w-16 text-center">C{{ $cycle }}</th>
+                @endforeach
             </tr>
         </thead>
         <tbody>
@@ -47,6 +53,12 @@
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->loading_time ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->dandori ?? '-' }}</td>
                     <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->jumlah_proses ?? '-' }}</td>
+                    @foreach ($cycles as $cycle)
+                        <td class="px-2 py-2 border-b border-l border-gray-200 text-center {{ $lotMaking->cycleTime($cycle) ? 'font-semibold text-gray-800' : 'text-gray-300' }}">
+                            {{ $lotMaking->cycleTime($cycle) ?? '—' }}
+                        </td>
+                    @endforeach
+                    <td class="px-4 py-2 border-b border-l border-gray-200 text-right text-gray-600">{{ $lotMaking->order_per_cycle ?? '-' }}</td>
                     <td class="sticky right-0 z-10 bg-white group-hover:bg-gray-50 px-4 py-2 border-b border-l-2 border-gray-300 text-right">
                         <button type="button" x-data="" x-on:click="$dispatch('open-modal', 'lot-making-edit-{{ $lotMaking->id }}')"
                                 class="text-brand-700 hover:text-brand-900 font-medium">{{ __('Edit') }}</button>

@@ -113,6 +113,7 @@ Route::middleware('auth')->group(function () {
         Route::get('kesei/import-template', [KeseiImportController::class, 'template'])->name('kesei.import.template');
         Route::get('kesei/import', [KeseiImportController::class, 'create'])->name('kesei.import.create');
         Route::post('kesei/import', [KeseiImportController::class, 'store'])->name('kesei.import.store');
+        Route::get('kesei/export', [KeseiPartController::class, 'export'])->name('kesei.export');
         Route::get('kesei/history-scan', [KeseiHistoryController::class, 'scans'])->name('kesei-scans.index');
         Route::get('kesei/history-closing', [KeseiHistoryController::class, 'closings'])->name('kesei-closings.index');
         Route::patch('kesei/{keseiPart}', [KeseiPartController::class, 'update'])->name('kesei.update');
@@ -125,6 +126,7 @@ Route::middleware('auth')->group(function () {
         // standalone page) — only the template download and the submit
         // endpoint need routes.
         Route::post('lot-makings/import', [LotMakingImportController::class, 'store'])->name('lot-makings.import.store');
+        Route::get('lot-makings/export', [LotMakingController::class, 'export'])->name('lot-makings.export');
         Route::get('lot-makings/history-scan', [LotMakingHistoryController::class, 'scans'])->name('lot-making-scans.index');
 
         Route::get('lot-making-plannings', [LotMakingPlanningController::class, 'index'])->name('lot-making-plannings.index');

@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
-#[Fillable(['part_id', 'stock_source', 'level', 'urutan', 'pulling_command', 'pulling_command_set_at', 'lt_per_kbn', 'material_part_no', 'material_level'])]
+#[Fillable(['part_id', 'stock_source', 'level', 'urutan', 'pulling_command', 'pulling_command_set_at', 'lt_per_kbn', 'material_part_no', 'material_level', 'cycles', 'order_per_cycle'])]
 class KeseiPart extends Model
 {
     /**
@@ -19,10 +19,20 @@ class KeseiPart extends Model
      */
     public const FOLD_HISTORY_DAYS = 8;
 
+    /**
+     * The fixed set of production cycles a part can be assigned to (C1..C10).
+     */
+    public const CYCLES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
     protected function casts(): array
     {
         return [
             'pulling_command_set_at' => 'datetime',
+            'cycles' => 'array',
+            'order_per_cycle' => 'integer',
+            // Lead Time per Kanban (minutes) — decimal, not whole minutes
+            // (e.g. 20.8) — see KeseiBoard::heijunkaRelease()/planningMarkers().
+            'lt_per_kbn' => 'float',
         ];
     }
 
@@ -89,6 +99,15 @@ class KeseiPart extends Model
         $label = $this->closings->pluck('closing_time')->map(fn (Carbon $t) => $t->format('H:i'))->implode(', ');
 
         return $label !== '' ? $label : '—';
+    }
+
+    /**
+     * The "H:i" time set for the given cycle number (1-10), or null when
+     * that cycle has no time set for this row. Stored as {cycle: "H:i"}.
+     */
+    public function cycleTime(int $cycle): ?string
+    {
+        return $this->cycles[$cycle] ?? null;
     }
 
     /**

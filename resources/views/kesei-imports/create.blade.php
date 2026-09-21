@@ -8,40 +8,57 @@
 
             <div class="mb-6 rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
                 <p class="font-semibold mb-1">{{ __('Format file (.xlsx, .xls, atau .csv)') }}</p>
-                <p class="mb-2">{{ __('Baris 1 header, data mulai baris 2.') }}</p>
+                <p class="mb-2">
+                    {{ __('Kolomnya sama persis dengan hasil Export di halaman Kesei — Export, edit datanya, lalu Import lagi file yang sama juga bisa. Baris 1 header, data mulai baris 2.') }}
+                </p>
                 <table class="text-xs border border-blue-200 rounded overflow-hidden">
                     <thead>
                         <tr class="bg-blue-100">
-                            <th class="px-2 py-1 border-r border-blue-200">Kolom</th>
-                            <th class="px-2 py-1">Header</th>
+                            <th class="px-2 py-1 border-r border-blue-200">Header</th>
                             <th class="px-2 py-1 border-l border-blue-200">Keterangan</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr class="bg-white">
-                            <td class="px-2 py-1 border-r border-t border-blue-200">A</td>
-                            <td class="px-2 py-1 border-t border-blue-200 font-mono">part_no</td>
+                            <td class="px-2 py-1 border-t border-blue-200 font-mono">Part No</td>
                             <td class="px-2 py-1 border-l border-t border-blue-200">Wajib. Dicocokkan ke Part List, dibuat otomatis jika belum ada</td>
                         </tr>
                         <tr class="bg-white">
-                            <td class="px-2 py-1 border-r border-t border-blue-200">B</td>
-                            <td class="px-2 py-1 border-t border-blue-200 font-mono">stock_source</td>
+                            <td class="px-2 py-1 border-t border-blue-200 font-mono">Level</td>
+                            <td class="px-2 py-1 border-l border-t border-blue-200">Opsional</td>
+                        </tr>
+                        <tr class="bg-white">
+                            <td class="px-2 py-1 border-t border-blue-200 font-mono">Perintah Pulling / LT/KBN</td>
+                            <td class="px-2 py-1 border-l border-t border-blue-200">Opsional. Angka</td>
+                        </tr>
+                        <tr class="bg-white">
+                            <td class="px-2 py-1 border-t border-blue-200 font-mono">Material No Part / Material Level</td>
+                            <td class="px-2 py-1 border-l border-t border-blue-200">Opsional</td>
+                        </tr>
+                        <tr class="bg-white">
+                            <td class="px-2 py-1 border-t border-blue-200 font-mono">SOS Code</td>
                             <td class="px-2 py-1 border-l border-t border-blue-200">Opsional. Part no source (Timeline Stok), pisah koma. Kosong = pakai part no sendiri</td>
                         </tr>
                         <tr class="bg-white">
-                            <td class="px-2 py-1 border-r border-t border-blue-200">C</td>
-                            <td class="px-2 py-1 border-t border-blue-200 font-mono">closing_time</td>
-                            <td class="px-2 py-1 border-l border-t border-blue-200">Opsional. Jam HH:MM (mis. 14:30)</td>
+                            <td class="px-2 py-1 border-t border-blue-200 font-mono">Closing Time / Closing Mode</td>
+                            <td class="px-2 py-1 border-l border-t border-blue-200">Opsional. Jam HH:MM, bisa lebih dari satu dipisah koma (mis. "05:00, 15:00"), dipasangkan urut dengan Closing Mode ("pre_run"/"end_of_day")</td>
                         </tr>
                         <tr class="bg-white">
-                            <td class="px-2 py-1 border-r border-t border-blue-200">D</td>
-                            <td class="px-2 py-1 border-t border-blue-200 font-mono">pattern</td>
+                            <td class="px-2 py-1 border-t border-blue-200 font-mono">Pattern</td>
                             <td class="px-2 py-1 border-l border-t border-blue-200">Opsional. Nama Pattern Board, bisa lebih dari satu dipisah koma (mis. A, B). Nama yang tidak ada boardnya diabaikan</td>
+                        </tr>
+                        <tr class="bg-white">
+                            <td class="px-2 py-1 border-t border-blue-200 font-mono">C1 .. C10</td>
+                            <td class="px-2 py-1 border-l border-t border-blue-200">Opsional. Jam HH:MM tiap cycle</td>
+                        </tr>
+                        <tr class="bg-white">
+                            <td class="px-2 py-1 border-t border-blue-200 font-mono">Order/Cycle</td>
+                            <td class="px-2 py-1 border-l border-t border-blue-200">Opsional. Angka — jumlah order terbanyak dalam 1 cycle</td>
                         </tr>
                     </tbody>
                 </table>
                 <ul class="mt-3 space-y-1 list-disc list-inside text-blue-700">
-                    <li>{{ __('Part yang sudah ada di Kesei tidak ditambah lagi. Kalau baris membawa stock_source, sumber stoknya saja yang diperbarui; kalau kosong, baris dilewati.') }}</li>
+                    <li>{{ __('Part yang sudah ada di Kesei tidak ditambah lagi — kolom yang diisi di baris itu akan memperbarui datanya; kolom yang kosong ("-" atau dibiarkan kosong) dibiarkan apa adanya. Kalau semua kolom kosong, baris dilewati.') }}</li>
                     <li>{{ __('part_no yang muncul lebih dari sekali dalam file hanya ditambahkan sekali.') }}</li>
                     <li>{{ __('Baris dengan part_no kosong akan dilewati.') }}</li>
                 </ul>

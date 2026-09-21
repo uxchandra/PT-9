@@ -70,6 +70,27 @@
                 <p class="mt-1 text-xs text-gray-400">{{ __('Pattern (bisa lebih dari satu)') }}</p>
                 <x-input-error :messages="$errors->get('pattern_board_ids')" class="mt-1" />
             </div>
+            <div>
+                <p class="mb-1.5 text-sm font-medium text-gray-700">{{ __('Cycle') }}</p>
+                <div class="grid grid-cols-5 gap-2">
+                    @foreach (\App\Models\KeseiPart::CYCLES as $cycle)
+                        <div>
+                            <label class="block text-xs text-gray-500">C{{ $cycle }}</label>
+                            <input type="time" name="cycles[{{ $cycle }}]" value="{{ old("cycles.$cycle") }}"
+                                   class="block w-full rounded-md border-gray-300 text-sm focus:border-brand-500 focus:ring-brand-500">
+                        </div>
+                    @endforeach
+                </div>
+                <p class="mt-1 text-xs text-gray-400">{{ __('Jam tiap cycle (opsional, isi yang dipakai saja)') }}</p>
+                <x-input-error :messages="$errors->get('cycles')" class="mt-1" />
+            </div>
+            <div class="w-40">
+                <input type="number" min="0" name="order_per_cycle" value="{{ old('order_per_cycle') }}"
+                       placeholder="{{ __('Order/Cycle') }}"
+                       class="block w-full rounded-md border-gray-300 focus:border-brand-500 focus:ring-brand-500 text-sm">
+                <p class="mt-1 text-xs text-gray-400">{{ __('Jumlah order terbanyak dalam 1 cycle (opsional)') }}</p>
+                <x-input-error :messages="$errors->get('order_per_cycle')" class="mt-1" />
+            </div>
 
             <div class="flex items-center justify-end gap-3 pt-2">
                 <button type="button" x-on:click="$dispatch('close')" class="text-sm text-gray-600 hover:text-gray-900">{{ __('Batal') }}</button>

@@ -122,6 +122,17 @@
                                 </div>
                             @endforeach
                             @endunless
+                            {{-- Planning markers: one thin line per planned release
+                                 (cycle time + order_per_cycle, paced by lt_per_kbn —
+                                 see KeseiBoard::planningMarkers). Heijunka-only, the
+                                 mirror image of the closing markers above. --}}
+                            @if ($isHeijunka ?? false)
+                            @foreach ($row['planning_markers'] ?? [] as $marker)
+                                <div class="planning-marker absolute top-0 bottom-0 z-10 pointer-events-none"
+                                     style="left: {{ max(0, ($marker['minute'] - $dayStart) * $pxPerMinute) }}px;"
+                                     title="{{ __('Planning') }} {{ $marker['time'] }} — {{ __('rilis ke-') }}{{ $marker['sequence'] }} ({{ __('cycle') }} {{ $marker['cycle_time'] }})"></div>
+                            @endforeach
+                            @endif
                             @foreach ($stockDecreaseEvents[$row['id']] ?? [] as $event)
                                 @php
                                     // Heijunka recolours its ticks by status
