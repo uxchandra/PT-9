@@ -269,7 +269,7 @@ class HeijunkaBoxBoard
         // in this first version), same window the fixed slots themselves
         // span (07:00 today through just before 07:00 tomorrow).
         $decreaseEvents = $this->decreaseEvents($sources, $qtyKbn, $dayStart, $dayStart->copy()->addDay());
-        $scannedCount = $this->scannedCount($sources, $dayStart);
+        $scannedCount = $this->scannedCount($sources, $dayStart, $now);
 
         $ticks = $this->simulate($schedule->slots, $decreaseEvents, $dayStart, $now, $scannedCount);
 
@@ -294,6 +294,35 @@ class HeijunkaBoxBoard
     private function simulate(array $slots, Collection $decreaseEvents, Carbon $dayStart, Carbon $now, int $scannedCount): array
     {
         return $this->colourize($this->fire($slots, $decreaseEvents, $dayStart, $now), $now, $scannedCount);
+    }
+
+    /**
+     * Every Box-scheduled part's coloured ticks as of $asOf (a moment inside
+     * some production day — live "now", or the end of a past day), keyed by
+     * part_no. This is what Heikinka (the history view) draws: the exact same
+     * ticks, at the exact same slot times, that the Heijunka board itself
+     * showed at that moment.
+     *
+     * @return array<string, array<int, array{time: string, at: Carbon, heijunka_status: string}>>
+     */
+    public function ticksByPartNo(Carbon $asOf): array
+    {
+        $dayStart = \App\Models\CalendarEntry::productionDayStart($asOf);
+        $result = [];
+
+        foreach (HeijunkaBoxSchedule::with('part')->get() as $schedule) {
+            if ($schedule->part === null) {
+                continue;
+            }
+
+            $row = $this->buildRow($schedule, $asOf, $dayStart);
+
+            if ($row !== null) {
+                $result[$row['label']] = $row['ticks'];
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -492,10 +521,10 @@ class HeijunkaBoxBoard
     /**
      * @param  array<int, string>  $sources
      */
-    private function scannedCount(array $sources, Carbon $since): int
+    private function scannedCount(array $sources, Carbon $since, Carbon $until): int
     {
-        $kesei = KeseiScan::whereIn('part_no', $sources)->where('scanned_at', '>', $since)->count();
-        $lotMaking = LotMakingScan::whereIn('part_no', $sources)->where('scanned_at', '>', $since)->count();
+        $kesei = KeseiScan::whereIn('part_no', $sources)->whereBetween('scanned_at', [$since, $until])->where('scanned_at', '>', $since)->count();
+        $lotMaking = LotMakingScan::whereIn('part_no', $sources)->whereBetween('scanned_at', [$since, $until])->where('scanned_at', '>', $since)->count();
 
         return $kesei + $lotMaking;
     }

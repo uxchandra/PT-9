@@ -29,6 +29,8 @@ use Illuminate\Support\Facades\Cache;
  */
 class KeseiBoard
 {
+    public function __construct(private HeijunkaBoxBoard $box) {}
+
     private const PX_PER_MINUTE = 1.8;
 
     /** Minute-of-day the clock face starts at (07:00 = start of shift 1). */
@@ -269,14 +271,37 @@ class KeseiBoard
         // one finally gets dropped.
         if ($tickSource === 'heijunka') {
             $ltByRowId = $keseiRows->pluck('lt_per_kbn', 'id');
+            $labelByRowId = $keseiRows->pluck('label', 'id');
             $scannedCountByRowId = $this->heijunkaScannedCounts($keseiRows);
 
+            // Heikinka is the history of the Heijunka (box) board: any part on
+            // the box schedule draws the box's own ticks — same slot times,
+            // same colours — for whichever moment is being viewed. Only a part
+            // with no box schedule falls back to the old LT/KBN pacing, the
+            // same split the scanner's Perintah Pulling uses.
+            $boxTicks = $this->box->ticksByPartNo($now);
+
             $allEvents = collect($allEvents)
-                ->map(fn (array $events, $rowId) => $this->heijunkaVisualEvents(
-                    collect($events),
-                    (float) ($ltByRowId[$rowId] ?? 0),
-                    $scannedCountByRowId[$rowId] ?? 0
-                )->all())
+                ->map(function (array $events, $rowId) use ($ltByRowId, $labelByRowId, $scannedCountByRowId, $boxTicks) {
+                    $label = $labelByRowId[$rowId] ?? null;
+
+                    if ($label !== null && isset($boxTicks[$label])) {
+                        return collect($boxTicks[$label])->map(fn (array $tick) => [
+                            'minute' => $this->clockMinute($tick['at']),
+                            'kanban' => 1,
+                            'pcs' => 1,
+                            'time' => $tick['at']->format('H:i'),
+                            'at' => $tick['at'],
+                            'heijunka_status' => $tick['heijunka_status'],
+                        ])->all();
+                    }
+
+                    return $this->heijunkaVisualEvents(
+                        collect($events),
+                        (float) ($ltByRowId[$rowId] ?? 0),
+                        $scannedCountByRowId[$rowId] ?? 0
+                    )->all();
+                })
                 ->all();
         }
 

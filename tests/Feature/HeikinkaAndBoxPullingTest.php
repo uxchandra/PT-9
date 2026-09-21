@@ -159,6 +159,29 @@ class HeikinkaAndBoxPullingTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_heikinka_history_shows_the_same_box_ticks_at_the_same_slot_time_and_colour(): void
+    {
+        Carbon::setTestNow('2026-09-16 12:00:00');
+        $this->keseiPart('HK-BOX', ['07:10', '08:10']);
+        $this->stock('HK-BOX', 100, '2026-09-15 06:00');
+        $this->stock('HK-BOX', 98, '2026-09-15 07:05');
+        // Scanned at 07:20 — after the 07:10 slot, so the first tick is blue.
+        KeseiScan::create(['part_no' => 'HK-BOX', 'location' => 'finish-goods', 'raw' => 'HK-BOX', 'scanned_at' => Carbon::parse('2026-09-15 07:20')]);
+
+        $html = $this->get(route('andon-kesei.heijunka', ['date' => '2026-09-15']))->getContent();
+        $panel = substr($html, strpos($html, 'id="kesei-panel-timeline"'));
+
+        // Two box ticks (07:10 blue, 08:10 red by end of day) — at the SLOT
+        // times, not the 07:05 the stock actually dropped at.
+        $this->assertSame(1, substr_count($panel, 'background-color: #3b82f6'));
+        $this->assertSame(1, substr_count($panel, 'background-color: #ff3b3b'));
+        $this->assertStringContainsString('07:10', $panel);
+        $this->assertStringContainsString('08:10', $panel);
+        $this->assertStringNotContainsString('07:05', $panel);
+
+        Carbon::setTestNow();
+    }
+
     public function test_actual_per_plan_footer_counts_blue_over_every_tick_in_the_hour(): void
     {
         Carbon::setTestNow('2026-09-15 09:30:00');
