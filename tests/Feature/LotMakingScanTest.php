@@ -424,6 +424,18 @@ class LotMakingScanTest extends TestCase
         $this->actingAs($this->adminUser())->get(route('lot-making-scans.index'))->assertOk();
     }
 
+    public function test_history_scan_shows_the_parts_qty_kbn(): void
+    {
+        Part::create(['part_no' => 'QQQ-111', 'qty_kbn' => 48]);
+        LotMakingScan::create(['part_no' => 'QQQ-111', 'raw' => 'x_x_QQQ-111_1', 'scanned_at' => Carbon::parse('2026-09-10 08:00')]);
+
+        $this->actingAs($this->adminUser())
+            ->get(route('lot-making-scans.index'))
+            ->assertOk()
+            ->assertSee('Qty KBN')
+            ->assertSee('48');
+    }
+
     public function test_history_scan_lists_scans_newest_first_and_filters_by_part(): void
     {
         LotMakingScan::create(['part_no' => 'AAA-111', 'raw' => 'x_x_AAA-111_1', 'scanned_at' => Carbon::parse('2026-09-10 08:00')]);

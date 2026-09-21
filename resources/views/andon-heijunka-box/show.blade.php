@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ $boardTitle ?? 'HEIJUNKA BOX LINE 9' }}</title>
+    <title>{{ $boardTitle ?? 'HEIJUNKA LINE 9' }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         body { background: #000; }
@@ -21,7 +21,7 @@
                 <img src="{{ asset('images/logo_step.png') }}" alt="STEP" class="h-14 w-auto object-contain">
             </div>
             <div class="flex flex-1 items-center justify-center py-3">
-                <h1 class="text-2xl sm:text-4xl font-extrabold uppercase tracking-wide text-white">{{ $boardTitle ?? 'HEIJUNKA BOX LINE 9' }}</h1>
+                <h1 class="text-2xl sm:text-4xl font-extrabold uppercase tracking-wide text-white">{{ $boardTitle ?? 'HEIJUNKA LINE 9' }}</h1>
             </div>
             <div class="flex shrink-0 flex-col items-center justify-center border-l-2 border-white px-6 font-bold" style="width: 190px;">
                 <div class="text-lg">{{ now()->format('d/m/Y') }}</div>
@@ -43,8 +43,8 @@
                 <span>{{ __('Pulled') }}</span>
             </div>
             <div class="flex items-center gap-1.5 ml-auto">
-                <span class="w-5 h-5 rounded-sm border border-white/30 shrink-0" style="background-color: #1e293b;"></span>
-                <span>{{ __('Rest / Gap') }}</span>
+                <span class="w-5 h-5 rounded-sm border border-white/30 shrink-0" style="background-color: #475569;"></span>
+                <span>{{ __('Rest') }}</span>
             </div>
         </div>
 
@@ -87,15 +87,24 @@
                         const panel = document.getElementById('hbox-panel');
                         const scrollEl = panel.querySelector('.andon-scroll');
                         const prevTop = scrollEl ? scrollEl.scrollTop : null;
+                        const prevLeft = scrollEl ? scrollEl.scrollLeft : null;
                         panel.innerHTML = data.grid;
                         lastGrid = data.grid;
                         const fresh = panel.querySelector('.andon-scroll');
-                        if (fresh && prevTop !== null) fresh.scrollTop = prevTop;
+                        if (fresh && prevTop !== null) { fresh.scrollTop = prevTop; fresh.scrollLeft = prevLeft; }
                     }
                 } catch (e) {
                     // Network hiccup — next tick retries.
                 }
             }
+
+            // First load: bring the progress bar into view instead of starting at 07:10.
+            (function () {
+                const scroller = document.querySelector('#hbox-panel .andon-scroll');
+                const inner = scroller ? scroller.firstElementChild : null;
+                const left = inner ? parseFloat(inner.dataset.progressLeft) : NaN;
+                if (scroller && !isNaN(left)) scroller.scrollLeft = Math.max(0, left - scroller.clientWidth / 2);
+            })();
 
             setInterval(refresh, {{ $pollMs ?? 60000 }});
             setTimeout(() => window.location.reload(), 30 * 60 * 1000);

@@ -33,7 +33,7 @@ class HeijunkaBoxBoardTest extends TestCase
     {
         $this->get(route('andon-heijunka-box.show'))
             ->assertOk()
-            ->assertSee('HEIJUNKA BOX LINE 9');
+            ->assertSee('HEIJUNKA LINE 9');
     }
 
     public function test_a_tick_fires_at_the_fixed_slot_time_not_the_raw_decrease_time(): void
@@ -249,6 +249,26 @@ class HeijunkaBoxBoardTest extends TestCase
         $group = collect($data['groups'])->firstWhere('cycle_issue', 'TEST-2-X');
 
         $this->assertSame(['07:10' => 'Cyc-1', '20:05' => 'Cyc-2'], $group['cycle_labels']);
+    }
+
+    public function test_the_progress_bar_creeps_across_the_shift_gap_instead_of_freezing(): void
+    {
+        Carbon::setTestNow('2026-09-15 18:00:00');
+        $part = Part::create(['part_no' => 'HB-PB']);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => 'TEST-2-X', 'slots' => []]);
+
+        $data = app(HeijunkaBoxBoard::class)->data();
+
+        // 15:45 is the last slot before the gap; 18:00 is 135 of the 260
+        // minutes until 20:05.
+        $this->assertSame('15:45', $data['currentSlotTime']);
+        $this->assertEqualsWithDelta(135 / 260, $data['progressFraction'], 0.001);
+
+        $html = $this->get(route('andon-heijunka-box.show'))->getContent();
+        $this->assertStringContainsString('NOW', $html);
+
+        Carbon::setTestNow();
     }
 
     public function test_the_grand_total_footer_sums_every_groups_subtotal_per_slot(): void

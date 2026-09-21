@@ -20,7 +20,7 @@ class AndonHeijunkaBoxController extends Controller
     public function show(Request $request, HeijunkaBoxBoard $board): Response|JsonResponse
     {
         $viewData = $board->data();
-        $viewData['boardTitle'] = 'HEIJUNKA BOX LINE 9';
+        $viewData['boardTitle'] = 'HEIJUNKA LINE 9';
         $viewData['pollMs'] = 60000;
 
         if ($request->ajax()) {

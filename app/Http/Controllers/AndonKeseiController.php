@@ -68,7 +68,7 @@ class AndonKeseiController extends Controller
         $viewData['isHeijunka'] = true;
         $viewData['heikinkaDate'] = $asOf !== null ? $picked->toDateString() : $today->toDateString();
         $viewData['heikinkaMaxDate'] = $today->toDateString();
-        $viewData['isHistory'] = $asOf !== null;
+        $viewData['heikinkaDateLabel'] = Carbon::parse($viewData['heikinkaDate'])->locale('id')->translatedFormat('l, d F Y');
 
         return $this->render($request, $viewData, 'HEIKINKA PULLING LINE STORE', 60000);
     }

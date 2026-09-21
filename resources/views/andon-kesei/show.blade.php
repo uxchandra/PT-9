@@ -52,10 +52,7 @@
                     <input id="heikinka-date" type="date" name="date" value="{{ $heikinkaDate }}" max="{{ $heikinkaMaxDate }}"
                            onchange="this.form.submit()"
                            class="rounded border border-white/30 bg-slate-900 px-2 py-1 text-white [color-scheme:dark]">
-                    @if ($isHistory ?? false)
-                        <a href="{{ route('andon-kesei.heijunka') }}" class="rounded border border-cyan-400/60 px-2 py-1 text-cyan-300 hover:bg-cyan-900/40">{{ __('Hari ini') }}</a>
-                        <span class="rounded bg-amber-600/30 px-2 py-1 font-bold text-amber-300">{{ __('RIWAYAT') }}</span>
-                    @endif
+                    <span class="font-bold text-white">{{ $heikinkaDateLabel }}</span>
                 </form>
                 {{-- Heijunka's own tick colours (see KeseiBoard::heijunkaVisualEvents)
                      — the green one, not red, is the actual "Kanban Pull" (still

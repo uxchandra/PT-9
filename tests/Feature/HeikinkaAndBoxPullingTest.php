@@ -131,7 +131,7 @@ class HeikinkaAndBoxPullingTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_heikinka_history_shows_the_selected_past_day_and_a_riwayat_badge(): void
+    public function test_heikinka_history_shows_the_selected_past_day_with_its_date_label(): void
     {
         Carbon::setTestNow('2026-09-15 12:00:00');
         $part = Part::create(['part_no' => 'HK-1', 'qty_kbn' => 1]);
@@ -140,19 +140,20 @@ class HeikinkaAndBoxPullingTest extends TestCase
         $this->stock('HK-1', 99, '2026-09-13 09:00');
 
         $live = $this->get(route('andon-kesei.heijunka'))->getContent();
-        $this->assertStringNotContainsString('RIWAYAT', $live);
         $this->assertStringContainsString('name="date"', $live);
+        $this->assertStringContainsString(Carbon::parse('2026-09-15')->locale('id')->translatedFormat('l, d F Y'), $live);
 
         $history = $this->get(route('andon-kesei.heijunka', ['date' => '2026-09-13']))->getContent();
-        $this->assertStringContainsString('RIWAYAT', $history);
+        $this->assertStringNotContainsString('RIWAYAT', $history);
         $this->assertStringContainsString('value="2026-09-13"', $history);
+        $this->assertStringContainsString(Carbon::parse('2026-09-13')->locale('id')->translatedFormat('l, d F Y'), $history);
         // The tick from that day is on the board (beyond 24h of now, so live drops it).
         $this->assertStringContainsString('stok turun', $history);
         $this->assertStringNotContainsString('stok turun', $live);
 
         // Today, a future date, or garbage all fall back to live.
         foreach (['2026-09-15', '2026-12-31', 'not-a-date'] as $bad) {
-            $this->assertStringNotContainsString('RIWAYAT', $this->get(route('andon-kesei.heijunka', ['date' => $bad]))->getContent());
+            $this->assertStringContainsString('value="2026-09-15"', $this->get(route('andon-kesei.heijunka', ['date' => $bad]))->getContent());
         }
 
         Carbon::setTestNow();

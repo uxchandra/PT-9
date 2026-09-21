@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\LotMakingScan;
+use App\Models\Part;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\View\View;
@@ -26,7 +27,11 @@ class LotMakingHistoryController extends Controller
             ->paginate($perPage)
             ->withQueryString();
 
-        $viewData = ['scans' => $scans, 'search' => $search, 'date' => $date, 'perPage' => $perPage];
+        $viewData = [
+            'scans' => $scans, 'search' => $search, 'date' => $date, 'perPage' => $perPage,
+            // part_no => Part::qty_kbn for just this page's rows.
+            'qtyKbn' => Part::whereIn('part_no', $scans->pluck('part_no')->unique()->all())->pluck('qty_kbn', 'part_no'),
+        ];
 
         return $request->ajax()
             ? view('lot-makings._history-scan-results', $viewData)

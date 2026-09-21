@@ -146,6 +146,10 @@ class HeijunkaBoxBoard
             // simulate() uses for slot instants, so it lines up exactly
             // with which ticks have actually fired.
             'currentSlotTime' => $this->currentSlotTime($now, $dayStart),
+            // How far $now is between the current slot and the next one (0..1) —
+            // lets the progress bar creep across a rest / shift-gap column
+            // instead of sitting frozen at the slot before it.
+            'progressFraction' => $this->progressFraction($now, $dayStart),
             // The board's own grand-total footer row — every group's
             // subtotal (already a live tick count, see subtotals()) added
             // together per slot.
@@ -191,6 +195,32 @@ class HeijunkaBoxBoard
         }
 
         return $totals;
+    }
+
+    private function progressFraction(Carbon $now, Carbon $dayStart): float
+    {
+        $previous = null;
+
+        foreach (self::SLOTS as $time) {
+            [$h, $m] = explode(':', $time);
+            $at = $dayStart->copy()->startOfDay()->setTime((int) $h, (int) $m);
+
+            if ($at->lt($dayStart)) {
+                $at->addDay();
+            }
+
+            if ($at->gt($now)) {
+                if ($previous === null) {
+                    return 0.0;
+                }
+
+                return max(0.0, min(1.0, $previous->diffInSeconds($now) / max(1, $previous->diffInSeconds($at))));
+            }
+
+            $previous = $at;
+        }
+
+        return 0.0;
     }
 
     private function currentSlotTime(Carbon $now, Carbon $dayStart): ?string

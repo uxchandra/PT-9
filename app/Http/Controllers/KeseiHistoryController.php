@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\KeseiClosingNotification;
 use App\Models\KeseiScan;
+use App\Models\Part;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\View\View;
@@ -29,7 +30,11 @@ class KeseiHistoryController extends Controller
             ->paginate($perPage)
             ->withQueryString();
 
-        $viewData = ['scans' => $scans, 'search' => $search, 'date' => $date, 'perPage' => $perPage];
+        $viewData = [
+            'scans' => $scans, 'search' => $search, 'date' => $date, 'perPage' => $perPage,
+            // part_no => Part::qty_kbn for just this page's rows.
+            'qtyKbn' => Part::whereIn('part_no', $scans->pluck('part_no')->unique()->all())->pluck('qty_kbn', 'part_no'),
+        ];
 
         return $request->ajax()
             ? view('kesei._history-scan-results', $viewData)

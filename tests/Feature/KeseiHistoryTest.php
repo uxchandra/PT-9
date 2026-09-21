@@ -25,6 +25,19 @@ class KeseiHistoryTest extends TestCase
         return $user;
     }
 
+    public function test_history_scan_shows_the_parts_qty_kbn(): void
+    {
+        Part::create(['part_no' => 'QQQ-111', 'qty_kbn' => 48]);
+        KeseiScan::create(['part_no' => 'QQQ-111', 'location' => 'finish-goods', 'raw' => 'x_x_QQQ-111_1', 'scanned_at' => Carbon::parse('2026-09-10 08:00')]);
+        KeseiScan::create(['part_no' => 'NOPART-1', 'location' => 'finish-goods', 'raw' => 'x_x_NOPART-1_1', 'scanned_at' => Carbon::parse('2026-09-10 09:00')]);
+
+        $this->actingAs($this->admin())
+            ->get(route('kesei-scans.index'))
+            ->assertOk()
+            ->assertSee('Qty KBN')
+            ->assertSee('48');
+    }
+
     public function test_history_scan_lists_scans_newest_first_and_filters_by_part(): void
     {
         KeseiScan::create(['part_no' => 'AAA-111', 'location' => 'finish-goods', 'raw' => 'x_x_AAA-111_1', 'scanned_at' => Carbon::parse('2026-09-10 08:00')]);
