@@ -263,6 +263,20 @@ class HeijunkaBoxBoard
      */
     private function simulate(array $slots, Collection $decreaseEvents, Carbon $dayStart, Carbon $now, int $scannedCount): array
     {
+        return $this->colourize($this->fire($slots, $decreaseEvents, $dayStart, $now), $now, $scannedCount);
+    }
+
+    /**
+     * Just the firing half of simulate() — every slot that fired by $now,
+     * chronological, with no colouring/24h cap. This is what Perintah
+     * Pulling reads (see firedEventsBatch()).
+     *
+     * @param  array<int, string>  $slots
+     * @param  Collection<int, array{kanban: int, at: Carbon}>  $decreaseEvents
+     * @return Collection<int, array{time: string, at: Carbon}>
+     */
+    private function fire(array $slots, Collection $decreaseEvents, Carbon $dayStart, Carbon $now): Collection
+    {
         $slotInstants = collect($slots)->map(function (string $time) use ($dayStart) {
             [$h, $m] = explode(':', $time);
             $at = $dayStart->copy()->startOfDay()->setTime((int) $h, (int) $m);
@@ -303,7 +317,63 @@ class HeijunkaBoxBoard
             }
         }
 
-        return $this->colourize($fired, $now, $scannedCount);
+        return $fired;
+    }
+
+    /**
+     * Perintah Pulling source: for every part_no in $partNos that has a
+     * Heijunka Box schedule, one {kanban: 1, at} event per slot that has
+     * fired today — i.e. per green tick the progress bar has passed, scanned
+     * or not (the pulling services net scans off themselves). Parts with no
+     * schedule are simply absent from the result.
+     *
+     * @param  array<int, string>  $partNos
+     * @return array<string, Collection<int, array{kanban: int, at: Carbon}>>
+     */
+    public function firedEventsBatch(array $partNos): array
+    {
+        if ($partNos === []) {
+            return [];
+        }
+
+        $schedules = HeijunkaBoxSchedule::with('part')
+            ->whereHas('part', fn ($q) => $q->whereIn('part_no', $partNos))
+            ->get();
+
+        if ($schedules->isEmpty()) {
+            return [];
+        }
+
+        $now = now();
+        $dayStart = \App\Models\CalendarEntry::productionDayStart($now);
+        $keseiByPartId = KeseiPart::whereIn('part_id', $schedules->pluck('part_id'))->get()->keyBy('part_id');
+
+        $sourcesBySchedule = $schedules->mapWithKeys(fn (HeijunkaBoxSchedule $s) => [
+            $s->id => $keseiByPartId->get($s->part_id)?->sourcePartNos() ?: [$s->part->part_no],
+        ]);
+
+        $snapshots = StockSnapshot::whereIn('part_no', $sourcesBySchedule->flatten()->unique()->values()->all())
+            ->whereBetween('captured_at', [$dayStart->copy()->subDay(), $dayStart->copy()->addDay()])
+            ->orderBy('captured_at')
+            ->get(['part_no', 'stock', 'captured_at']);
+
+        $result = [];
+
+        foreach ($schedules as $schedule) {
+            $events = $this->decreaseEvents(
+                $sourcesBySchedule[$schedule->id],
+                $schedule->part->qty_kbn,
+                $dayStart,
+                $dayStart->copy()->addDay(),
+                $snapshots
+            );
+
+            $result[$schedule->part->part_no] = $this->fire($schedule->slots, $events, $dayStart, $now)
+                ->map(fn (array $f) => ['kanban' => 1, 'at' => $f['at']])
+                ->values();
+        }
+
+        return $result;
     }
 
     /**
@@ -348,12 +418,16 @@ class HeijunkaBoxBoard
      * @param  array<int, string>  $sources
      * @return Collection<int, array{kanban: int, at: Carbon}>
      */
-    private function decreaseEvents(array $sources, ?string $qtyKbn, Carbon $from, Carbon $to): Collection
+    private function decreaseEvents(array $sources, ?string $qtyKbn, Carbon $from, Carbon $to, ?Collection $preloaded = null): Collection
     {
-        $rows = StockSnapshot::whereIn('part_no', $sources)
-            ->whereBetween('captured_at', [$from->copy()->subDay(), $to])
-            ->orderBy('captured_at')
-            ->get(['part_no', 'stock', 'captured_at'])
+        $snapshots = $preloaded !== null
+            ? $preloaded->whereIn('part_no', $sources)
+            : StockSnapshot::whereIn('part_no', $sources)
+                ->whereBetween('captured_at', [$from->copy()->subDay(), $to])
+                ->orderBy('captured_at')
+                ->get(['part_no', 'stock', 'captured_at']);
+
+        $rows = $snapshots
             ->groupBy(fn (StockSnapshot $s) => $s->captured_at->toDateTimeString());
 
         $events = collect();

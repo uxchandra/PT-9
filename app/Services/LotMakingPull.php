@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\CalendarEntry;
 use App\Models\LotMaking;
 use App\Models\LotMakingScan;
 use App\Models\PatternGroupItem;
@@ -43,7 +44,7 @@ class LotMakingPull
 {
     private const HISTORY_DAYS = 8;
 
-    public function __construct(private KeseiBoard $board) {}
+    public function __construct(private KeseiBoard $board, private HeijunkaBoxBoard $box) {}
 
     /**
      * Every Lot Making part whose level matches $level — one row per part,
@@ -85,6 +86,10 @@ class LotMakingPull
             ->get(['part_no', 'scanned_at'])
             ->groupBy('part_no');
 
+        // Parts on the Heijunka Box schedule take their demand from it — see
+        // demandRow()'s $boxEvents.
+        $boxEvents = $this->box->firedEventsBatch($partNos);
+
         return $lotMakings
             ->map(fn (LotMaking $lm) => $this->demandRow(
                 $lm->part->part_no,
@@ -94,7 +99,8 @@ class LotMakingPull
                 $scansByPart->get($lm->part->part_no, collect())->pluck('scanned_at'),
                 $lm->pulling_command,
                 $lm->pulling_command_set_at,
-                (float) ($lm->lt_per_kbn ?? 0)
+                (float) ($lm->lt_per_kbn ?? 0),
+                $boxEvents[$lm->part->part_no] ?? null
             ))
             ->filter(fn (array $r) => $r['needed'] > 0 || $r['scanned'] > 0)
             ->sortBy('done')
@@ -138,7 +144,11 @@ class LotMakingPull
             ->orderBy('scanned_at')
             ->pluck('scanned_at');
 
-        return $this->demandRow($partNo, $lm->part->qty_kbn, $floor, $snapshots, $scanTimes, $lm->pulling_command, $lm->pulling_command_set_at, (float) ($lm->lt_per_kbn ?? 0));
+        return $this->demandRow(
+            $partNo, $lm->part->qty_kbn, $floor, $snapshots, $scanTimes,
+            $lm->pulling_command, $lm->pulling_command_set_at, (float) ($lm->lt_per_kbn ?? 0),
+            $this->box->firedEventsBatch([$partNo])[$partNo] ?? null
+        );
     }
 
     /**
@@ -232,13 +242,23 @@ class LotMakingPull
      * @param  Collection<int, Carbon>  $scanTimes
      * @return array{part_no: string, needed: int, scanned: int, remaining: int, last_update: ?string, done: bool}
      */
-    private function demandRow(string $partNo, ?string $qtyKbn, Carbon $from, Collection $snapshots, Collection $scanTimes, ?int $pullingCommand = null, ?Carbon $pullingCommandSetAt = null, float $ltPerKbn = 0.0): array
+    private function demandRow(string $partNo, ?string $qtyKbn, Carbon $from, Collection $snapshots, Collection $scanTimes, ?int $pullingCommand = null, ?Carbon $pullingCommandSetAt = null, float $ltPerKbn = 0.0, ?Collection $boxEvents = null): array
     {
         // Paced through the same heijunka release queue as Kesei (see the
         // class doc above) before anything else touches it — a part with no
         // Lead Time per Kanban set (the common case) is a no-op here, so
         // this changes nothing for it.
-        $events = $this->board->heijunkaEvents($this->decreaseEvents($qtyKbn, $from, $snapshots), $ltPerKbn);
+        if ($boxEvents !== null) {
+            // Heijunka Box drives this part: each fired green tick is 1 kanban.
+            // The box only knows about today's production day, so events,
+            // scans and the manual-command cutoff are all scoped to it —
+            // yesterday's scans must not be netted off against today's ticks.
+            $from = CalendarEntry::productionDayStart(now());
+            $events = $boxEvents->filter(fn (array $e) => $e['at']->gt($from))->values();
+            $scanTimes = $scanTimes->filter(fn (Carbon $t) => $t->gt($from))->values();
+        } else {
+            $events = $this->board->heijunkaEvents($this->decreaseEvents($qtyKbn, $from, $snapshots), $ltPerKbn);
+        }
 
         // "Perintah Pulling" — same idea as KeseiPull::demandRow: a
         // manually-set target that REPLACES whatever had already

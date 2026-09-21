@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CalendarEntry;
 use App\Services\KeseiBoard;
+use Illuminate\Support\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -46,10 +48,29 @@ class AndonKeseiController extends Controller
         // Closing time isn't part of this board's story either — hide the
         // markers, the legend, and the whole right sidebar so the timeline
         // gets the full width.
-        $viewData = $board->data('heijunka');
-        $viewData['isHeijunka'] = true;
+        // Heikinka: ?date=Y-m-d turns it into a history view of that
+        // production day (07:00 → 07:00), as it stood at the end of that day.
+        // Today (or anything invalid/future) stays live.
+        $today = CalendarEntry::productionDayStart();
+        $asOf = null;
 
-        return $this->render($request, $viewData, 'HEIJUNKA PULLING LINE STORE', 60000);
+        try {
+            $picked = $request->query('date') ? Carbon::createFromFormat('Y-m-d', (string) $request->query('date'))->startOfDay() : null;
+        } catch (\Throwable) {
+            $picked = null;
+        }
+
+        if ($picked !== null && $picked->lt($today->copy()->startOfDay())) {
+            $asOf = CalendarEntry::productionDayStart($picked->copy()->setTime(12, 0))->addDay()->subSecond();
+        }
+
+        $viewData = $board->data('heijunka', $asOf);
+        $viewData['isHeijunka'] = true;
+        $viewData['heikinkaDate'] = $asOf !== null ? $picked->toDateString() : $today->toDateString();
+        $viewData['heikinkaMaxDate'] = $today->toDateString();
+        $viewData['isHistory'] = $asOf !== null;
+
+        return $this->render($request, $viewData, 'HEIKINKA PULLING LINE STORE', 60000);
     }
 
     private function render(Request $request, array $viewData, string $title, int $pollMs): Response|JsonResponse

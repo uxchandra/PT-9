@@ -201,6 +201,32 @@
                     @endfor
                 </div>
             </div>
+
+            @if ($isHeijunka ?? false)
+                {{-- Actual per plan (Heijunka only): blue (already pulled) out of
+                     every tick on the board that hour — blue + red + green. --}}
+                <div class="flex border-t border-white/20" style="width: {{ $sidebarWidth + $totalWidth }}px;">
+                    <div class="sticky left-0 z-40 bg-black shrink-0 flex items-center px-3" style="width: {{ $sidebarWidth }}px;">
+                        <span class="text-xs uppercase tracking-wide text-slate-400 font-bold">{{ __('Actual / Plan') }}</span>
+                    </div>
+                    <div class="relative shrink-0" style="width: {{ $totalWidth }}px; height: 34px;">
+                        @for ($t = $dayStart; $t < $timelineEnd; $t += 60)
+                            @php
+                                $actual = $hourlyActualPlan[$t]['actual'] ?? 0;
+                                $plan = $hourlyActualPlan[$t]['plan'] ?? 0;
+                            @endphp
+                            <div class="absolute top-0 h-full border-l border-white/10 flex items-center justify-center text-base font-bold tabular-nums"
+                                 style="left: {{ ($t - $dayStart) * $pxPerMinute }}px; width: {{ 60 * $pxPerMinute }}px;">
+                                @if ($plan > 0)
+                                    <span style="color: {{ $actual >= $plan ? '#3b82f6' : '#facc15' }};">{{ $actual }}/{{ $plan }}</span>
+                                @else
+                                    <span class="text-slate-600">-</span>
+                                @endif
+                            </div>
+                        @endfor
+                    </div>
+                </div>
+            @endif
         </div>
     </div>
 @endif

@@ -37,6 +37,17 @@ class KeseiBoard
     private const WINDOW_MINUTES = 24 * 60;
 
     /**
+     * "As of" moment for a historical view of the Heijunka board (Heikinka).
+     * Null = live, i.e. now(). Set only for the duration of one build() call.
+     */
+    private ?Carbon $asOf = null;
+
+    private function clockNow(): Carbon
+    {
+        return $this->asOf?->copy() ?? now();
+    }
+
+    /**
      * The full view-data array for the board partials.
      *
      * @param  'stock'|'scan'  $tickSource  Where the red ticks come from —
@@ -44,7 +55,7 @@ class KeseiBoard
      *                                      board); 'scan' = scanned SOS labels (kesei_scans).
      * @return array<string, mixed>
      */
-    public function data(string $tickSource = 'stock'): array
+    public function data(string $tickSource = 'stock', ?Carbon $asOf = null): array
     {
         // The scan board polls every few seconds so a scan shows up almost
         // instantly. Keying the cache by the newest row id of whichever table
@@ -57,9 +68,17 @@ class KeseiBoard
             : StockSnapshot::max('id') ?? 0;
 
         $frozen = Cache::remember(
-            "kesei-board:{$tickSource}:{$freshness}",
+            "kesei-board:{$tickSource}:{$freshness}:".($asOf?->format('YmdHis') ?? 'live'),
             5,
-            fn () => $this->freeze($this->build($tickSource))
+            function () use ($tickSource, $asOf) {
+                $this->asOf = $asOf;
+
+                try {
+                    return $this->freeze($this->build($tickSource));
+                } finally {
+                    $this->asOf = null;
+                }
+            }
         );
 
         return $this->thaw($frozen);
@@ -126,7 +145,7 @@ class KeseiBoard
      */
     private function build(string $tickSource): array
     {
-        $now = now();
+        $now = $this->clockNow();
         // Only the *time* (07:00) matters here — the blade uses it for the hour
         // axis labels, which wrap 07 → 06 → 07.
         $anchor = $now->copy()->setTime(7, 0);
@@ -282,6 +301,10 @@ class KeseiBoard
             // screen; the other boards never show planning markers, so their
             // totals stay pull-ticks-only.
             'hourlyTotals' => $this->hourlyKanbanTotals($stockDecreaseEvents, $keseiRows, $tickSource === 'heijunka'),
+            // Heijunka only: per hour, how many of the visible ticks are
+            // already pulled (blue = actual) out of every tick on the board
+            // that hour (blue + red + green = plan).
+            'hourlyActualPlan' => $tickSource === 'heijunka' ? $this->hourlyActualPlan($stockDecreaseEvents) : [],
             'closingKanban' => $closingKanban,
             // The Timeline Stok table is a rolling 48h (captures land every
             // 15 min, so ~192 rows) — the pile-forever rule is only for the
@@ -303,7 +326,9 @@ class KeseiBoard
             // The pattern the Calendar says is running now (rolls at 07:00).
             'currentPattern' => CalendarEntry::runningPatternBoard($now)?->name,
             // Where "now" sits on the clock face, for the moving now-line.
-            'nowMinute' => $this->clockMinute($now),
+            // A historical view has no "now" — -1 keeps the now-line off.
+            'nowMinute' => $this->asOf !== null ? -1 : $this->clockMinute($now),
+            'asOfDate' => $this->asOf !== null ? CalendarEntry::productionDayStart($now)->toDateString() : null,
         ];
     }
 
@@ -516,6 +541,42 @@ class KeseiBoard
     }
 
     /**
+     * Heijunka's "actual per plan" footer: for each hour bucket, how many
+     * visible ticks are already pulled ('scanned'/blue — the actual) against
+     * every visible tick in that hour whatever its colour (the plan). Same
+     * 24h cap as hourlyKanbanTotals() so days can't alias into one bucket.
+     *
+     * @param  array<int|string, array<int, array{minute: int, kanban: int, at: Carbon, heijunka_status?: string}>>  $stockDecreaseEvents
+     * @return array<int, array{actual: int, plan: int}>
+     */
+    private function hourlyActualPlan(array $stockDecreaseEvents): array
+    {
+        $now = $this->clockNow();
+        $totals = [];
+
+        for ($t = 0; $t <= self::WINDOW_MINUTES; $t += 60) {
+            $totals[$t] = ['actual' => 0, 'plan' => 0];
+        }
+
+        foreach ($stockDecreaseEvents as $rowEvents) {
+            foreach ($rowEvents as $event) {
+                if ($event['at']->diffInMinutes($now) > self::WINDOW_MINUTES) {
+                    continue;
+                }
+
+                $bucket = intdiv($event['minute'], 60) * 60;
+                $totals[$bucket]['plan'] += $event['kanban'];
+
+                if (($event['heijunka_status'] ?? null) === 'scanned') {
+                    $totals[$bucket]['actual'] += $event['kanban'];
+                }
+            }
+        }
+
+        return $totals;
+    }
+
+    /**
      * Every visible tick's kanban count, summed per hour bucket (0, 60, 120,
      * ... up to WINDOW_MINUTES) on the looping 07:00 → 07:00 clock face —
      * the same buckets the time-axis header's hour labels sit on. Combines
@@ -545,7 +606,7 @@ class KeseiBoard
      */
     private function hourlyKanbanTotals(array $stockDecreaseEvents, Collection $keseiRows, bool $includePlanning = false): array
     {
-        $now = now();
+        $now = $this->clockNow();
         $totals = [];
 
         for ($t = 0; $t <= self::WINDOW_MINUTES; $t += 60) {
@@ -955,7 +1016,7 @@ class KeseiBoard
      */
     public function heijunkaVisualEvents(Collection $events, float $ltPerKbn, int $scannedCount): Collection
     {
-        $now = now();
+        $now = $this->clockNow();
         $released = $this->heijunkaRelease($events, $ltPerKbn)->sortBy('at')->values();
 
         $crossedTotal = $released->filter(fn (array $e) => $e['at']->lte($now))->count();
@@ -1041,6 +1102,7 @@ class KeseiBoard
 
         $tally(KeseiScan::whereIn('part_no', array_keys($rowByPartNo))
             ->where('scanned_at', '>', $earliestFoldStart)
+            ->when($this->asOf, fn ($q) => $q->where('scanned_at', '<=', $this->asOf))
             ->get(['part_no', 'scanned_at']));
 
         // Merged Lot Making (Finish Goods) rows share this same board — their
@@ -1049,6 +1111,7 @@ class KeseiBoard
         // so merging both counts here can't double-count anything.
         $tally(LotMakingScan::whereIn('part_no', array_keys($rowByPartNo))
             ->where('scanned_at', '>', $earliestFoldStart)
+            ->when($this->asOf, fn ($q) => $q->where('scanned_at', '<=', $this->asOf))
             ->get(['part_no', 'scanned_at']));
 
         return $counts;

@@ -127,7 +127,7 @@ class KeseiHeijunkaTest extends TestCase
         $response = $this->get(route('andon-kesei.heijunka'));
 
         $response->assertOk();
-        $response->assertSee('HEIJUNKA PULLING LINE STORE');
+        $response->assertSee('HEIKINKA PULLING LINE STORE');
     }
 
     public function test_ticks_release_one_at_a_time_paced_by_lt_per_kbn_and_stay_on_the_board_once_crossed(): void

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\CalendarEntry;
 use App\Models\KeseiPart;
 use App\Models\KeseiScan;
 use App\Models\StockSnapshot;
@@ -37,7 +38,7 @@ class KeseiPull
         'store-3' => ['name' => 'Store 3', 'levels' => ['3', 'STORE 3', 'STORE3', 'STORE-3'], 'mode' => 'free'],
     ];
 
-    public function __construct(private KeseiBoard $board) {}
+    public function __construct(private KeseiBoard $board, private HeijunkaBoxBoard $box) {}
 
     public static function isLocation(string $slug): bool
     {
@@ -72,14 +73,22 @@ class KeseiPull
         $free = ($loc['mode'] ?? 'demand') === 'free';
         $data = $this->board->data();
 
-        return $data['keseiRows']
-            ->filter(fn (array $row) => in_array(strtoupper(trim((string) $row['level'])), $levels, true))
+        $rows = $data['keseiRows']
+            ->filter(fn (array $row) => in_array(strtoupper(trim((string) $row['level'])), $levels, true));
+
+        // Parts on the Heijunka Box schedule take their demand from it (each
+        // fired green tick = 1 kanban); everything else keeps the LT/KBN pacing.
+        $boxEvents = $free ? [] : $this->box->firedEventsBatch($rows->pluck('label')->all());
+
+        return $rows
             ->map(fn (array $row) => $free
                 ? $this->freeRow($row)
-                : $this->demandRow($row, $this->board->heijunkaEvents(
-                    collect($data['stockDecreaseEvents'][$row['id']] ?? []),
-                    (float) ($row['lt_per_kbn'] ?? 0)
-                )))
+                : (isset($boxEvents[$row['label']])
+                    ? $this->boxDemandRow($row, $boxEvents[$row['label']])
+                    : $this->demandRow($row, $this->board->heijunkaEvents(
+                        collect($data['stockDecreaseEvents'][$row['id']] ?? []),
+                        (float) ($row['lt_per_kbn'] ?? 0)
+                    ))))
             // demand mode only lists parts that still have something to do.
             ->when(! $free, fn (Collection $c) => $c->filter(fn (array $r) => $r['needed'] > 0 || $r['scanned'] > 0))
             ->sortBy('done')
@@ -151,6 +160,12 @@ class KeseiPull
             return null;
         }
 
+        $boxEvents = $this->box->firedEventsBatch([$part->part->part_no]);
+
+        if (isset($boxEvents[$part->part->part_no])) {
+            return $this->boxDemandRow($ctx['row'], $boxEvents[$part->part->part_no]);
+        }
+
         $events = $this->board->heijunkaEvents(collect($ctx['events']), (float) ($part->lt_per_kbn ?? 0));
 
         return $this->demandRow($ctx['row'], $events);
@@ -170,6 +185,24 @@ class KeseiPull
             'last_update' => null,
             'done' => false,
         ];
+    }
+
+    /**
+     * demandRow() for a part driven by the Heijunka Box: the day's fired ticks
+     * are the whole demand, so only events and scans since the later of the
+     * row's fold_start and this production day's 07:00 start count — the box
+     * only knows about today, and yesterday's scans must not be netted off
+     * against today's ticks.
+     *
+     * @param  array<string, mixed>  $row
+     * @param  Collection<int, array{kanban: int, at: Carbon}>  $events
+     */
+    private function boxDemandRow(array $row, Collection $events): array
+    {
+        $dayStart = CalendarEntry::productionDayStart(now());
+        $row['fold_start'] = $row['fold_start']->gt($dayStart) ? $row['fold_start'] : $dayStart;
+
+        return $this->demandRow($row, $events->filter(fn (array $e) => $e['at']->gt($row['fold_start']))->values());
     }
 
     /**
