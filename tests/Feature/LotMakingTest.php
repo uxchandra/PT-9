@@ -122,7 +122,7 @@ class LotMakingTest extends TestCase
             ->assertRedirect(route('lot-makings.index'));
 
         $lm = LotMaking::first();
-        $this->assertSame(30, $lm->lt_per_kbn);
+        $this->assertSame(30.0, $lm->lt_per_kbn);
 
         $this->actingAs($this->authorizedUser())
             ->put(route('lot-makings.update', $lm), [
@@ -132,7 +132,7 @@ class LotMakingTest extends TestCase
             ->assertRedirect(route('lot-makings.index'));
 
         $lm->refresh();
-        $this->assertSame(45, $lm->lt_per_kbn);
+        $this->assertSame(45.0, $lm->lt_per_kbn);
     }
 
     public function test_no_is_the_manually_set_position_that_drives_listing_order(): void

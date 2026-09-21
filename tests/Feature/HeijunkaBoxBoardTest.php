@@ -233,6 +233,50 @@ class HeijunkaBoxBoardTest extends TestCase
         $this->assertSame(['07:10' => 1, '07:40' => 9], $group['random_numbers']);
     }
 
+    public function test_the_cycle_labels_come_from_the_groups_own_fixed_sheet_data(): void
+    {
+        $part = Part::create(['part_no' => 'HB-CL']);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => 'TEST-2-X', 'slots' => []]);
+        HeijunkaBoxCycleGroup::create([
+            'cycle_issue' => 'TEST-2-X',
+            'sort_order' => 0,
+            'random_numbers' => [],
+            'cycle_labels' => ['07:10' => 'Cyc-1', '20:05' => 'Cyc-2'],
+        ]);
+
+        $data = app(HeijunkaBoxBoard::class)->data();
+        $group = collect($data['groups'])->firstWhere('cycle_issue', 'TEST-2-X');
+
+        $this->assertSame(['07:10' => 'Cyc-1', '20:05' => 'Cyc-2'], $group['cycle_labels']);
+    }
+
+    public function test_the_grand_total_footer_sums_every_groups_subtotal_per_slot(): void
+    {
+        Carbon::setTestNow('2026-09-15 09:15:00');
+        $partA = Part::create(['part_no' => 'HB-GT-A', 'qty_kbn' => 1]);
+        $partB = Part::create(['part_no' => 'HB-GT-B', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $partA->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        KeseiPart::create(['part_id' => $partB->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+
+        HeijunkaBoxSchedule::create(['part_id' => $partA->id, 'cycle_issue' => 'TEST-2-X', 'slots' => ['07:10']]);
+        HeijunkaBoxSchedule::create(['part_id' => $partB->id, 'cycle_issue' => 'TEST-4-X', 'slots' => ['07:10']]);
+
+        StockSnapshot::create(['part_no' => 'HB-GT-A', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:00')]);
+        StockSnapshot::create(['part_no' => 'HB-GT-A', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:05')]);
+        StockSnapshot::create(['part_no' => 'HB-GT-B', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:00')]);
+        StockSnapshot::create(['part_no' => 'HB-GT-B', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:05')]);
+
+        $data = app(HeijunkaBoxBoard::class)->data();
+
+        // Both groups fired 1 tick each at 07:10 — the grand total is the
+        // sum across groups (2), not either group's own subtotal (1).
+        $this->assertSame(2, $data['totals']['07:10']);
+        $this->assertSame(0, $data['totals']['08:10']);
+
+        Carbon::setTestNow();
+    }
+
     public function test_the_subtotal_row_counts_ticks_actually_showing_on_the_board_not_the_static_plan(): void
     {
         Carbon::setTestNow('2026-09-15 09:15:00');

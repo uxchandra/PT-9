@@ -122,11 +122,14 @@ class HeijunkaBoxBoard
                     ->filter()
                     ->values();
 
+                $subtotals = $this->subtotals($rows);
+
                 return [
                     'cycle_issue' => $cycleIssue,
                     'random_numbers' => $group->random_numbers ?? [],
+                    'cycle_labels' => $group->cycle_labels ?? [],
                     'rows' => $rows,
-                    'subtotals' => $this->subtotals($rows),
+                    'subtotals' => $subtotals,
                     'sort_order' => $group->sort_order ?? PHP_INT_MAX,
                 ];
             })
@@ -143,7 +146,28 @@ class HeijunkaBoxBoard
             // simulate() uses for slot instants, so it lines up exactly
             // with which ticks have actually fired.
             'currentSlotTime' => $this->currentSlotTime($now, $dayStart),
+            // The board's own grand-total footer row — every group's
+            // subtotal (already a live tick count, see subtotals()) added
+            // together per slot.
+            'totals' => $this->grandTotals($groups),
         ];
+    }
+
+    /**
+     * @param  Collection<int, array{subtotals: array<string, int>}>  $groups
+     * @return array<string, int>
+     */
+    private function grandTotals(Collection $groups): array
+    {
+        $totals = array_fill_keys(self::SLOTS, 0);
+
+        foreach ($groups as $group) {
+            foreach ($group['subtotals'] as $time => $count) {
+                $totals[$time] += $count;
+            }
+        }
+
+        return $totals;
     }
 
     /**

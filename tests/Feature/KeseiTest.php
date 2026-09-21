@@ -597,7 +597,7 @@ class KeseiTest extends TestCase
             ->assertOk()
             ->assertJson(['ok' => true, 'lt_per_kbn' => 30]);
 
-        $this->assertSame(30, $entry->fresh()->lt_per_kbn);
+        $this->assertSame(30.0, $entry->fresh()->lt_per_kbn);
 
         $this->actingAs($this->authorizedUser())
             ->patchJson(route('kesei.update', $entry), ['lt_per_kbn' => ''])

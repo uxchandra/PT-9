@@ -1,13 +1,30 @@
 {{-- Heijunka Box grid — a fixed-width cell grid (not a proportional clock),
      matching the source spreadsheet's own uniform-column layout AND its own
      grouped structure: one shared time header, then per cycle_issue group a
-     "Random Number" row, the group's part rows, and a "Sub Total Kbn" row —
-     same as the sheet itself. See HeijunkaBoxBoard::cells()/data() for the
-     cell sequence and the grouping/firing mechanism. --}}
+     "Cyc-N" divider, a "Random Number" row, the group's part rows, and a
+     "Sub Total Kbn" row — same as the sheet itself, plus a grand-total
+     footer that stays pinned to the bottom of the viewport. See
+     HeijunkaBoxBoard::cells()/data() for the cell sequence and the
+     grouping/firing mechanism. --}}
 @php
     $labelWidth = 150;
     $slotWidth = 44;
-    $gapWidth = 22;
+    $restWidth = 34;
+    // The long break between shift 1 (ends 15:45) and shift 2 (starts
+    // 20:05) gets a visibly wider column than a normal rest — it's a
+    // different kind of gap (between shifts, not a mid-shift break).
+    $shiftGapWidth = 120;
+
+    $cellWidth = fn (array $cell) => match ($cell['type']) {
+        'slot' => $slotWidth,
+        'gap' => $shiftGapWidth,
+        default => $restWidth,
+    };
+
+    // Hazard-stripe styling so rest/gap columns read clearly at a glance,
+    // distinct from both slot columns and each other.
+    $restStyle = 'background: repeating-linear-gradient(135deg, #78350f 0 6px, #451a03 6px 12px);';
+    $gapStyle = 'background: repeating-linear-gradient(135deg, #7f1d1d 0 8px, #450a0a 8px 16px);';
 @endphp
 @if (empty($groups) || collect($groups)->isEmpty())
     <div class="h-full flex items-center justify-center text-center text-slate-500">
@@ -16,9 +33,28 @@
 @else
     <div class="andon-scroll h-full overflow-auto bg-black">
         @php
-            $totalWidth = $labelWidth + collect($cells)->sum(fn ($c) => $c['type'] === 'slot' ? $slotWidth : $gapWidth);
+            $totalWidth = $labelWidth + collect($cells)->sum($cellWidth);
+
+            // Progress bar: the pixel offset right after the current slot's
+            // own column — ticks only ever fire at/after this line, never
+            // behind it (see HeijunkaBoxBoard's "release ahead of the
+            // progress bar" rule).
+            $progressLeft = null;
+            $offset = $labelWidth;
+            foreach ($cells as $cell) {
+                $offset += $cellWidth($cell);
+                if ($cell['type'] === 'slot' && $cell['time'] === ($currentSlotTime ?? null)) {
+                    $progressLeft = $offset;
+                }
+            }
         @endphp
-        <div class="flex flex-col" style="width: {{ $totalWidth }}px;">
+        <div class="flex flex-col relative" style="width: {{ $totalWidth }}px;">
+            @if ($progressLeft !== null)
+                <div class="absolute inset-y-0 z-25 pointer-events-none" style="left: {{ $progressLeft }}px; width: 3px; background: #f43f5e; box-shadow: 0 0 10px #f43f5e, 0 0 3px #f43f5e;">
+                    <div class="absolute top-0 -ml-3 w-8 text-center text-[8px] font-bold text-white bg-rose-600 rounded-sm px-0.5 py-px">{{ __('NOW') }}</div>
+                </div>
+            @endif
+
             {{-- Header: one column per cell, part_no/cycle sidebar pinned left. --}}
             <div class="shrink-0 flex sticky top-0 z-30 bg-black border-b-2 border-white">
                 <div class="sticky left-0 z-40 bg-black shrink-0 border-r border-white/10" style="width: {{ $labelWidth }}px;"></div>
@@ -28,19 +64,36 @@
                              style="width: {{ $slotWidth }}px; height: 28px;">
                             {{ $cell['time'] }}
                         </div>
+                    @elseif ($cell['type'] === 'gap')
+                        <div class="shrink-0 border-l border-white/20 flex items-center justify-center" style="width: {{ $shiftGapWidth }}px; height: 28px; {{ $gapStyle }}" title="{{ __('Jeda antar Shift 1 & Shift 2') }}">
+                            <span class="text-[8px] font-bold text-red-100 tracking-wide">{{ __('JEDA SHIFT 1 → 2') }}</span>
+                        </div>
                     @else
-                        <div class="shrink-0 border-l border-white/10 bg-slate-900" style="width: {{ $gapWidth }}px; height: 28px;" title="{{ $cell['type'] === 'gap' ? __('Jeda antar shift') : __('Istirahat') }}"></div>
+                        <div class="shrink-0 border-l border-white/20" style="width: {{ $restWidth }}px; height: 28px; {{ $restStyle }}" title="{{ __('Istirahat') }}"></div>
                     @endif
                 @endforeach
             </div>
 
             @foreach ($groups as $group)
-                {{-- Group divider: the cycle_issue label, like the sheet's own block header. --}}
+                {{-- Group divider: the cycle_issue label + the sheet's own "Cyc-N" sub-cycle markers. --}}
                 <div class="shrink-0 flex sticky top-[28px] z-20 bg-slate-950 border-b border-white/20" style="height: 22px;">
                     <div class="sticky left-0 z-30 bg-slate-950 shrink-0 px-3 flex items-center border-r border-white/10" style="width: {{ $labelWidth }}px;">
                         <span class="text-[10px] font-bold text-amber-400 tracking-wide">{{ $group['cycle_issue'] }}</span>
                     </div>
-                    <div class="flex-1 bg-slate-950"></div>
+                    @foreach ($cells as $cell)
+                        @if ($cell['type'] === 'slot')
+                            @php $cycLabel = $group['cycle_labels'][$cell['time']] ?? null; @endphp
+                            <div class="shrink-0 flex items-center justify-center border-l border-white/10 bg-slate-950" style="width: {{ $slotWidth }}px; height: 22px;">
+                                @if ($cycLabel)
+                                    <span class="text-[8px] font-bold text-amber-300 bg-amber-900/50 rounded px-1">{{ $cycLabel }}</span>
+                                @endif
+                            </div>
+                        @elseif ($cell['type'] === 'gap')
+                            <div class="shrink-0 border-l border-white/20" style="width: {{ $shiftGapWidth }}px; height: 22px; {{ $gapStyle }}"></div>
+                        @else
+                            <div class="shrink-0 border-l border-white/20" style="width: {{ $restWidth }}px; height: 22px; {{ $restStyle }}"></div>
+                        @endif
+                    @endforeach
                 </div>
 
                 {{-- Random Number row — fixed per-slot numbers from the sheet, same for this group every day. --}}
@@ -53,8 +106,10 @@
                             <div class="shrink-0 flex items-center justify-center border-l border-white/10 text-[9px] text-slate-400" style="width: {{ $slotWidth }}px; height: 20px;">
                                 {{ $group['random_numbers'][$cell['time']] ?? '' }}
                             </div>
+                        @elseif ($cell['type'] === 'gap')
+                            <div class="shrink-0 border-l border-white/20" style="width: {{ $shiftGapWidth }}px; height: 20px; {{ $gapStyle }}"></div>
                         @else
-                            <div class="shrink-0 border-l border-white/10 bg-slate-900" style="width: {{ $gapWidth }}px; height: 20px;"></div>
+                            <div class="shrink-0 border-l border-white/20" style="width: {{ $restWidth }}px; height: 20px; {{ $restStyle }}"></div>
                         @endif
                     @endforeach
                 </div>
@@ -93,8 +148,10 @@
                                               title="{{ $cell['time'] }}{{ $titleSuffix }}"></span>
                                     @endforeach
                                 </div>
+                            @elseif ($cell['type'] === 'gap')
+                                <div class="shrink-0 border-l border-white/20" style="width: {{ $shiftGapWidth }}px; height: 44px; {{ $gapStyle }}"></div>
                             @else
-                                <div class="shrink-0 border-l border-white/10 bg-slate-900/60" style="width: {{ $gapWidth }}px; height: 44px;"></div>
+                                <div class="shrink-0 border-l border-white/20" style="width: {{ $restWidth }}px; height: 44px; {{ $restStyle }}"></div>
                             @endif
                         @endforeach
                     </div>
@@ -112,12 +169,34 @@
                                  style="width: {{ $slotWidth }}px; height: 26px;">
                                 {{ $total > 0 ? $total : '' }}
                             </div>
+                        @elseif ($cell['type'] === 'gap')
+                            <div class="shrink-0 border-l border-white/20" style="width: {{ $shiftGapWidth }}px; height: 26px; {{ $gapStyle }}"></div>
                         @else
-                            <div class="shrink-0 border-l border-white/10 bg-slate-900" style="width: {{ $gapWidth }}px; height: 26px;"></div>
+                            <div class="shrink-0 border-l border-white/20" style="width: {{ $restWidth }}px; height: 26px; {{ $restStyle }}"></div>
                         @endif
                     @endforeach
                 </div>
             @endforeach
+
+            {{-- Grand total footer — pinned to the bottom of the viewport, doesn't scroll away. --}}
+            <div class="shrink-0 flex sticky bottom-0 z-30 bg-black border-t-2 border-white" style="height: 30px;">
+                <div class="sticky left-0 z-40 bg-black shrink-0 px-3 flex items-center border-r border-white/10" style="width: {{ $labelWidth }}px;">
+                    <span class="text-[10px] font-bold text-white">{{ __('TOTAL KBN/Cycle Pulling') }}</span>
+                </div>
+                @foreach ($cells as $cell)
+                    @if ($cell['type'] === 'slot')
+                        @php $total = $totals[$cell['time']] ?? 0; @endphp
+                        <div class="shrink-0 flex items-center justify-center border-l border-white/10 bg-black text-[11px] font-extrabold {{ $total > 0 ? 'text-amber-300' : 'text-slate-600' }}"
+                             style="width: {{ $slotWidth }}px; height: 30px;">
+                            {{ $total > 0 ? $total : '' }}
+                        </div>
+                    @elseif ($cell['type'] === 'gap')
+                        <div class="shrink-0 border-l border-white/20 bg-black" style="width: {{ $shiftGapWidth }}px; height: 30px;"></div>
+                    @else
+                        <div class="shrink-0 border-l border-white/20 bg-black" style="width: {{ $restWidth }}px; height: 30px;"></div>
+                    @endif
+                @endforeach
+            </div>
         </div>
     </div>
 @endif
