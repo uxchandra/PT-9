@@ -128,6 +128,7 @@ Route::middleware('auth')->group(function () {
         Route::post('lot-makings/import', [LotMakingImportController::class, 'store'])->name('lot-makings.import.store');
         Route::get('lot-makings/export', [LotMakingController::class, 'export'])->name('lot-makings.export');
         Route::get('lot-makings/history-scan', [LotMakingHistoryController::class, 'scans'])->name('lot-making-scans.index');
+        Route::get('lot-makings/history-cycle', [LotMakingHistoryController::class, 'cycles'])->name('lot-making-cycles.index');
 
         Route::get('lot-making-plannings', [LotMakingPlanningController::class, 'index'])->name('lot-making-plannings.index');
         Route::put('lot-making-plannings/{planning}/assign', [LotMakingPlanningController::class, 'assign'])->name('lot-making-plannings.assign');

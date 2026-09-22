@@ -92,7 +92,7 @@
             $masterDataActive = request()->routeIs(['machines.*', 'parts.*', 'rests.*']);
             $keseiActive = request()->routeIs(['kesei.*', 'kesei-scans.*', 'kesei-closings.*']);
             $stockActive = request()->routeIs(['stock-part-all.*', 'stock-snapshots.*']);
-            $lotMakingActive = request()->routeIs(['lot-makings.*', 'lot-making-scans.*', 'lot-making-plannings.*']);
+            $lotMakingActive = request()->routeIs(['lot-makings.*', 'lot-making-scans.*', 'lot-making-cycles.*', 'lot-making-plannings.*']);
 
             $initialOpenMenu = match (true) {
                 $masterDataActive => 'master-data',
@@ -387,6 +387,13 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m0 14v1m8-8h-1M5 12H4M4 8V4h4m8 0h4v4m0 8v4h-4m-8 0H4v-4"/>
                                 </svg>
                                 {{ __('History Scan') }}
+                            </a>
+                            <a href="{{ route('lot-making-cycles.index') }}"
+                               class="submenu-item flex items-center px-3 py-2.5 text-sm text-gray-300 {{ request()->routeIs('lot-making-cycles.*') ? 'active' : '' }}">
+                                <svg class="w-4 h-4 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                {{ __('History') }}
                             </a>
                         </div>
                     </div>
