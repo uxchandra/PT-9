@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\CalendarEntry;
 use App\Models\LotMaking;
 use App\Models\LotMakingScan;
 use App\Models\PatternGroupItem;
@@ -249,11 +248,14 @@ class LotMakingPull
         // Lead Time per Kanban set (the common case) is a no-op here, so
         // this changes nothing for it.
         if ($boxEvents !== null) {
-            // Heijunka Box drives this part: each fired green tick is 1 kanban.
-            // The box only knows about today's production day, so events,
-            // scans and the manual-command cutoff are all scoped to it —
-            // yesterday's scans must not be netted off against today's ticks.
-            $from = CalendarEntry::productionDayStart(now());
+            // Heijunka Box drives this part: each fired green/red tick is 1
+            // kanban. The box's own rolling 24h window (see
+            // HeijunkaBoxBoard::buildRow()) is what events, scans and the
+            // manual-command cutoff are all scoped to here too, so a tick
+            // shown on the Heijunka board always has matching pulling
+            // demand, and a scan older than 24h never gets netted off
+            // against a fresh tick.
+            $from = now()->subDay();
             $events = $boxEvents->filter(fn (array $e) => $e['at']->gt($from))->values();
             $scanTimes = $scanTimes->filter(fn (Carbon $t) => $t->gt($from))->values();
         } else {

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ $boardTitle ?? "KESEI KANBAN LINE 9" }}</title>
+    <title>{{ $boardTitle ?? "KESEI REALTIME SOS LINE 9" }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     <style>
         body { background: #000; }
@@ -31,7 +31,7 @@
                 <img src="{{ asset('images/logo_step.png') }}" alt="STEP" class="h-14 w-auto object-contain">
             </div>
             <div class="flex flex-1 items-center justify-center py-3">
-                <h1 class="text-2xl sm:text-4xl font-extrabold uppercase tracking-wide text-white">{{ $boardTitle ?? "KESEI KANBAN LINE 9" }}</h1>
+                <h1 class="text-2xl sm:text-4xl font-extrabold uppercase tracking-wide text-white">{{ $boardTitle ?? "KESEI REALTIME SOS LINE 9" }}</h1>
             </div>
             <div class="flex shrink-0 flex-col items-center justify-center gap-0.5 border-l-2 border-white px-6" style="width: 240px;">
                 <span class="text-lg font-extrabold uppercase tracking-wide text-white">{{ __('Pattern') }}</span>
@@ -54,32 +54,17 @@
                            class="rounded border border-white/30 bg-slate-900 px-2 py-1 text-white [color-scheme:dark]">
                     <span class="font-bold text-white">{{ $heikinkaDateLabel }}</span>
                 </form>
-                {{-- Heijunka's own tick colours (see KeseiBoard::heijunkaVisualEvents)
-                     — the green one, not red, is the actual "Kanban Pull" (still
-                     queued, hasn't crossed the progress bar or is within its
-                     15-minute grace period yet). All grouped on the right, same
-                     diagonal-stripe boxed swatch style as the Closing Time legend
-                     below (not a bare line). --}}
+                {{-- Heikinka is a pure history of pulling that already happened —
+                     only the "Pulled" colour is ever shown (see
+                     HeijunkaBoxBoard::ticksByPartNo()), so that's the only swatch
+                     here. Same diagonal-stripe boxed style as the Closing Time
+                     legend below. --}}
                 <div class="flex items-center gap-6 ml-auto">
-                    @foreach ([
-                        '#22c55e' => __('SOS Pull'),
-                        '#ff3b3b' => __('Not Pulled (>15 min)'),
-                        '#3b82f6' => __('Pulled'),
-                    ] as $color => $label)
-                        <span class="flex items-center gap-1.5">
-                            <span class="w-5 h-5 rounded-sm border border-white/30 shrink-0"
-                                  style="background-image: repeating-linear-gradient(45deg, {{ $color }} 0, {{ $color }} 2px, transparent 2px, transparent 5px);"></span>
-                            <span class="text-white">{{ $label }}</span>
-                        </span>
-                    @endforeach
-                    <div class="flex items-center gap-1.5">
-                        <span class="w-0 h-4 border-l-2" style="border-color:#22d3ee;"></span>
-                        <span>{{ __('Progress Bar') }}</span>
-                    </div>
-                    <div class="flex items-center gap-1.5">
-                        <span class="w-0 h-4 border-l" style="border-left-style: dashed; border-color: rgba(255,255,255,0.45);"></span>
-                        <span>{{ __('Planning') }}</span>
-                    </div>
+                    <span class="flex items-center gap-1.5">
+                        <span class="w-5 h-5 rounded-sm border border-white/30 shrink-0"
+                              style="background-image: repeating-linear-gradient(45deg, #3b82f6 0, #3b82f6 2px, transparent 2px, transparent 5px);"></span>
+                        <span class="text-white">{{ __('Pulled') }}</span>
+                    </span>
                 </div>
             @else
                 <div class="flex items-center gap-6">

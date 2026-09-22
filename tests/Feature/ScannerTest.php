@@ -352,7 +352,7 @@ class ScannerTest extends TestCase
 
         $html = $this->get(route('andon-kesei.scan'))->getContent();
 
-        $this->assertStringContainsString('KESEI SCAN LINE 9', $html);
+        $this->assertStringContainsString('KESEI LINE 9', $html);
         $this->assertStringContainsString('stok turun 1 kanban (1 pcs)', $html);
 
         // The API-stock board must NOT show that tick.

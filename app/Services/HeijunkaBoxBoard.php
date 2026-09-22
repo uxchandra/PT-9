@@ -22,22 +22,38 @@ use Illuminate\Support\Collection;
  *
  * The mechanism: a real stock decrease adds to a part's "backlog" (how many
  * kanban are waiting to be announced) the instant it's captured. Separately,
- * this part's fixed daily slots (see CELLS) are walked in order — each one,
- * the moment the progress bar reaches it, "fires" (becomes a visible tick,
- * backlog drops by 1) IF there's still backlog to release; a slot with no
- * backlog at its own time simply never fires, forever (it doesn't wait for
- * backlog to show up later — see simulate()). A tick only ever lands on one
- * of the fixed slot times — never earlier, never a time in between — which
- * is what "release di depan progress bar, bukan ke belakang" means: it's
- * bound to appear at or after whichever slot happens to be next when the
- * backlog is available, never backdated to when the stock actually dropped.
+ * this part's fixed daily slots (see CELLS) are walked in order and matched
+ * to that backlog FIFO — each slot with backlog still available claims one
+ * unit; a slot with no backlog at its own turn simply never fires, forever
+ * (it doesn't wait for backlog to show up later — see fire()). A tick only
+ * ever lands on one of the fixed slot times — never earlier, never a time
+ * in between, and never at more than one slot — which is what "release di
+ * depan progress bar, bukan ke belakang" means: it's bound to whichever
+ * slot happens to be next when the backlog is available, never backdated to
+ * when the stock actually dropped.
+ *
+ * On the visual board specifically (not Perintah Pulling — see
+ * firedEventsBatch()), that assignment is shown the INSTANT the decrease is
+ * captured, at its assigned slot column, even if the progress bar hasn't
+ * reached that column yet (green/'pending' either way) — so staff can see
+ * what's queued ahead of time instead of only once it's due. Perintah
+ * Pulling still only turns a slot into actual scan demand once the progress
+ * bar reaches it, so nothing gets asked for early.
+ *
+ * The board loops on a rolling 24-hour window, NOT the 07:00 production-day
+ * boundary — a stock decrease keeps contributing to backlog, and an unfired
+ * slot keeps waiting for it, right across midnight/07:00 into the next day,
+ * until exactly 24h after that decrease was captured (see buildRow()'s
+ * $windowStart). This mirrors KeseiBoard's own looping-clock-face heijunka:
+ * nothing here hard-resets at 07:00.
  *
  * Same three-colour scheme as KeseiBoard's heijunka: a fired tick is green
  * while unscanned and within 15 minutes of firing, red once older than that
- * and still unscanned, or blue once matched to a scan (see
- * heijunkaScannedCounts()) — capped at 24h same as there, so an unscanned
- * tick doesn't linger forever and a part with heavy backlog doesn't alias
- * across days on what is, again, a looping clock face.
+ * and still unscanned, or blue once matched to a scan (see scannedCount()).
+ * Because backlog itself already only spans the last 24h, every fired tick
+ * is automatically within that same 24h — there's no separate cap to apply
+ * on top, unlike KeseiBoard's own heijunka (which computes over a much
+ * longer floor and caps display separately).
  */
 class HeijunkaBoxBoard
 {
@@ -114,11 +130,11 @@ class HeijunkaBoxBoard
             ->groupBy('cycle_issue');
 
         $groups = $schedulesByGroup
-            ->map(function (Collection $schedulesInGroup, string $cycleIssue) use ($cycleGroups, $now, $dayStart) {
+            ->map(function (Collection $schedulesInGroup, string $cycleIssue) use ($cycleGroups, $now) {
                 $group = $cycleGroups->get($cycleIssue);
 
                 $rows = $schedulesInGroup
-                    ->map(fn (HeijunkaBoxSchedule $schedule) => $this->buildRow($schedule, $now, $dayStart))
+                    ->map(fn (HeijunkaBoxSchedule $schedule) => $this->buildRow($schedule, $now))
                     ->filter()
                     ->values();
 
@@ -143,8 +159,8 @@ class HeijunkaBoxBoard
             'now' => $now,
             // The latest slot time (if any) already at/before now, for the
             // grid to highlight as "current" — same day-application logic
-            // simulate() uses for slot instants, so it lines up exactly
-            // with which ticks have actually fired.
+            // slotInstantsBetween() uses, so it lines up exactly with which
+            // ticks have actually fired.
             'currentSlotTime' => $this->currentSlotTime($now, $dayStart),
             // How far $now is between the current slot and the next one (0..1) —
             // lets the progress bar creep across a rest / shift-gap column
@@ -251,7 +267,7 @@ class HeijunkaBoxBoard
      *                                    schedule row has nothing to attach
      *                                    stock/scan data to).
      */
-    private function buildRow(HeijunkaBoxSchedule $schedule, Carbon $now, Carbon $dayStart): ?array
+    private function buildRow(HeijunkaBoxSchedule $schedule, Carbon $now): ?array
     {
         $part = $schedule->part;
         $kesei = KeseiPart::where('part_id', $part->id)->first();
@@ -264,14 +280,22 @@ class HeijunkaBoxBoard
         $sources = $kesei?->sourcePartNos() ?? [$part->part_no];
         $qtyKbn = $part->qty_kbn;
 
-        // One production day's worth of decreases — this board's backlog is
-        // scoped to a single day (see the class doc: no cross-day carryover
-        // in this first version), same window the fixed slots themselves
-        // span (07:00 today through just before 07:00 tomorrow).
-        $decreaseEvents = $this->decreaseEvents($sources, $qtyKbn, $dayStart, $dayStart->copy()->addDay());
-        $scannedCount = $this->scannedCount($sources, $dayStart, $now);
+        // Rolling 24h window — backlog from a stock decrease keeps waiting
+        // for its slot (carrying right across 07:00 into the next day) for
+        // up to 24h after it was captured, same as the display cap on the
+        // ticks it eventually produces. Nothing resets at midnight/07:00.
+        $windowStart = $now->copy()->subDay();
 
-        $ticks = $this->simulate($schedule->slots, $decreaseEvents, $dayStart, $now, $scannedCount);
+        $decreaseEvents = $this->decreaseEvents($sources, $qtyKbn, $windowStart, $now);
+        $scannedCount = $this->scannedCount($sources, $windowStart, $now);
+
+        // revealFuture: true — the board shows backlog against its assigned
+        // slot the instant the stock decrease is captured, not only once the
+        // progress bar reaches that column (see fire()'s own doc). Perintah
+        // Pulling (firedEventsBatch()) deliberately does NOT do this — a
+        // pre-shown tick isn't due yet, so it must not become a scan demand
+        // early.
+        $ticks = $this->colourize($this->fire($schedule->slots, $decreaseEvents, $windowStart, $now, revealFuture: true), $now, $scannedCount);
 
         return [
             'id' => $schedule->id,
@@ -283,31 +307,18 @@ class HeijunkaBoxBoard
     }
 
     /**
-     * The backlog simulation described in the class doc, replayed from
-     * scratch every render (a pure function of the day's stock decreases +
-     * this part's fixed slots — nothing persisted).
-     *
-     * @param  array<int, string>  $slots  "H:i" times, chronological.
-     * @param  Collection<int, array{kanban: int, at: Carbon}>  $decreaseEvents
-     * @return array<int, array{time: string, at: Carbon, heijunka_status: string}>
-     */
-    private function simulate(array $slots, Collection $decreaseEvents, Carbon $dayStart, Carbon $now, int $scannedCount): array
-    {
-        return $this->colourize($this->fire($slots, $decreaseEvents, $dayStart, $now), $now, $scannedCount);
-    }
-
-    /**
-     * Every Box-scheduled part's coloured ticks as of $asOf (a moment inside
-     * some production day — live "now", or the end of a past day), keyed by
-     * part_no. This is what Heikinka (the history view) draws: the exact same
-     * ticks, at the exact same slot times, that the Heijunka board itself
-     * showed at that moment.
+     * Every Box-scheduled part's tick history as of $asOf (live "now", or
+     * some moment in the past), keyed by part_no — filtered down to ONLY the
+     * 'scanned' (blue/already-pulled) ones. This is what Heikinka (the
+     * history view) draws: Heikinka is a record of pulling that actually
+     * happened, so a pending/overdue (not-yet-pulled) tick doesn't belong in
+     * it — only a completed pull does, at the exact slot time it pulled
+     * against on the Heijunka board itself.
      *
      * @return array<string, array<int, array{time: string, at: Carbon, heijunka_status: string}>>
      */
     public function ticksByPartNo(Carbon $asOf): array
     {
-        $dayStart = \App\Models\CalendarEntry::productionDayStart($asOf);
         $result = [];
 
         foreach (HeijunkaBoxSchedule::with('part')->get() as $schedule) {
@@ -315,10 +326,13 @@ class HeijunkaBoxBoard
                 continue;
             }
 
-            $row = $this->buildRow($schedule, $asOf, $dayStart);
+            $row = $this->buildRow($schedule, $asOf);
 
             if ($row !== null) {
-                $result[$row['label']] = $row['ticks'];
+                $result[$row['label']] = collect($row['ticks'])
+                    ->filter(fn (array $t) => $t['heijunka_status'] === 'scanned')
+                    ->values()
+                    ->all();
             }
         }
 
@@ -326,32 +340,67 @@ class HeijunkaBoxBoard
     }
 
     /**
-     * Just the firing half of simulate() — every slot that fired by $now,
-     * chronological, with no colouring/24h cap. This is what Perintah
-     * Pulling reads (see firedEventsBatch()).
+     * Every fixed slot instant for $slots across every production day that
+     * touches [$windowStart, $now] — almost always exactly two days (the one
+     * $windowStart falls in and the one $now falls in), since both the
+     * window and a production day span 24h.
+     *
+     * @param  array<int, string>  $slots
+     * @return Collection<int, array{time: string, at: Carbon}>
+     */
+    private function slotInstantsBetween(array $slots, Carbon $windowStart, Carbon $now): Collection
+    {
+        $instants = collect();
+        $dayStart = \App\Models\CalendarEntry::productionDayStart($windowStart);
+        $lastDayStart = \App\Models\CalendarEntry::productionDayStart($now);
+
+        while ($dayStart->lte($lastDayStart)) {
+            foreach ($slots as $time) {
+                [$h, $m] = explode(':', $time);
+                $at = $dayStart->copy()->startOfDay()->setTime((int) $h, (int) $m);
+
+                // Slots after midnight (00:45 onward) land on the calendar
+                // day AFTER $dayStart's own date — $dayStart is anchored at
+                // 07:00, so anything before that on the clock face is
+                // "tomorrow" relative to it.
+                if ($at->lt($dayStart)) {
+                    $at->addDay();
+                }
+
+                $instants->push(['time' => $time, 'at' => $at]);
+            }
+
+            $dayStart = $dayStart->copy()->addDay();
+        }
+
+        return $instants->sortBy('at')->values();
+    }
+
+    /**
+     * Just the firing half of the backlog simulation described in the class
+     * doc — every slot that fired between $windowStart and $now (plus,
+     * when $revealFuture is true, every slot ASSIGNED backlog beyond $now
+     * too — see below), chronological, with no colouring. This is what
+     * Perintah Pulling reads (see firedEventsBatch()) and what colourize()
+     * tags with a status.
+     *
+     * $revealFuture controls whether a slot can fire ahead of the progress
+     * bar: false (Perintah Pulling) stops exactly at $now, so nothing not
+     * yet due ever becomes scan demand early; true (the visual board) keeps
+     * assigning backlog to the next open slot even past $now, so the moment
+     * stock drops, staff can already see which column it's queued for
+     * instead of waiting for the progress bar to reach it. Either way a
+     * unit only ever fires at/after its own decrease was captured, and
+     * never at more than one slot.
      *
      * @param  array<int, string>  $slots
      * @param  Collection<int, array{kanban: int, at: Carbon}>  $decreaseEvents
      * @return Collection<int, array{time: string, at: Carbon}>
      */
-    private function fire(array $slots, Collection $decreaseEvents, Carbon $dayStart, Carbon $now): Collection
+    private function fire(array $slots, Collection $decreaseEvents, Carbon $windowStart, Carbon $now, bool $revealFuture = false): Collection
     {
-        $slotInstants = collect($slots)->map(function (string $time) use ($dayStart) {
-            [$h, $m] = explode(':', $time);
-            $at = $dayStart->copy()->startOfDay()->setTime((int) $h, (int) $m);
-
-            // Slots after midnight (00:45 onward) land on the calendar day
-            // AFTER $dayStart's own date — $dayStart is anchored at 07:00,
-            // so anything before that on the clock face is "tomorrow"
-            // relative to it.
-            if ($at->lt($dayStart)) {
-                $at->addDay();
-            }
-
-            return ['time' => $time, 'at' => $at];
-        });
-
-        $timeline = $slotInstants->map(fn (array $s) => [...$s, 'kind' => 'slot'])
+        $timeline = $this->slotInstantsBetween($slots, $windowStart, $now)
+            ->map(fn (array $s) => [...$s, 'kind' => 'slot'])
             ->concat($decreaseEvents->map(fn (array $e) => ['kind' => 'decrease', 'at' => $e['at'], 'kanban' => $e['kanban']]))
             ->sortBy('at')
             ->values();
@@ -360,7 +409,10 @@ class HeijunkaBoxBoard
         $fired = collect();
 
         foreach ($timeline as $event) {
-            if ($event['at']->gt($now)) {
+            // A decrease is always real, already-happened data — this only
+            // guards against it in principle. A slot, though, can legitimately
+            // sit past $now when $revealFuture allows it through.
+            if ($event['at']->gt($now) && ($event['kind'] === 'decrease' || ! $revealFuture)) {
                 break; // Nothing past the progress bar has happened yet.
             }
 
@@ -382,9 +434,11 @@ class HeijunkaBoxBoard
     /**
      * Perintah Pulling source: for every part_no in $partNos that has a
      * Heijunka Box schedule, one {kanban: 1, at} event per slot that has
-     * fired today — i.e. per green tick the progress bar has passed, scanned
-     * or not (the pulling services net scans off themselves). Parts with no
-     * schedule are simply absent from the result.
+     * fired in the last 24h — i.e. per green/red tick currently on the
+     * board, scanned or not (the pulling services net scans off
+     * themselves). Parts with no schedule are simply absent from the
+     * result. Same rolling window as the board itself (see buildRow()), so
+     * a tick shown on Heijunka always has matching pulling demand.
      *
      * @param  array<int, string>  $partNos
      * @return array<string, Collection<int, array{kanban: int, at: Carbon}>>
@@ -404,7 +458,7 @@ class HeijunkaBoxBoard
         }
 
         $now = now();
-        $dayStart = \App\Models\CalendarEntry::productionDayStart($now);
+        $windowStart = $now->copy()->subDay();
         $keseiByPartId = KeseiPart::whereIn('part_id', $schedules->pluck('part_id'))->get()->keyBy('part_id');
 
         $sourcesBySchedule = $schedules->mapWithKeys(fn (HeijunkaBoxSchedule $s) => [
@@ -412,7 +466,7 @@ class HeijunkaBoxBoard
         ]);
 
         $snapshots = StockSnapshot::whereIn('part_no', $sourcesBySchedule->flatten()->unique()->values()->all())
-            ->whereBetween('captured_at', [$dayStart->copy()->subDay(), $dayStart->copy()->addDay()])
+            ->whereBetween('captured_at', [$windowStart->copy()->subDay(), $now])
             ->orderBy('captured_at')
             ->get(['part_no', 'stock', 'captured_at']);
 
@@ -422,12 +476,12 @@ class HeijunkaBoxBoard
             $events = $this->decreaseEvents(
                 $sourcesBySchedule[$schedule->id],
                 $schedule->part->qty_kbn,
-                $dayStart,
-                $dayStart->copy()->addDay(),
+                $windowStart,
+                $now,
                 $snapshots
             );
 
-            $result[$schedule->part->part_no] = $this->fire($schedule->slots, $events, $dayStart, $now)
+            $result[$schedule->part->part_no] = $this->fire($schedule->slots, $events, $windowStart, $now)
                 ->map(fn (array $f) => ['kanban' => 1, 'at' => $f['at']])
                 ->values();
         }
@@ -438,7 +492,10 @@ class HeijunkaBoxBoard
     /**
      * Tags each fired tick the same way KeseiBoard::heijunkaVisualEvents()
      * does — see that method's doc for the full reasoning (grace period,
-     * FIFO scan matching, 24h cap).
+     * FIFO scan matching). No separate 24h cap needed here: fire() only
+     * ever fires a slot between $windowStart (24h before $now) and $now, so
+     * every tick it produces is already guaranteed to be within that
+     * window.
      *
      * @param  Collection<int, array{time: string, at: Carbon}>  $fired
      * @return array<int, array{time: string, at: Carbon, heijunka_status: string}>
@@ -451,20 +508,15 @@ class HeijunkaBoxBoard
         $result = [];
 
         foreach ($fired as $i => $event) {
-            $minutesSinceFired = $event['at']->diffInMinutes($now);
-
             if ($i < $scannedOfFired) {
-                if ($minutesSinceFired > 24 * 60) {
-                    continue;
-                }
-
                 $status = 'scanned';
+            } elseif ($event['at']->gt($now)) {
+                // Pre-shown (revealFuture) — assigned to its slot ahead of
+                // the progress bar reaching it, so it's neither due nor
+                // overdue yet.
+                $status = 'pending';
             } else {
-                if ($minutesSinceFired > 24 * 60) {
-                    continue;
-                }
-
-                $status = $minutesSinceFired > 15 ? 'overdue' : 'pending';
+                $status = $event['at']->diffInMinutes($now) > 15 ? 'overdue' : 'pending';
             }
 
             $result[] = [...$event, 'heijunka_status' => $status];

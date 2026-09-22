@@ -179,10 +179,12 @@
             </div>
         </div>
 
-        {{-- Total per hour — a fixed footer, same structural trick as the
-             time-axis header above (a separate scroller, horizontally
-             synced to the rows via __keseiHeaderSync in show.blade.php)
-             so it never scrolls out of view either. --}}
+        {{-- Total per hour (Heijunka/Heikinka only) — a fixed footer, same
+             structural trick as the time-axis header above (a separate
+             scroller, horizontally synced to the rows via __keseiHeaderSync
+             in show.blade.php) so it never scrolls out of view either. The
+             normal Kesei Kanban/Scan boards never showed this. --}}
+        @if ($isHeijunka ?? false)
         <div id="kesei-timeline-footer-scroll" class="shrink-0 overflow-x-hidden overflow-y-hidden bg-black border-t-2 border-white">
             <div class="flex" style="width: {{ $sidebarWidth + $totalWidth }}px;">
                 <div class="sticky left-0 z-40 bg-black shrink-0 flex items-center px-3" style="width: {{ $sidebarWidth }}px;">
@@ -202,7 +204,6 @@
                 </div>
             </div>
 
-            @if ($isHeijunka ?? false)
                 {{-- Actual per plan (Heijunka only): blue (already pulled) out of
                      every tick on the board that hour — blue + red + green. --}}
                 <div class="flex border-t border-white/20" style="width: {{ $sidebarWidth + $totalWidth }}px;">

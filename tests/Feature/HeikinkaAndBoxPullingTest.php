@@ -69,15 +69,37 @@ class HeikinkaAndBoxPullingTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_yesterdays_scans_are_not_netted_off_against_todays_box_ticks(): void
+    public function test_a_scan_within_the_last_24h_nets_off_a_fresh_box_tick_even_if_it_was_the_previous_calendar_day(): void
     {
+        // Heijunka Box loops on a rolling 24h window, not the 07:00
+        // production-day boundary — a scan 9h15m ago (still "yesterday" by
+        // calendar date) is well within that window, so it DOES net off a
+        // tick fired today.
         Carbon::setTestNow('2026-09-15 08:15:00');
         $this->keseiPart('BP-3', ['07:10']);
         $this->stock('BP-3', 100, '2026-09-15 06:00');
         $this->stock('BP-3', 99, '2026-09-15 07:05');
-        KeseiScan::create(['part_no' => 'BP-3', 'location' => 'finish-goods', 'raw' => 'BP-3', 'scanned_at' => Carbon::parse('2026-09-14 12:00')]);
+        KeseiScan::create(['part_no' => 'BP-3', 'location' => 'finish-goods', 'raw' => 'BP-3', 'scanned_at' => Carbon::parse('2026-09-14 23:00')]);
 
         $row = app(KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'BP-3');
+
+        // Fully satisfied — needed and scanned both net to 0, so the row
+        // doesn't even show up on the pulling list.
+        $this->assertNull($row);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_scan_older_than_24h_is_not_netted_off_against_a_fresh_box_tick(): void
+    {
+        Carbon::setTestNow('2026-09-15 08:15:00');
+        $this->keseiPart('BP-3B', ['07:10']);
+        $this->stock('BP-3B', 100, '2026-09-15 06:00');
+        $this->stock('BP-3B', 99, '2026-09-15 07:05');
+        // 25h ago — just outside the rolling window.
+        KeseiScan::create(['part_no' => 'BP-3B', 'location' => 'finish-goods', 'raw' => 'BP-3B', 'scanned_at' => Carbon::parse('2026-09-14 07:15')]);
+
+        $row = app(KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'BP-3B');
 
         $this->assertSame(1, $row['needed']);
         $this->assertSame(0, $row['scanned']);
@@ -159,24 +181,28 @@ class HeikinkaAndBoxPullingTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_heikinka_history_shows_the_same_box_ticks_at_the_same_slot_time_and_colour(): void
+    public function test_heikinka_history_shows_only_the_already_pulled_box_ticks_at_their_slot_time(): void
     {
+        // Heikinka is a pure history of pulling that actually happened — a
+        // pending/overdue (not-yet-pulled) box tick has no place in it, only
+        // a completed one (blue), at the exact slot time it pulled against.
         Carbon::setTestNow('2026-09-16 12:00:00');
         $this->keseiPart('HK-BOX', ['07:10', '08:10']);
         $this->stock('HK-BOX', 100, '2026-09-15 06:00');
         $this->stock('HK-BOX', 98, '2026-09-15 07:05');
         // Scanned at 07:20 — after the 07:10 slot, so the first tick is blue.
+        // The 08:10 tick is never scanned (would be red on Heijunka itself).
         KeseiScan::create(['part_no' => 'HK-BOX', 'location' => 'finish-goods', 'raw' => 'HK-BOX', 'scanned_at' => Carbon::parse('2026-09-15 07:20')]);
 
         $html = $this->get(route('andon-kesei.heijunka', ['date' => '2026-09-15']))->getContent();
         $panel = substr($html, strpos($html, 'id="kesei-panel-timeline"'));
 
-        // Two box ticks (07:10 blue, 08:10 red by end of day) — at the SLOT
-        // times, not the 07:05 the stock actually dropped at.
+        // Only the one pulled (blue) tick shows, at its slot time — not the
+        // unpulled 08:10 one, and not the 07:05 the stock actually dropped at.
         $this->assertSame(1, substr_count($panel, 'background-color: #3b82f6'));
-        $this->assertSame(1, substr_count($panel, 'background-color: #ff3b3b'));
+        $this->assertSame(0, substr_count($panel, 'background-color: #ff3b3b'));
         $this->assertStringContainsString('07:10', $panel);
-        $this->assertStringContainsString('08:10', $panel);
+        $this->assertStringNotContainsString('08:10', $panel);
         $this->assertStringNotContainsString('07:05', $panel);
 
         Carbon::setTestNow();

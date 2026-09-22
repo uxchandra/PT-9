@@ -21,7 +21,7 @@ class AndonLotMakingTest extends TestCase
     {
         $this->get(route('andon-lot-making.show'))
             ->assertOk()
-            ->assertSee('LOT MAKING BY SCAN LINE 9');
+            ->assertSee('LOT MAKING LINE 9');
     }
 
     public function test_the_planning_roller_shows_the_machine_for_an_in_progress_cycle(): void

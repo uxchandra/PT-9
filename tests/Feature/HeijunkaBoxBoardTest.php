@@ -108,6 +108,117 @@ class HeijunkaBoxBoardTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_a_decrease_shows_immediately_at_its_assigned_future_slot_instead_of_waiting_for_the_progress_bar(): void
+    {
+        // Staff should see backlog queued against its column the instant
+        // stock drops, not only once the progress bar physically reaches
+        // that column.
+        Carbon::setTestNow('2026-09-15 07:15:00');
+        $part = Part::create(['part_no' => 'HB-EARLY', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['07:10', '08:10']]);
+
+        StockSnapshot::create(['part_no' => 'HB-EARLY', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:00')]);
+        // -2 kanban, all before "now" (07:15) — 07:10 already covers one,
+        // leaving one more for 08:10, which hasn't happened yet.
+        StockSnapshot::create(['part_no' => 'HB-EARLY', 'stock' => 98, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:05')]);
+
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-EARLY');
+        $byTime = collect($row['ticks'])->keyBy('time');
+
+        $this->assertSame(2, count($row['ticks']));
+        $this->assertArrayHasKey('08:10', $byTime); // shown even though it's 08:15 minutes away
+        $this->assertSame('pending', $byTime['08:10']['heijunka_status']); // green, not overdue
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_pre_shown_future_tick_does_not_become_pulling_demand_until_the_progress_bar_reaches_it(): void
+    {
+        Carbon::setTestNow('2026-09-15 07:15:00');
+        $part = Part::create(['part_no' => 'HB-EARLY-PULL', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['07:10', '08:10']]);
+
+        StockSnapshot::create(['part_no' => 'HB-EARLY-PULL', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:00')]);
+        StockSnapshot::create(['part_no' => 'HB-EARLY-PULL', 'stock' => 98, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:05')]);
+
+        // Board shows 2 ticks (07:10 due, 08:10 pre-shown) — but Perintah
+        // Pulling only asks for the one that's actually due.
+        $board = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-EARLY-PULL');
+        $this->assertSame(2, count($board['ticks']));
+
+        $pull = app(\App\Services\KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'HB-EARLY-PULL');
+        $this->assertSame(1, $pull['needed']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_backlog_carries_across_the_07_00_production_day_boundary(): void
+    {
+        // The board loops on a rolling 24h window, not the 07:00 boundary —
+        // a decrease just before 07:00, past yesterday's last slot, doesn't
+        // vanish: it carries forward and fires at today's first slot.
+        Carbon::setTestNow('2026-09-15 07:15:00');
+        $part = Part::create(['part_no' => 'HB-CROSS', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['07:10']]);
+
+        StockSnapshot::create(['part_no' => 'HB-CROSS', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:00')]);
+        // Decrease at 06:50 — before today's 07:00 production-day start, and
+        // after every one of yesterday's slots already passed.
+        StockSnapshot::create(['part_no' => 'HB-CROSS', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:50')]);
+
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-CROSS');
+
+        $this->assertSame(1, count($row['ticks']));
+        $this->assertSame('07:10', $row['ticks'][0]['time']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_backlog_older_than_24h_no_longer_fires(): void
+    {
+        Carbon::setTestNow('2026-09-15 08:00:00');
+        $part = Part::create(['part_no' => 'HB-OLD', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['07:10']]);
+
+        StockSnapshot::create(['part_no' => 'HB-OLD', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 06:00')]);
+        // 25h before "now" — just outside the rolling 24h window.
+        StockSnapshot::create(['part_no' => 'HB-OLD', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 07:00')]);
+
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-OLD');
+
+        $this->assertSame(0, count($row['ticks']));
+
+        Carbon::setTestNow();
+    }
+
+    public function test_an_overdue_tick_from_before_07_00_still_shows_red_this_morning(): void
+    {
+        // This is the whole point of looping 24h instead of resetting at
+        // 07:00 — an unscanned tick from last night is still on the board
+        // the next morning, not wiped the instant the production day rolls.
+        Carbon::setTestNow('2026-09-15 08:00:00');
+        $part = Part::create(['part_no' => 'HB-DELAY', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['20:05']]);
+
+        StockSnapshot::create(['part_no' => 'HB-DELAY', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 08:30')]);
+        // Fires at 20:05 last night (2026-09-14), 11h55m before "now" — well
+        // past the 15-minute grace period, so it's overdue.
+        StockSnapshot::create(['part_no' => 'HB-DELAY', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 09:00')]);
+
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-DELAY');
+
+        $this->assertSame(1, count($row['ticks']));
+        $this->assertSame('20:05', $row['ticks'][0]['time']);
+        $this->assertSame('overdue', $row['ticks'][0]['heijunka_status']);
+
+        Carbon::setTestNow();
+    }
+
     public function test_tick_colour_states_match_the_same_rules_as_the_lt_kbn_heijunka_board(): void
     {
         Carbon::setTestNow('2026-09-15 12:00:00');

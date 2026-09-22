@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\CalendarEntry;
 use App\Models\KeseiPart;
 use App\Models\KeseiScan;
 use App\Models\StockSnapshot;
@@ -188,19 +187,20 @@ class KeseiPull
     }
 
     /**
-     * demandRow() for a part driven by the Heijunka Box: the day's fired ticks
-     * are the whole demand, so only events and scans since the later of the
-     * row's fold_start and this production day's 07:00 start count — the box
-     * only knows about today, and yesterday's scans must not be netted off
-     * against today's ticks.
+     * demandRow() for a part driven by the Heijunka Box: the box's own fired
+     * ticks are the whole demand, so only events and scans since the later
+     * of the row's fold_start and the box's own rolling 24h window start
+     * count — same window HeijunkaBoxBoard::buildRow() uses, so a tick shown
+     * on the Heijunka board always has matching pulling demand, and a scan
+     * older than 24h never gets netted off against a fresh tick.
      *
      * @param  array<string, mixed>  $row
      * @param  Collection<int, array{kanban: int, at: Carbon}>  $events
      */
     private function boxDemandRow(array $row, Collection $events): array
     {
-        $dayStart = CalendarEntry::productionDayStart(now());
-        $row['fold_start'] = $row['fold_start']->gt($dayStart) ? $row['fold_start'] : $dayStart;
+        $windowStart = now()->subDay();
+        $row['fold_start'] = $row['fold_start']->gt($windowStart) ? $row['fold_start'] : $windowStart;
 
         return $this->demandRow($row, $events->filter(fn (array $e) => $e['at']->gt($row['fold_start']))->values());
     }

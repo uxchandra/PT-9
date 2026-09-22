@@ -25,7 +25,7 @@ class AndonLotMakingController extends Controller
         // Scans are live operator actions — poll fast, same as Andon Kesei
         // Scan, so a tick/roller entry shows up on the wall board almost
         // immediately.
-        return $this->render($request, $board->data('scan'), 'LOT MAKING BY SCAN LINE 9', 3000);
+        return $this->render($request, $board->data('scan'), 'LOT MAKING LINE 9', 3000);
     }
 
     public function showDemand(Request $request, LotMakingBoard $board): Response|JsonResponse

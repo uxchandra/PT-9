@@ -104,7 +104,7 @@ class KeseiTest extends TestCase
 
         $this->get(route('andon-kesei.show'))
             ->assertOk()
-            ->assertSee('KESEI KANBAN LINE 9')
+            ->assertSee('KESEI REALTIME SOS LINE 9')
             ->assertSee('KESEI-PART-A');
     }
 
@@ -123,28 +123,16 @@ class KeseiTest extends TestCase
         $this->assertStringContainsString('stok turun 3 kanban (3 pcs)', $html);
     }
 
-    public function test_the_timeline_footer_shows_total_kanban_per_hour_across_every_part(): void
+    public function test_the_timeline_footer_total_row_is_heijunka_only_not_shown_on_the_normal_board(): void
     {
-        Carbon::setTestNow('2026-09-15 12:00:00');
-        $partA = Part::create(['part_no' => 'TOT-A', 'qty_kbn' => 1]);
-        KeseiPart::create(['part_id' => $partA->id, 'urutan' => 1]);
-        $partB = Part::create(['part_no' => 'TOT-B', 'qty_kbn' => 1]);
-        KeseiPart::create(['part_id' => $partB->id, 'urutan' => 2]);
-
-        StockSnapshot::create(['part_no' => 'TOT-A', 'stock' => 50, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 09:00')]);
-        StockSnapshot::create(['part_no' => 'TOT-A', 'stock' => 47, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 09:20')]); // -3, in the 09:00 hour
-        StockSnapshot::create(['part_no' => 'TOT-B', 'stock' => 30, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 09:00')]);
-        StockSnapshot::create(['part_no' => 'TOT-B', 'stock' => 28, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 09:40')]); // -2, also in the 09:00 hour
+        // The "Total" footer (see KeseiHeijunkaTest for its own coverage)
+        // only ever belonged on the Heijunka/Heikinka board — the plain
+        // Kesei Kanban/Scan boards never had it.
+        KeseiPart::create(['part_id' => Part::create(['part_no' => 'P1'])->id, 'urutan' => 1]);
 
         $html = $this->get(route('andon-kesei.show'))->getContent();
 
-        $this->assertStringContainsString('id="kesei-timeline-footer-scroll"', $html);
-
-        $footer = substr($html, strpos($html, 'id="kesei-timeline-footer-scroll"'));
-        // Both parts' decreases land in the same 09:00 hour — combined total is 5, not two separate 3s and 2s.
-        $this->assertStringContainsString('color: #facc15;">5</span>', $footer);
-
-        Carbon::setTestNow();
+        $this->assertStringNotContainsString('id="kesei-timeline-footer-scroll"', $html);
     }
 
     public function test_the_scan_board_polls_much_faster_than_the_stock_board(): void
