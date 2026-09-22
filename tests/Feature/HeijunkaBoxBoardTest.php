@@ -237,8 +237,9 @@ class HeijunkaBoxBoardTest extends TestCase
         $row = $this->flatRows($data)->firstWhere('label', 'HB-4');
         $byTime = collect($row['ticks'])->keyBy('time');
 
-        // 07:10 fired 4h50m ago — already-pulled and past the 3h live-board
-        // hide, so it's gone entirely (see its own dedicated test below).
+        // 07:10 was scanned at 07:20, 4h40m ago — already-pulled and past
+        // the 3h live-board hide, so it's gone entirely (see its own
+        // dedicated test below).
         $this->assertArrayNotHasKey('07:10', $byTime);
         $this->assertSame('overdue', $byTime['10:20']['heijunka_status']); // fired 1h40m ago, unscanned
         $this->assertSame('pending', $byTime['11:50']['heijunka_status']); // fired only 10 min ago — still in grace
@@ -246,8 +247,11 @@ class HeijunkaBoxBoardTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_a_pulled_tick_shows_blue_within_3h_of_firing_then_disappears_from_the_live_board(): void
+    public function test_a_pulled_tick_shows_blue_within_3h_of_being_scanned_then_disappears_from_the_live_board(): void
     {
+        // The 3h clock starts when it actually turned blue (the scan), NOT
+        // when it fired at its slot — this part sits unscanned for 1h50m
+        // after firing, so those two moments are well apart.
         Carbon::setTestNow('2026-09-15 07:15:00');
         $part = Part::create(['part_no' => 'HB-PULLED', 'qty_kbn' => 1]);
         KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
@@ -255,16 +259,18 @@ class HeijunkaBoxBoardTest extends TestCase
 
         StockSnapshot::create(['part_no' => 'HB-PULLED', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:00')]);
         StockSnapshot::create(['part_no' => 'HB-PULLED', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:05')]);
-        KeseiScan::create(['part_no' => 'HB-PULLED', 'location' => 'finish-goods', 'raw' => 'HB-PULLED', 'scanned_by' => User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-15 07:12')]);
+        // Fires at 07:10, but not scanned until 09:00 — 1h50m later.
+        KeseiScan::create(['part_no' => 'HB-PULLED', 'location' => 'finish-goods', 'raw' => 'HB-PULLED', 'scanned_by' => User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-15 09:00')]);
 
-        // Just under 3h since it fired (07:10) — still shown, blue.
-        Carbon::setTestNow('2026-09-15 10:00:00');
+        // 3h05m since it FIRED (07:10), but only 2h59m since it was SCANNED
+        // (09:00) — still shown, blue, proving the clock is scan-based.
+        Carbon::setTestNow('2026-09-15 11:59:00');
         $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-PULLED');
         $this->assertSame(1, count($row['ticks']));
         $this->assertSame('scanned', $row['ticks'][0]['heijunka_status']);
 
-        // Just past 3h — gone from the live board.
-        Carbon::setTestNow('2026-09-15 10:11:00');
+        // Just past 3h since the scan (09:00) — gone from the live board.
+        Carbon::setTestNow('2026-09-15 12:01:00');
         $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-PULLED');
         $this->assertSame(0, count($row['ticks']));
 

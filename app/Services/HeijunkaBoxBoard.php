@@ -49,7 +49,7 @@ use Illuminate\Support\Collection;
  *
  * Same three-colour scheme as KeseiBoard's heijunka: a fired tick is green
  * while unscanned and within 15 minutes of firing, red once older than that
- * and still unscanned, or blue once matched to a scan (see scannedCount()).
+ * and still unscanned, or blue once matched to a scan (see scannedTimes()).
  * Because backlog itself already only spans the last 24h, every fired tick
  * is automatically within that same 24h — there's no separate cap to apply
  * on top, unlike KeseiBoard's own heijunka (which computes over a much
@@ -294,7 +294,7 @@ class HeijunkaBoxBoard
         $windowStart = $now->copy()->subDay();
 
         $decreaseEvents = $this->decreaseEvents($sources, $qtyKbn, $windowStart, $now);
-        $scannedCount = $this->scannedCount($sources, $windowStart, $now);
+        $scannedTimes = $this->scannedTimes($sources, $windowStart, $now);
 
         // revealFuture: true — the board shows backlog against its assigned
         // slot the instant the stock decrease is captured, not only once the
@@ -302,7 +302,7 @@ class HeijunkaBoxBoard
         // Pulling (firedEventsBatch()) deliberately does NOT do this — a
         // pre-shown tick isn't due yet, so it must not become a scan demand
         // early.
-        $ticks = $this->colourize($this->fire($schedule->slots, $decreaseEvents, $windowStart, $now, revealFuture: true), $now, $scannedCount, $hideOldPulled);
+        $ticks = $this->colourize($this->fire($schedule->slots, $decreaseEvents, $windowStart, $now, revealFuture: true), $now, $scannedTimes, $hideOldPulled);
 
         return [
             'id' => $schedule->id,
@@ -503,32 +503,36 @@ class HeijunkaBoxBoard
     /**
      * Tags each fired tick the same way KeseiBoard::heijunkaVisualEvents()
      * does — see that method's doc for the full reasoning (grace period,
-     * FIFO scan matching). No separate 24h cap needed here: fire() only
-     * ever fires a slot between $windowStart (24h before $now) and $now, so
-     * every tick it produces is already guaranteed to be within that
-     * window.
+     * FIFO scan matching — a scan isn't recorded against a specific tick,
+     * only that it happened, so the oldest-first fired ticks are assumed
+     * fulfilled by the oldest-first real scans, one for one). No separate
+     * 24h cap needed here: fire() only ever fires a slot between
+     * $windowStart (24h before $now) and $now, so every tick it produces is
+     * already guaranteed to be within that window.
      *
      * $hideOldPulled (true on the live board, false for Heikinka's history —
      * see buildRow()/ticksByPartNo()) drops an already-scanned tick entirely
-     * once it's more than 3h past its own fired time, instead of letting it
-     * sit on the board the same 24h an outstanding one would.
+     * once its MATCHED scan (see $scannedTimes) is more than 3h old, instead
+     * of letting it sit on the board the same 24h an outstanding one would.
      *
      * @param  Collection<int, array{time: string, at: Carbon}>  $fired
+     * @param  Collection<int, Carbon>  $scannedTimes  oldest first
      * @return array<int, array{time: string, at: Carbon, heijunka_status: string}>
      */
-    private function colourize(Collection $fired, Carbon $now, int $scannedCount, bool $hideOldPulled = true): array
+    private function colourize(Collection $fired, Carbon $now, Collection $scannedTimes, bool $hideOldPulled = true): array
     {
         $fired = $fired->sortBy('at')->values();
-        $scannedOfFired = min($scannedCount, $fired->count());
+        $scannedOfFired = min($scannedTimes->count(), $fired->count());
 
         $result = [];
 
         foreach ($fired as $i => $event) {
             if ($i < $scannedOfFired) {
                 // Already pulled — the live board doesn't need to keep
-                // showing it forever; it drops off 3h after its slot fired,
-                // well before the 24h a still-outstanding tick gets.
-                if ($hideOldPulled && $event['at']->diffInMinutes($now) > 3 * 60) {
+                // showing it forever; it drops off 3h after it actually
+                // turned blue, well before the 24h a still-outstanding tick
+                // gets.
+                if ($hideOldPulled && $scannedTimes[$i]->diffInMinutes($now) > 3 * 60) {
                     continue;
                 }
 
@@ -594,13 +598,23 @@ class HeijunkaBoxBoard
     }
 
     /**
+     * Every real scan timestamp for $sources in the window, oldest first —
+     * merged across Kesei and Lot Making scans, since a given part_no only
+     * ever belongs to one system or the other. colourize() pairs these
+     * positionally with the oldest-first fired ticks (the same FIFO
+     * assumption KeseiBoard::heijunkaVisualEvents() makes — a scan isn't
+     * recorded against a specific tick, only that it happened), so it knows
+     * not just THAT a tick was pulled but WHEN — needed for the live
+     * board's 3h-after-pulled hide (see colourize()'s $hideOldPulled).
+     *
      * @param  array<int, string>  $sources
+     * @return Collection<int, Carbon>
      */
-    private function scannedCount(array $sources, Carbon $since, Carbon $until): int
+    private function scannedTimes(array $sources, Carbon $since, Carbon $until): Collection
     {
-        $kesei = KeseiScan::whereIn('part_no', $sources)->whereBetween('scanned_at', [$since, $until])->where('scanned_at', '>', $since)->count();
-        $lotMaking = LotMakingScan::whereIn('part_no', $sources)->whereBetween('scanned_at', [$since, $until])->where('scanned_at', '>', $since)->count();
+        $kesei = KeseiScan::whereIn('part_no', $sources)->where('scanned_at', '>', $since)->where('scanned_at', '<=', $until)->pluck('scanned_at');
+        $lotMaking = LotMakingScan::whereIn('part_no', $sources)->where('scanned_at', '>', $since)->where('scanned_at', '<=', $until)->pluck('scanned_at');
 
-        return $kesei + $lotMaking;
+        return $kesei->concat($lotMaking)->sort()->values();
     }
 }
