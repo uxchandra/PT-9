@@ -237,9 +237,56 @@ class HeijunkaBoxBoardTest extends TestCase
         $row = $this->flatRows($data)->firstWhere('label', 'HB-4');
         $byTime = collect($row['ticks'])->keyBy('time');
 
-        $this->assertSame('scanned', $byTime['07:10']['heijunka_status']);
+        // 07:10 fired 4h50m ago — already-pulled and past the 3h live-board
+        // hide, so it's gone entirely (see its own dedicated test below).
+        $this->assertArrayNotHasKey('07:10', $byTime);
         $this->assertSame('overdue', $byTime['10:20']['heijunka_status']); // fired 1h40m ago, unscanned
         $this->assertSame('pending', $byTime['11:50']['heijunka_status']); // fired only 10 min ago — still in grace
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_pulled_tick_shows_blue_within_3h_of_firing_then_disappears_from_the_live_board(): void
+    {
+        Carbon::setTestNow('2026-09-15 07:15:00');
+        $part = Part::create(['part_no' => 'HB-PULLED', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['07:10']]);
+
+        StockSnapshot::create(['part_no' => 'HB-PULLED', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:00')]);
+        StockSnapshot::create(['part_no' => 'HB-PULLED', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:05')]);
+        KeseiScan::create(['part_no' => 'HB-PULLED', 'location' => 'finish-goods', 'raw' => 'HB-PULLED', 'scanned_by' => User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-15 07:12')]);
+
+        // Just under 3h since it fired (07:10) — still shown, blue.
+        Carbon::setTestNow('2026-09-15 10:00:00');
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-PULLED');
+        $this->assertSame(1, count($row['ticks']));
+        $this->assertSame('scanned', $row['ticks'][0]['heijunka_status']);
+
+        // Just past 3h — gone from the live board.
+        Carbon::setTestNow('2026-09-15 10:11:00');
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-PULLED');
+        $this->assertSame(0, count($row['ticks']));
+
+        Carbon::setTestNow();
+    }
+
+    public function test_heikinka_history_still_shows_a_pulled_tick_well_past_the_live_boards_3h_hide(): void
+    {
+        Carbon::setTestNow('2026-09-15 07:15:00');
+        $part = Part::create(['part_no' => 'HB-HIST', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['07:10']]);
+
+        StockSnapshot::create(['part_no' => 'HB-HIST', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:00')]);
+        StockSnapshot::create(['part_no' => 'HB-HIST', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:05')]);
+        KeseiScan::create(['part_no' => 'HB-HIST', 'location' => 'finish-goods', 'raw' => 'HB-HIST', 'scanned_by' => User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-15 07:12')]);
+
+        Carbon::setTestNow('2026-09-16 12:00:00'); // a full day later
+        $ticks = app(HeijunkaBoxBoard::class)->ticksByPartNo(Carbon::parse('2026-09-15 23:59:00'));
+
+        $this->assertArrayHasKey('HB-HIST', $ticks);
+        $this->assertSame(1, count($ticks['HB-HIST']));
 
         Carbon::setTestNow();
     }

@@ -54,6 +54,13 @@ use Illuminate\Support\Collection;
  * is automatically within that same 24h — there's no separate cap to apply
  * on top, unlike KeseiBoard's own heijunka (which computes over a much
  * longer floor and caps display separately).
+ *
+ * A blue (already-pulled) tick doesn't linger on the LIVE board for the
+ * full 24h though — it drops off 3h after it fired (see colourize()'s
+ * $hideOldPulled), so the board stays focused on what's still outstanding
+ * or recently done, not a growing pile of old pulls. Heikinka (the history
+ * view, see ticksByPartNo()) deliberately does NOT apply this — it wants
+ * every pull that ever happened on the day being viewed, however long ago.
  */
 class HeijunkaBoxBoard
 {
@@ -267,7 +274,7 @@ class HeijunkaBoxBoard
      *                                    schedule row has nothing to attach
      *                                    stock/scan data to).
      */
-    private function buildRow(HeijunkaBoxSchedule $schedule, Carbon $now): ?array
+    private function buildRow(HeijunkaBoxSchedule $schedule, Carbon $now, bool $hideOldPulled = true): ?array
     {
         $part = $schedule->part;
         $kesei = KeseiPart::where('part_id', $part->id)->first();
@@ -295,7 +302,7 @@ class HeijunkaBoxBoard
         // Pulling (firedEventsBatch()) deliberately does NOT do this — a
         // pre-shown tick isn't due yet, so it must not become a scan demand
         // early.
-        $ticks = $this->colourize($this->fire($schedule->slots, $decreaseEvents, $windowStart, $now, revealFuture: true), $now, $scannedCount);
+        $ticks = $this->colourize($this->fire($schedule->slots, $decreaseEvents, $windowStart, $now, revealFuture: true), $now, $scannedCount, $hideOldPulled);
 
         return [
             'id' => $schedule->id,
@@ -326,7 +333,11 @@ class HeijunkaBoxBoard
                 continue;
             }
 
-            $row = $this->buildRow($schedule, $asOf);
+            // Heikinka wants the FULL history regardless of age — the live
+            // board's own 3h-after-pulled hide (see colourize()) doesn't
+            // apply here, or a day viewed hours later would show almost
+            // nothing.
+            $row = $this->buildRow($schedule, $asOf, hideOldPulled: false);
 
             if ($row !== null) {
                 $result[$row['label']] = collect($row['ticks'])
@@ -497,10 +508,15 @@ class HeijunkaBoxBoard
      * every tick it produces is already guaranteed to be within that
      * window.
      *
+     * $hideOldPulled (true on the live board, false for Heikinka's history —
+     * see buildRow()/ticksByPartNo()) drops an already-scanned tick entirely
+     * once it's more than 3h past its own fired time, instead of letting it
+     * sit on the board the same 24h an outstanding one would.
+     *
      * @param  Collection<int, array{time: string, at: Carbon}>  $fired
      * @return array<int, array{time: string, at: Carbon, heijunka_status: string}>
      */
-    private function colourize(Collection $fired, Carbon $now, int $scannedCount): array
+    private function colourize(Collection $fired, Carbon $now, int $scannedCount, bool $hideOldPulled = true): array
     {
         $fired = $fired->sortBy('at')->values();
         $scannedOfFired = min($scannedCount, $fired->count());
@@ -509,6 +525,13 @@ class HeijunkaBoxBoard
 
         foreach ($fired as $i => $event) {
             if ($i < $scannedOfFired) {
+                // Already pulled — the live board doesn't need to keep
+                // showing it forever; it drops off 3h after its slot fired,
+                // well before the 24h a still-outstanding tick gets.
+                if ($hideOldPulled && $event['at']->diffInMinutes($now) > 3 * 60) {
+                    continue;
+                }
+
                 $status = 'scanned';
             } elseif ($event['at']->gt($now)) {
                 // Pre-shown (revealFuture) — assigned to its slot ahead of
