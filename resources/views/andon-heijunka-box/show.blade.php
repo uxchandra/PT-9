@@ -46,6 +46,18 @@
                 <span class="w-5 h-5 rounded-sm border border-white/30 shrink-0" style="background-color: #475569;"></span>
                 <span>{{ __('Rest') }}</span>
             </div>
+
+            {{-- History: pick a past production day (07:00 → 07:00) to see every
+                 tick that day, red or blue, none of the live board's own hiding
+                 rules (see HeijunkaBoxBoard::data()). Same convention as
+                 Heikinka's own date picker. --}}
+            <form method="GET" action="{{ route('andon-heijunka-box.show') }}" class="flex items-center gap-2">
+                <label for="heijunka-date" class="text-slate-400">{{ __('Tanggal') }}:</label>
+                <input id="heijunka-date" type="date" name="date" value="{{ $heijunkaDate }}" max="{{ $heijunkaMaxDate }}"
+                       onchange="this.form.submit()"
+                       class="rounded border border-white/30 bg-slate-900 px-2 py-1 text-white [color-scheme:dark]">
+                <span class="font-bold text-white">{{ $heijunkaDateLabel }}</span>
+            </form>
         </div>
 
         <div id="hbox-panel" class="flex-1 min-h-0">

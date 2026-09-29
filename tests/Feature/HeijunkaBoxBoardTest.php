@@ -489,4 +489,63 @@ class HeijunkaBoxBoardTest extends TestCase
 
         Carbon::setTestNow();
     }
+
+    public function test_the_date_picker_shows_every_tick_from_that_day_red_and_blue_alike(): void
+    {
+        // A past-day history view is exempt from every live-board hiding
+        // rule: a blue tick more than 3h past its scan, and a red tick that
+        // would otherwise still be "pending" (green, <15 min), both show.
+        Carbon::setTestNow('2026-09-16 12:00:00');
+        $part = Part::create(['part_no' => 'HB-HIST-A', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => 'TEST-2-X', 'slots' => ['07:10', '08:10']]);
+
+        StockSnapshot::create(['part_no' => 'HB-HIST-A', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:00')]);
+        StockSnapshot::create(['part_no' => 'HB-HIST-A', 'stock' => 98, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:05')]);
+        // 07:10 scanned right away (would be long hidden on the live board
+        // by "now"); 08:10 never scanned — stays red.
+        KeseiScan::create(['part_no' => 'HB-HIST-A', 'location' => 'finish-goods', 'raw' => 'HB-HIST-A', 'scanned_by' => User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-15 07:11')]);
+
+        $html = $this->get(route('andon-heijunka-box.show', ['date' => '2026-09-15']))->getContent();
+        // The legend swatches at the top use the same colours — scope to the
+        // grid panel itself so they can't be mistaken for a tick.
+        $grid = substr($html, strpos($html, 'id="hbox-panel"'));
+
+        $this->assertSame(1, substr_count($grid, 'background-color: #3b82f6')); // blue, 07:10
+        $this->assertSame(1, substr_count($grid, 'background-color: #ff3b3b')); // red, 08:10
+        $this->assertStringContainsString('value="2026-09-15"', $html);
+        $this->assertStringContainsString(Carbon::parse('2026-09-15')->locale('id')->translatedFormat('l, d F Y'), $html);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_the_date_picker_has_no_progress_bar_since_a_past_day_has_no_now(): void
+    {
+        Carbon::setTestNow('2026-09-16 12:00:00');
+        $part = Part::create(['part_no' => 'HB-HIST-B']);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => 'TEST-2-X', 'slots' => ['07:10']]);
+
+        $data = app(HeijunkaBoxBoard::class)->data(Carbon::parse('2026-09-15 23:59:00'));
+
+        $this->assertTrue($data['isHistory']);
+        $this->assertNull($data['currentSlotTime']);
+
+        $html = $this->get(route('andon-heijunka-box.show', ['date' => '2026-09-15']))->getContent();
+        $this->assertStringNotContainsString('>NOW<', $html);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_todays_date_and_invalid_dates_all_fall_back_to_the_live_board(): void
+    {
+        Carbon::setTestNow('2026-09-15 12:00:00');
+
+        foreach (['2026-09-15', '2026-12-31', 'not-a-date'] as $bad) {
+            $html = $this->get(route('andon-heijunka-box.show', ['date' => $bad]))->getContent();
+            $this->assertStringContainsString('value="2026-09-15"', $html);
+        }
+
+        Carbon::setTestNow();
+    }
 }

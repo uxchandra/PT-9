@@ -116,11 +116,20 @@ class HeijunkaBoxBoard
     }
 
     /**
+     * $asOf: null for the live board ("now", with the live board's own 3h-
+     * after-pulled hide — see buildRow()'s $hideOldPulled), or a moment at
+     * the END of some past production day for the date-picker history view
+     * — every tick that day, red or blue, with none of the live hiding
+     * rules (same reasoning as Heikinka's own history — see
+     * ticksByPartNo()), and no "NOW" progress bar (there's no live progress
+     * on a day that's already over).
+     *
      * @return array<string, mixed>
      */
-    public function data(): array
+    public function data(?Carbon $asOf = null): array
     {
-        $now = now();
+        $now = $asOf ?? now();
+        $isHistory = $asOf !== null;
         $dayStart = \App\Models\CalendarEntry::productionDayStart($now);
 
         // Sheet metadata (display order + the fixed "random number" row) for
@@ -137,11 +146,11 @@ class HeijunkaBoxBoard
             ->groupBy('cycle_issue');
 
         $groups = $schedulesByGroup
-            ->map(function (Collection $schedulesInGroup, string $cycleIssue) use ($cycleGroups, $now) {
+            ->map(function (Collection $schedulesInGroup, string $cycleIssue) use ($cycleGroups, $now, $isHistory) {
                 $group = $cycleGroups->get($cycleIssue);
 
                 $rows = $schedulesInGroup
-                    ->map(fn (HeijunkaBoxSchedule $schedule) => $this->buildRow($schedule, $now))
+                    ->map(fn (HeijunkaBoxSchedule $schedule) => $this->buildRow($schedule, $now, hideOldPulled: ! $isHistory))
                     ->filter()
                     ->values();
 
@@ -164,15 +173,17 @@ class HeijunkaBoxBoard
             'groups' => $groups,
             'cells' => self::cells(),
             'now' => $now,
+            'isHistory' => $isHistory,
             // The latest slot time (if any) already at/before now, for the
             // grid to highlight as "current" — same day-application logic
             // slotInstantsBetween() uses, so it lines up exactly with which
-            // ticks have actually fired.
-            'currentSlotTime' => $this->currentSlotTime($now, $dayStart),
+            // ticks have actually fired. A history view has no "now" on the
+            // board at all — null keeps the progress bar off.
+            'currentSlotTime' => $isHistory ? null : $this->currentSlotTime($now, $dayStart),
             // How far $now is between the current slot and the next one (0..1) —
             // lets the progress bar creep across a rest / shift-gap column
             // instead of sitting frozen at the slot before it.
-            'progressFraction' => $this->progressFraction($now, $dayStart),
+            'progressFraction' => $isHistory ? 0.0 : $this->progressFraction($now, $dayStart),
             // The board's own grand-total footer row — every group's
             // subtotal (already a live tick count, see subtotals()) added
             // together per slot.
