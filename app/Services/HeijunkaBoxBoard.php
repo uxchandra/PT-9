@@ -21,24 +21,31 @@ use Illuminate\Support\Collection;
  * not a pacing formula this class computes.
  *
  * The mechanism: a real stock decrease adds to a part's "backlog" (how many
- * kanban are waiting to be announced) the instant it's captured. Separately,
- * this part's fixed daily slots (see CELLS) are walked in order and matched
- * to that backlog FIFO — each slot with backlog still available claims one
- * unit; a slot with no backlog at its own turn simply never fires, forever
- * (it doesn't wait for backlog to show up later — see fire()). A tick only
- * ever lands on one of the fixed slot times — never earlier, never a time
- * in between, and never at more than one slot — which is what "release di
- * depan progress bar, bukan ke belakang" means: it's bound to whichever
- * slot happens to be next when the backlog is available, never backdated to
- * when the stock actually dropped.
+ * kanban are waiting to be announced) — but not the instant it's captured.
+ * It's HELD until the next shift starts (see holdForNextShift()): a
+ * decrease during Shift 1 (07:10–20:04) only counts toward backlog once
+ * Shift 2 begins at 20:05, and one during Shift 2 (20:05–07:09) only counts
+ * once Shift 1 begins at 07:10 the next day — nothing releases mid-shift,
+ * only at the following shift's own start. Separately, this part's fixed
+ * daily slots (see CELLS) are walked in order and matched to that backlog
+ * FIFO — each slot with backlog available claims one unit; a slot with no
+ * backlog at its own turn simply never fires, forever (it doesn't wait for
+ * backlog to show up later — see fire()). A tick only ever lands on one of
+ * the fixed slot times — never earlier, never a time in between, and never
+ * at more than one slot — which is what "release di depan progress bar,
+ * bukan ke belakang" means: it's bound to whichever slot happens to be next
+ * once the (held) backlog is available, never backdated to when the stock
+ * actually dropped or to before its shift's hold releases it.
  *
  * On the visual board specifically (not Perintah Pulling — see
- * firedEventsBatch()), that assignment is shown the INSTANT the decrease is
- * captured, at its assigned slot column, even if the progress bar hasn't
+ * firedEventsBatch()), that assignment is shown the INSTANT the hold
+ * releases it, at its assigned slot column, even if the progress bar hasn't
  * reached that column yet (green/'pending' either way) — so staff can see
  * what's queued ahead of time instead of only once it's due. Perintah
  * Pulling still only turns a slot into actual scan demand once the progress
- * bar reaches it, so nothing gets asked for early.
+ * bar reaches it, so nothing gets asked for early — and it respects the
+ * same shift hold, so an operator is never asked to pull something the
+ * board hasn't released yet either.
  *
  * The board loops on a rolling 24-hour window, NOT the 07:00 production-day
  * boundary — a stock decrease keeps contributing to backlog, and an unfired
@@ -82,6 +89,11 @@ class HeijunkaBoxBoard
         '00:45', '01:15', '01:45', '02:15', '02:45',
         '03:55', '04:25', '04:55',
     ];
+
+    /** First slot of each shift — see holdForNextShift(). */
+    private const SHIFT_1_START = '07:10';
+
+    private const SHIFT_2_START = '20:05';
 
     /**
      * The full 38-cell grid the board renders left to right, one uniform-
@@ -304,12 +316,16 @@ class HeijunkaBoxBoard
         // ticks it eventually produces. Nothing resets at midnight/07:00.
         $windowStart = $now->copy()->subDay();
 
-        $decreaseEvents = $this->decreaseEvents($sources, $qtyKbn, $windowStart, $now);
+        // Held to the next shift's own start (see holdForNextShift()) before
+        // any of it counts toward backlog — a decrease captured mid-Shift 1
+        // doesn't queue up until Shift 2 begins, and vice versa.
+        $decreaseEvents = $this->holdForNextShift($this->decreaseEvents($sources, $qtyKbn, $windowStart, $now));
         $scannedTimes = $this->scannedTimes($sources, $windowStart, $now);
 
-        // revealFuture: true — the board shows backlog against its assigned
-        // slot the instant the stock decrease is captured, not only once the
-        // progress bar reaches that column (see fire()'s own doc). Perintah
+        // revealFuture: true — once a decrease is actually released (its
+        // held shift-start checkpoint has arrived), the board shows it
+        // against its assigned slot right away, not only once the progress
+        // bar reaches that exact column (see fire()'s own doc). Perintah
         // Pulling (firedEventsBatch()) deliberately does NOT do this — a
         // pre-shown tick isn't due yet, so it must not become a scan demand
         // early.
@@ -416,14 +432,28 @@ class HeijunkaBoxBoard
      * never at more than one slot.
      *
      * @param  array<int, string>  $slots
-     * @param  Collection<int, array{kanban: int, at: Carbon}>  $decreaseEvents
+     * @param  Collection<int, array{kanban: int, at: Carbon}>  $decreaseEvents  already
+     *         run through holdForNextShift() — a decrease's 'at' here is its
+     *         RELEASE moment, not necessarily when the stock actually dropped.
      * @return Collection<int, array{time: string, at: Carbon}>
      */
     private function fire(array $slots, Collection $decreaseEvents, Carbon $windowStart, Carbon $now, bool $revealFuture = false): Collection
     {
-        $timeline = $this->slotInstantsBetween($slots, $windowStart, $now)
-            ->map(fn (array $s) => [...$s, 'kind' => 'slot'])
-            ->concat($decreaseEvents->map(fn (array $e) => ['kind' => 'decrease', 'at' => $e['at'], 'kanban' => $e['kanban']]))
+        // Slot instants must cover at least as far as the latest decrease's
+        // own release moment — held-for-next-shift can push that up to a
+        // day beyond $now's own production day (a Shift 2 decrease held to
+        // the next day's Shift 1 start), further than the usual
+        // $now-anchored range alone would reach.
+        $latestEvent = $decreaseEvents->max('at');
+        $slotsUntil = $latestEvent !== null && $latestEvent->gt($now) ? $latestEvent : $now;
+
+        // Decreases listed before slots: sortBy() is stable, so when a held
+        // decrease's release moment lands on the EXACT same instant as a
+        // slot (the common case — release is a shift start, which is also
+        // that shift's very first slot), the decrease's backlog counts
+        // before that same-instant slot gets its turn, not after.
+        $timeline = $decreaseEvents->map(fn (array $e) => ['kind' => 'decrease', 'at' => $e['at'], 'kanban' => $e['kanban']])
+            ->concat($this->slotInstantsBetween($slots, $windowStart, $slotsUntil)->map(fn (array $s) => [...$s, 'kind' => 'slot']))
             ->sortBy('at')
             ->values();
 
@@ -431,11 +461,18 @@ class HeijunkaBoxBoard
         $fired = collect();
 
         foreach ($timeline as $event) {
-            // A decrease is always real, already-happened data — this only
-            // guards against it in principle. A slot, though, can legitimately
-            // sit past $now when $revealFuture allows it through.
-            if ($event['at']->gt($now) && ($event['kind'] === 'decrease' || ! $revealFuture)) {
-                break; // Nothing past the progress bar has happened yet.
+            if ($event['at']->gt($now)) {
+                if (! $revealFuture) {
+                    break; // Perintah Pulling: stop exactly at the progress bar, whatever the kind.
+                }
+
+                if ($event['kind'] === 'decrease') {
+                    // Not released yet (still held for the next shift, or a
+                    // genuinely future event) — skip it without halting the
+                    // walk; later future SLOT instants still need
+                    // processing below for the pre-show.
+                    continue;
+                }
             }
 
             if ($event['kind'] === 'decrease') {
@@ -459,8 +496,10 @@ class HeijunkaBoxBoard
      * fired in the last 24h — i.e. per green/red tick currently on the
      * board, scanned or not (the pulling services net scans off
      * themselves). Parts with no schedule are simply absent from the
-     * result. Same rolling window as the board itself (see buildRow()), so
-     * a tick shown on Heijunka always has matching pulling demand.
+     * result. Same rolling window AND the same held-for-next-shift delay as
+     * the board itself (see buildRow()/holdForNextShift()), so a tick shown
+     * on Heijunka always has matching pulling demand — an operator is never
+     * asked to pull something the board hasn't released yet.
      *
      * @param  array<int, string>  $partNos
      * @return array<string, Collection<int, array{kanban: int, at: Carbon}>>
@@ -495,13 +534,13 @@ class HeijunkaBoxBoard
         $result = [];
 
         foreach ($schedules as $schedule) {
-            $events = $this->decreaseEvents(
+            $events = $this->holdForNextShift($this->decreaseEvents(
                 $sourcesBySchedule[$schedule->id],
                 $schedule->part->qty_kbn,
                 $windowStart,
                 $now,
                 $snapshots
-            );
+            ));
 
             $result[$schedule->part->part_no] = $this->fire($schedule->slots, $events, $windowStart, $now)
                 ->map(fn (array $f) => ['kanban' => 1, 'at' => $f['at']])
@@ -561,6 +600,52 @@ class HeijunkaBoxBoard
         }
 
         return $result;
+    }
+
+    /**
+     * A decrease captured during Shift 1 (07:10–20:04) doesn't count toward
+     * backlog until Shift 2 starts (20:05); one captured during Shift 2
+     * (20:05–07:09) doesn't count until Shift 1 starts the next day (07:10)
+     * — nothing releases mid-shift, only at the following shift's own
+     * start. This is done by simply moving the event's own 'at' forward to
+     * that release moment (see nextShiftStart()) before fire() ever sees
+     * it — fire()'s backlog/slot matching is otherwise completely
+     * unchanged, so a held unit still only ever fires at/after its release
+     * moment, at one of the fixed slot times, exactly like any other.
+     *
+     * @param  Collection<int, array{kanban: int, at: Carbon}>  $events
+     * @return Collection<int, array{kanban: int, at: Carbon}>
+     */
+    private function holdForNextShift(Collection $events): Collection
+    {
+        return $events->map(fn (array $e) => [...$e, 'at' => $this->nextShiftStart($e['at'])])->values();
+    }
+
+    /**
+     * The next shift-start instant strictly after $at's own shift window —
+     * Shift 1's window is [07:10, 20:05), Shift 2's is [20:05, next 07:10).
+     */
+    private function nextShiftStart(Carbon $at): Carbon
+    {
+        $dayStart = \App\Models\CalendarEntry::productionDayStart($at);
+        [$h1, $m1] = explode(':', self::SHIFT_1_START);
+        [$h2, $m2] = explode(':', self::SHIFT_2_START);
+        $shift1Start = $dayStart->copy()->startOfDay()->setTime((int) $h1, (int) $m1);
+        $shift2Start = $dayStart->copy()->startOfDay()->setTime((int) $h2, (int) $m2);
+
+        if ($at->lt($shift1Start)) {
+            // Still before Shift 1 even starts (the tail end of the
+            // previous Shift 2) — released the moment Shift 1 begins.
+            return $shift1Start;
+        }
+
+        if ($at->lt($shift2Start)) {
+            // Within Shift 1's own window — released at Shift 2's start.
+            return $shift2Start;
+        }
+
+        // Within Shift 2's window — released at Shift 1's start, next day.
+        return $shift1Start->copy()->addDay();
     }
 
     /**

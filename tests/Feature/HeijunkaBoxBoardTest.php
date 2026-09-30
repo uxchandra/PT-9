@@ -79,31 +79,35 @@ class HeijunkaBoxBoardTest extends TestCase
     public function test_a_slot_with_no_backlog_at_its_own_time_never_fires_even_once_backlog_arrives_later(): void
     {
         // The core "release ahead of the progress bar, never behind it"
-        // rule: a slot only fires with whatever backlog exists AT ITS OWN
-        // moment — it doesn't wait around for backlog that shows up after.
-        Carbon::setTestNow('2026-09-15 07:15:00');
+        // rule: a slot only fires with whatever backlog is AVAILABLE (i.e.
+        // already released — see holdForNextShift()) at its own moment — it
+        // doesn't wait around for backlog that shows up after.
+        Carbon::setTestNow('2026-09-15 20:15:00');
         $part = Part::create(['part_no' => 'HB-3', 'qty_kbn' => 1]);
         KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
-        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['07:10', '08:10']]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['07:10', '20:05', '20:35']]);
 
+        // A Shift 1 decrease, already released (Shift 2 started at 20:05) —
+        // fires at 20:05, the moment it became available.
         StockSnapshot::create(['part_no' => 'HB-3', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:30')]);
+        StockSnapshot::create(['part_no' => 'HB-3', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 10:00')]);
 
-        // Right after 07:10, with no decrease yet — nothing fires.
-        $data = app(HeijunkaBoxBoard::class)->data();
-        $row = $this->flatRows($data)->firstWhere('label', 'HB-3');
-        $this->assertSame(0, count($row['ticks']));
-
-        // Now a decrease lands at 07:30 — after the 07:10 slot already passed.
-        StockSnapshot::create(['part_no' => 'HB-3', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 07:30')]);
-
-        Carbon::setTestNow('2026-09-15 08:15:00');
-        $data = app(HeijunkaBoxBoard::class)->data();
-        $row = $this->flatRows($data)->firstWhere('label', 'HB-3');
-
-        // Fires at 08:10 — the next slot ahead of when the backlog showed
-        // up — NOT retroactively at the already-passed 07:10.
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-3');
         $this->assertSame(1, count($row['ticks']));
-        $this->assertSame('08:10', $row['ticks'][0]['time']);
+        $this->assertSame('20:05', $row['ticks'][0]['time']);
+
+        // Now a SECOND decrease lands at 20:20 — after the 20:05 slot
+        // already passed, but still within Shift 2 (held to Shift 1 next
+        // day, not available for 20:35 either).
+        StockSnapshot::create(['part_no' => 'HB-3', 'stock' => 98, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 20:20')]);
+
+        Carbon::setTestNow('2026-09-15 21:00:00');
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-3');
+
+        // Still just the one tick — the second decrease is held for
+        // tomorrow's Shift 1, NOT retroactively claiming the already-passed
+        // 20:35 slot, and not firing early either.
+        $this->assertSame(1, count($row['ticks']));
 
         Carbon::setTestNow();
     }
@@ -149,6 +153,88 @@ class HeijunkaBoxBoardTest extends TestCase
         $this->assertSame(2, count($board['ticks']));
 
         $pull = app(\App\Services\KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'HB-EARLY-PULL');
+        $this->assertSame(1, $pull['needed']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_shift_1_decrease_is_held_until_shift_2_starts(): void
+    {
+        Carbon::setTestNow('2026-09-15 12:00:00'); // mid Shift 1
+        $part = Part::create(['part_no' => 'HB-HOLD-1', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['13:05', '20:05']]);
+
+        StockSnapshot::create(['part_no' => 'HB-HOLD-1', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:00')]);
+        // Decrease at 10:00 — deep in Shift 1, well before "now" (12:00) and
+        // before the 13:05 slot too.
+        StockSnapshot::create(['part_no' => 'HB-HOLD-1', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 10:00')]);
+
+        // Still nothing at 12:00 — not even a pre-shown green line — because
+        // the decrease isn't released yet.
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-HOLD-1');
+        $this->assertSame(0, count($row['ticks']));
+
+        // 13:05 (still Shift 1) comes and goes — still held, still nothing.
+        Carbon::setTestNow('2026-09-15 14:00:00');
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-HOLD-1');
+        $this->assertSame(0, count($row['ticks']));
+
+        // Shift 2 starts (20:05) — released, and fires right there, not at
+        // the earlier 13:05 slot it skipped over while held.
+        Carbon::setTestNow('2026-09-15 20:06:00');
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-HOLD-1');
+        $this->assertSame(1, count($row['ticks']));
+        $this->assertSame('20:05', $row['ticks'][0]['time']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_shift_2_decrease_is_held_until_shift_1_starts_the_next_day(): void
+    {
+        Carbon::setTestNow('2026-09-15 22:00:00'); // mid Shift 2
+        $part = Part::create(['part_no' => 'HB-HOLD-2', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['23:05', '07:10']]);
+
+        StockSnapshot::create(['part_no' => 'HB-HOLD-2', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 20:30')]);
+        // Decrease at 21:00 — early in Shift 2.
+        StockSnapshot::create(['part_no' => 'HB-HOLD-2', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 21:00')]);
+
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-HOLD-2');
+        $this->assertSame(0, count($row['ticks']));
+
+        // 23:05 (still Shift 2) passes — still held.
+        Carbon::setTestNow('2026-09-16 00:00:00');
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-HOLD-2');
+        $this->assertSame(0, count($row['ticks']));
+
+        // Shift 1 starts the NEXT day (07:10) — released, fires there.
+        Carbon::setTestNow('2026-09-16 07:11:00');
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-HOLD-2');
+        $this->assertSame(1, count($row['ticks']));
+        $this->assertSame('07:10', $row['ticks'][0]['time']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_perintah_pulling_also_waits_for_the_shift_hold_to_release(): void
+    {
+        Carbon::setTestNow('2026-09-15 12:00:00'); // mid Shift 1
+        $part = Part::create(['part_no' => 'HB-HOLD-PULL', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['20:05']]);
+
+        StockSnapshot::create(['part_no' => 'HB-HOLD-PULL', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 06:00')]);
+        StockSnapshot::create(['part_no' => 'HB-HOLD-PULL', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-15 10:00')]);
+
+        // No pulling demand yet — the board itself shows nothing either.
+        $pull = app(\App\Services\KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'HB-HOLD-PULL');
+        $this->assertNull($pull);
+
+        // Shift 2 releases it — now it's real pulling demand too.
+        Carbon::setTestNow('2026-09-15 20:06:00');
+        $pull = app(\App\Services\KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'HB-HOLD-PULL');
         $this->assertSame(1, $pull['needed']);
 
         Carbon::setTestNow();
