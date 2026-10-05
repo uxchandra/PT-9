@@ -62,6 +62,22 @@ class CalendarEntry extends Model
     }
 
     /**
+     * Is the production day starting at $dayStart (its 07:00) a working day?
+     * A day is working when the Calendar has a pattern assigned to it —
+     * weekends and holidays simply have no entry. An entirely empty calendar
+     * (fresh install, nothing planned yet) counts every day as working
+     * rather than none, so nothing that depends on this silently stops.
+     *
+     * Memoised per request, same as patternBoardForDate().
+     */
+    public static function isWorkingDay(Carbon $dayStart): bool
+    {
+        $dates = once(fn () => static::query()->pluck('date')->flip());
+
+        return $dates->isEmpty() || $dates->has($dayStart->toDateString());
+    }
+
+    /**
      * The pattern board actually running at $at (default: now), honouring the
      * 07:00 shift-1 rollover — so e.g. Tuesday 04:00 still resolves to Monday's
      * assignment.

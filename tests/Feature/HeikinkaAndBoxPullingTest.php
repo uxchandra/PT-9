@@ -90,14 +90,14 @@ class HeikinkaAndBoxPullingTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_a_scan_older_than_24h_is_not_netted_off_against_a_fresh_box_tick(): void
+    public function test_a_scan_older_than_the_box_window_is_not_netted_off_against_a_fresh_box_tick(): void
     {
         Carbon::setTestNow('2026-09-15 08:15:00');
         $this->keseiPart('BP-3B', ['07:10']);
         $this->stock('BP-3B', 100, '2026-09-15 06:00');
         $this->stock('BP-3B', 99, '2026-09-15 07:05');
-        // 25h ago — just outside the rolling window.
-        KeseiScan::create(['part_no' => 'BP-3B', 'location' => 'finish-goods', 'raw' => 'BP-3B', 'scanned_at' => Carbon::parse('2026-09-14 07:15')]);
+        // 9 days ago — just outside the box's 8-day window.
+        KeseiScan::create(['part_no' => 'BP-3B', 'location' => 'finish-goods', 'raw' => 'BP-3B', 'scanned_at' => Carbon::parse('2026-09-06 07:15')]);
 
         $row = app(KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'BP-3B');
 

@@ -26,7 +26,11 @@ use Illuminate\Support\Collection;
  * decrease during Shift 1 (07:10–20:04) only counts toward backlog once
  * Shift 2 begins at 20:05, and one during Shift 2 (20:05–07:09) only counts
  * once Shift 1 begins at 07:10 the next day — nothing releases mid-shift,
- * only at the following shift's own start. Separately, this part's fixed
+ * only at the following shift's own start. "Next shift" means the next
+ * WORKING shift: a day with no Calendar entry (weekend/holiday — see
+ * CalendarEntry::isWorkingDay()) has no shifts at all, so Friday night's
+ * Shift 2 decreases release at Monday's 07:10, and that day's slots never
+ * fire either (nobody is there to pull). Separately, this part's fixed
  * daily slots (see CELLS) are walked in order and matched to that backlog
  * FIFO — each slot with backlog available claims one unit; a slot with no
  * backlog at its own turn simply never fires, forever (it doesn't wait for
@@ -47,20 +51,15 @@ use Illuminate\Support\Collection;
  * same shift hold, so an operator is never asked to pull something the
  * board hasn't released yet either.
  *
- * The board loops on a rolling 24-hour window, NOT the 07:00 production-day
- * boundary — a stock decrease keeps contributing to backlog, and an unfired
- * slot keeps waiting for it, right across midnight/07:00 into the next day,
- * until exactly 24h after that decrease was captured (see buildRow()'s
- * $windowStart). This mirrors KeseiBoard's own looping-clock-face heijunka:
- * nothing here hard-resets at 07:00.
+ * Nothing here hard-resets at 07:00 or after any fixed age: a delayed
+ * (red, unpulled) tick stays on the live board — and stays Perintah
+ * Pulling demand — until it's actually pulled. The only limit is the
+ * HISTORY_DAYS lookback (see windowStart()) every stock decrease and scan
+ * is read from, there purely to keep the query bounded.
  *
  * Same three-colour scheme as KeseiBoard's heijunka: a fired tick is green
  * while unscanned and within 15 minutes of firing, red once older than that
  * and still unscanned, or blue once matched to a scan (see scannedTimes()).
- * Because backlog itself already only spans the last 24h, every fired tick
- * is automatically within that same 24h — there's no separate cap to apply
- * on top, unlike KeseiBoard's own heijunka (which computes over a much
- * longer floor and caps display separately).
  *
  * A blue (already-pulled) tick doesn't linger on the LIVE board for the
  * full 24h though — it drops off 3h after it fired (see colourize()'s
@@ -94,6 +93,24 @@ class HeijunkaBoxBoard
     private const SHIFT_1_START = '07:10';
 
     private const SHIFT_2_START = '20:05';
+
+    /**
+     * How far back stock decreases and scans are read — same 8 days as
+     * KeseiPart::FOLD_HISTORY_DAYS / LotMakingPull's own history floor. Not
+     * a display cap: an unpulled tick stays until pulled; this only bounds
+     * the query (a tick still unpulled after 8 days is long past mattering).
+     */
+    private const HISTORY_DAYS = 8;
+
+    /**
+     * Start of the lookback every box computation (board, Heikinka, and the
+     * pulling services' own netting — see KeseiPull/LotMakingPull) reads
+     * from, so they all agree on exactly which decreases and scans count.
+     */
+    public static function windowStart(Carbon $now): Carbon
+    {
+        return $now->copy()->subDays(self::HISTORY_DAYS);
+    }
 
     /**
      * The full 38-cell grid the board renders left to right, one uniform-
@@ -158,11 +175,14 @@ class HeijunkaBoxBoard
             ->groupBy('cycle_issue');
 
         $groups = $schedulesByGroup
-            ->map(function (Collection $schedulesInGroup, string $cycleIssue) use ($cycleGroups, $now, $isHistory) {
+            ->map(function (Collection $schedulesInGroup, string $cycleIssue) use ($cycleGroups, $now, $isHistory, $dayStart) {
                 $group = $cycleGroups->get($cycleIssue);
 
+                // A past day's history only shows ticks fired ON that day —
+                // the live board, by contrast, keeps every still-unpulled
+                // tick however old (see the class doc).
                 $rows = $schedulesInGroup
-                    ->map(fn (HeijunkaBoxSchedule $schedule) => $this->buildRow($schedule, $now, hideOldPulled: ! $isHistory))
+                    ->map(fn (HeijunkaBoxSchedule $schedule) => $this->buildRow($schedule, $now, hideOldPulled: ! $isHistory, showFrom: $isHistory ? $dayStart : null))
                     ->filter()
                     ->values();
 
@@ -292,12 +312,17 @@ class HeijunkaBoxBoard
     }
 
     /**
+     * $showFrom: when set, only ticks fired after it are returned (a past
+     * day's history view, Heikinka's 24h clock face) — the FIFO scan
+     * matching still runs over the full lookback first, so which ticks are
+     * blue doesn't change, only which are shown.
+     *
      * @return array<string, mixed>|null Null when the part isn't registered
      *                                    in Kesei or Lot Making at all (its
      *                                    schedule row has nothing to attach
      *                                    stock/scan data to).
      */
-    private function buildRow(HeijunkaBoxSchedule $schedule, Carbon $now, bool $hideOldPulled = true): ?array
+    private function buildRow(HeijunkaBoxSchedule $schedule, Carbon $now, bool $hideOldPulled = true, ?Carbon $showFrom = null): ?array
     {
         $part = $schedule->part;
         $kesei = KeseiPart::where('part_id', $part->id)->first();
@@ -310,11 +335,9 @@ class HeijunkaBoxBoard
         $sources = $kesei?->sourcePartNos() ?? [$part->part_no];
         $qtyKbn = $part->qty_kbn;
 
-        // Rolling 24h window — backlog from a stock decrease keeps waiting
-        // for its slot (carrying right across 07:00 into the next day) for
-        // up to 24h after it was captured, same as the display cap on the
-        // ticks it eventually produces. Nothing resets at midnight/07:00.
-        $windowStart = $now->copy()->subDay();
+        // Backlog keeps waiting for its slot, and a fired tick stays until
+        // pulled, right across 07:00 and across days — see windowStart().
+        $windowStart = self::windowStart($now);
 
         // Held to the next shift's own start (see holdForNextShift()) before
         // any of it counts toward backlog — a decrease captured mid-Shift 1
@@ -330,6 +353,10 @@ class HeijunkaBoxBoard
         // pre-shown tick isn't due yet, so it must not become a scan demand
         // early.
         $ticks = $this->colourize($this->fire($schedule->slots, $decreaseEvents, $windowStart, $now, revealFuture: true), $now, $scannedTimes, $hideOldPulled);
+
+        if ($showFrom !== null) {
+            $ticks = array_values(array_filter($ticks, fn (array $t) => $t['at']->gte($showFrom)));
+        }
 
         return [
             'id' => $schedule->id,
@@ -363,8 +390,9 @@ class HeijunkaBoxBoard
             // Heikinka wants the FULL history regardless of age — the live
             // board's own 3h-after-pulled hide (see colourize()) doesn't
             // apply here, or a day viewed hours later would show almost
-            // nothing.
-            $row = $this->buildRow($schedule, $asOf, hideOldPulled: false);
+            // nothing. Only the last 24h, though — Heikinka draws onto one
+            // wrapping 24h clock face, so older days would alias onto it.
+            $row = $this->buildRow($schedule, $asOf, hideOldPulled: false, showFrom: $asOf->copy()->subDay());
 
             if ($row !== null) {
                 $result[$row['label']] = collect($row['ticks'])
@@ -378,10 +406,8 @@ class HeijunkaBoxBoard
     }
 
     /**
-     * Every fixed slot instant for $slots across every production day that
-     * touches [$windowStart, $now] — almost always exactly two days (the one
-     * $windowStart falls in and the one $now falls in), since both the
-     * window and a production day span 24h.
+     * Every fixed slot instant for $slots across every WORKING production
+     * day that touches [$windowStart, $now].
      *
      * @param  array<int, string>  $slots
      * @return Collection<int, array{time: string, at: Carbon}>
@@ -392,7 +418,14 @@ class HeijunkaBoxBoard
         $dayStart = \App\Models\CalendarEntry::productionDayStart($windowStart);
         $lastDayStart = \App\Models\CalendarEntry::productionDayStart($now);
 
-        while ($dayStart->lte($lastDayStart)) {
+        for (; $dayStart->lte($lastDayStart); $dayStart = $dayStart->copy()->addDay()) {
+            // No shifts on a weekend/holiday — its slots don't exist, so
+            // backlog waits for the next working day's instead of being
+            // "pulled" by nobody.
+            if (! \App\Models\CalendarEntry::isWorkingDay($dayStart)) {
+                continue;
+            }
+
             foreach ($slots as $time) {
                 [$h, $m] = explode(':', $time);
                 $at = $dayStart->copy()->startOfDay()->setTime((int) $h, (int) $m);
@@ -407,8 +440,6 @@ class HeijunkaBoxBoard
 
                 $instants->push(['time' => $time, 'at' => $at]);
             }
-
-            $dayStart = $dayStart->copy()->addDay();
         }
 
         return $instants->sortBy('at')->values();
@@ -493,10 +524,10 @@ class HeijunkaBoxBoard
     /**
      * Perintah Pulling source: for every part_no in $partNos that has a
      * Heijunka Box schedule, one {kanban: 1, at} event per slot that has
-     * fired in the last 24h — i.e. per green/red tick currently on the
-     * board, scanned or not (the pulling services net scans off
-     * themselves). Parts with no schedule are simply absent from the
-     * result. Same rolling window AND the same held-for-next-shift delay as
+     * fired since windowStart() — i.e. per tick on the board, scanned or
+     * not (the pulling services net scans off themselves, over that same
+     * window). Parts with no schedule are simply absent from the
+     * result. Same window AND the same held-for-next-shift delay as
      * the board itself (see buildRow()/holdForNextShift()), so a tick shown
      * on Heijunka always has matching pulling demand — an operator is never
      * asked to pull something the board hasn't released yet.
@@ -519,7 +550,7 @@ class HeijunkaBoxBoard
         }
 
         $now = now();
-        $windowStart = $now->copy()->subDay();
+        $windowStart = self::windowStart($now);
         $keseiByPartId = KeseiPart::whereIn('part_id', $schedules->pluck('part_id'))->get()->keyBy('part_id');
 
         $sourcesBySchedule = $schedules->mapWithKeys(fn (HeijunkaBoxSchedule $s) => [
@@ -529,17 +560,27 @@ class HeijunkaBoxBoard
         $snapshots = StockSnapshot::whereIn('part_no', $sourcesBySchedule->flatten()->unique()->values()->all())
             ->whereBetween('captured_at', [$windowStart->copy()->subDay(), $now])
             ->orderBy('captured_at')
-            ->get(['part_no', 'stock', 'captured_at']);
+            ->get(['part_no', 'stock', 'captured_at'])
+            // Grouped once up front — filtering the whole multi-day set per
+            // schedule (Collection::whereIn() over every model) is what
+            // dominates this method otherwise.
+            ->groupBy('part_no');
 
         $result = [];
 
         foreach ($schedules as $schedule) {
+            $sources = $sourcesBySchedule[$schedule->id];
+            $ownSnapshots = collect($sources)
+                ->flatMap(fn (string $partNo) => $snapshots->get($partNo, collect()))
+                ->sortBy('captured_at')
+                ->values();
+
             $events = $this->holdForNextShift($this->decreaseEvents(
-                $sourcesBySchedule[$schedule->id],
+                $sources,
                 $schedule->part->qty_kbn,
                 $windowStart,
                 $now,
-                $snapshots
+                $ownSnapshots
             ));
 
             $result[$schedule->part->part_no] = $this->fire($schedule->slots, $events, $windowStart, $now)
@@ -555,15 +596,13 @@ class HeijunkaBoxBoard
      * does — see that method's doc for the full reasoning (grace period,
      * FIFO scan matching — a scan isn't recorded against a specific tick,
      * only that it happened, so the oldest-first fired ticks are assumed
-     * fulfilled by the oldest-first real scans, one for one). No separate
-     * 24h cap needed here: fire() only ever fires a slot between
-     * $windowStart (24h before $now) and $now, so every tick it produces is
-     * already guaranteed to be within that window.
+     * fulfilled by the oldest-first real scans, one for one). No age cap on
+     * an unscanned tick — it stays (red) until a scan matches it.
      *
      * $hideOldPulled (true on the live board, false for Heikinka's history —
      * see buildRow()/ticksByPartNo()) drops an already-scanned tick entirely
      * once its MATCHED scan (see $scannedTimes) is more than 3h old, instead
-     * of letting it sit on the board the same 24h an outstanding one would.
+     * of letting it sit on the board as long as an outstanding one would.
      *
      * @param  Collection<int, array{time: string, at: Carbon}>  $fired
      * @param  Collection<int, Carbon>  $scannedTimes  oldest first
@@ -622,30 +661,50 @@ class HeijunkaBoxBoard
     }
 
     /**
-     * The next shift-start instant strictly after $at's own shift window —
-     * Shift 1's window is [07:10, 20:05), Shift 2's is [20:05, next 07:10).
+     * The next WORKING shift-start instant strictly after $at's own shift
+     * window — Shift 1's window is [07:10, 20:05), Shift 2's is [20:05, next
+     * 07:10). When that lands on a weekend/holiday (see
+     * CalendarEntry::isWorkingDay()), it moves on to the first working
+     * day's Shift 1 instead — e.g. Friday night's Shift 2 releases at
+     * Monday 07:10, not Saturday 07:10 when nobody is there.
      */
     private function nextShiftStart(Carbon $at): Carbon
     {
         $dayStart = \App\Models\CalendarEntry::productionDayStart($at);
-        [$h1, $m1] = explode(':', self::SHIFT_1_START);
-        [$h2, $m2] = explode(':', self::SHIFT_2_START);
-        $shift1Start = $dayStart->copy()->startOfDay()->setTime((int) $h1, (int) $m1);
-        $shift2Start = $dayStart->copy()->startOfDay()->setTime((int) $h2, (int) $m2);
+        $shift1Start = $this->shiftStartOn($dayStart, self::SHIFT_1_START);
+        $shift2Start = $this->shiftStartOn($dayStart, self::SHIFT_2_START);
 
         if ($at->lt($shift1Start)) {
             // Still before Shift 1 even starts (the tail end of the
             // previous Shift 2) — released the moment Shift 1 begins.
-            return $shift1Start;
-        }
-
-        if ($at->lt($shift2Start)) {
+            $release = $shift1Start;
+        } elseif ($at->lt($shift2Start)) {
             // Within Shift 1's own window — released at Shift 2's start.
-            return $shift2Start;
+            $release = $shift2Start;
+        } else {
+            // Within Shift 2's window — released at Shift 1's start, next day.
+            $release = $shift1Start->copy()->addDay();
         }
 
-        // Within Shift 2's window — released at Shift 1's start, next day.
-        return $shift1Start->copy()->addDay();
+        // Bounded so a calendar with a long empty stretch can't loop forever.
+        for ($i = 0; $i < 31; $i++) {
+            $releaseDayStart = \App\Models\CalendarEntry::productionDayStart($release);
+
+            if (\App\Models\CalendarEntry::isWorkingDay($releaseDayStart)) {
+                break;
+            }
+
+            $release = $this->shiftStartOn($releaseDayStart->copy()->addDay(), self::SHIFT_1_START);
+        }
+
+        return $release;
+    }
+
+    private function shiftStartOn(Carbon $dayStart, string $time): Carbon
+    {
+        [$h, $m] = explode(':', $time);
+
+        return $dayStart->copy()->startOfDay()->setTime((int) $h, (int) $m);
     }
 
     /**

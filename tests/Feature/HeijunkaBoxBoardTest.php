@@ -263,18 +263,89 @@ class HeijunkaBoxBoardTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_backlog_older_than_24h_no_longer_fires(): void
+    public function test_a_delayed_tick_stays_red_and_in_perintah_pulling_well_past_24h_until_pulled(): void
+    {
+        // Decrease Mon 09:00 → held to Mon 20:05 → fires there. Two days
+        // later, still unpulled: it must still be on the board AND still be
+        // asked for — a delay never just ages off.
+        Carbon::setTestNow('2026-09-16 21:00:00');
+        $part = Part::create(['part_no' => 'HB-OLD', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['20:05']]);
+
+        StockSnapshot::create(['part_no' => 'HB-OLD', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 06:00')]);
+        StockSnapshot::create(['part_no' => 'HB-OLD', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 09:00')]);
+
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-OLD');
+        $this->assertSame(1, count($row['ticks']));
+        $this->assertSame('overdue', $row['ticks'][0]['heijunka_status']);
+        $this->assertTrue($row['ticks'][0]['at']->eq(Carbon::parse('2026-09-14 20:05')));
+
+        $pull = app(\App\Services\KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'HB-OLD');
+        $this->assertSame(1, $pull['needed']);
+
+        // Pulled — turns blue, and the 3h-after-scan hide still applies.
+        KeseiScan::create(['part_no' => 'HB-OLD', 'location' => 'finish-goods', 'raw' => 'HB-OLD', 'scanned_by' => User::factory()->create()->id, 'scanned_at' => Carbon::parse('2026-09-16 21:05')]);
+
+        Carbon::setTestNow('2026-09-16 21:10:00');
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-OLD');
+        $this->assertSame('scanned', $row['ticks'][0]['heijunka_status']);
+
+        Carbon::setTestNow('2026-09-17 00:10:00');
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-OLD');
+        $this->assertSame(0, count($row['ticks']));
+
+        Carbon::setTestNow();
+    }
+
+    public function test_friday_night_shift_2_releases_on_monday_morning_not_over_the_weekend(): void
+    {
+        // 2026-09-18 is a Friday, 2026-09-21 the Monday after; the weekend
+        // has no Calendar entry, i.e. no shifts.
+        $board = \App\Models\PatternBoard::create(['name' => 'P1']);
+        foreach (['2026-09-17', '2026-09-18', '2026-09-21'] as $date) {
+            \App\Models\CalendarEntry::create(['date' => $date, 'pattern_board_id' => $board->id]);
+        }
+
+        Carbon::setTestNow('2026-09-19 10:00:00'); // Saturday
+        $part = Part::create(['part_no' => 'HB-WKND', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['07:10', '08:10']]);
+
+        StockSnapshot::create(['part_no' => 'HB-WKND', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-18 21:00')]);
+        // Friday's Shift 2.
+        StockSnapshot::create(['part_no' => 'HB-WKND', 'stock' => 98, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-18 22:00')]);
+
+        // Saturday: still held (no Saturday shift to release into, no
+        // Saturday slots to fire on) — nothing shown, nothing asked for.
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-WKND');
+        $this->assertSame(0, count($row['ticks']));
+        $this->assertNull(app(\App\Services\KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'HB-WKND'));
+
+        // Monday Shift 1: the board and Perintah Pulling both have it.
+        Carbon::setTestNow('2026-09-21 08:15:00');
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-WKND');
+        $this->assertSame(['07:10', '08:10'], array_column($row['ticks'], 'time'));
+        $this->assertTrue($row['ticks'][1]['at']->eq(Carbon::parse('2026-09-21 08:10')));
+
+        $pull = app(\App\Services\KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'HB-WKND');
+        $this->assertSame(2, $pull['needed']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_backlog_older_than_the_history_window_no_longer_fires(): void
     {
         Carbon::setTestNow('2026-09-15 08:00:00');
-        $part = Part::create(['part_no' => 'HB-OLD', 'qty_kbn' => 1]);
+        $part = Part::create(['part_no' => 'HB-ANCIENT', 'qty_kbn' => 1]);
         KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
         HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['07:10']]);
 
-        StockSnapshot::create(['part_no' => 'HB-OLD', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 06:00')]);
-        // 25h before "now" — just outside the rolling 24h window.
-        StockSnapshot::create(['part_no' => 'HB-OLD', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 07:00')]);
+        StockSnapshot::create(['part_no' => 'HB-ANCIENT', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-06 06:00')]);
+        // 9 days before "now" — outside the 8-day lookback.
+        StockSnapshot::create(['part_no' => 'HB-ANCIENT', 'stock' => 99, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-06 07:00')]);
 
-        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-OLD');
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-ANCIENT');
 
         $this->assertSame(0, count($row['ticks']));
 

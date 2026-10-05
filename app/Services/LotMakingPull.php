@@ -249,13 +249,13 @@ class LotMakingPull
         // this changes nothing for it.
         if ($boxEvents !== null) {
             // Heijunka Box drives this part: each fired green/red tick is 1
-            // kanban. The box's own rolling 24h window (see
-            // HeijunkaBoxBoard::buildRow()) is what events, scans and the
+            // kanban. The box's own window (see
+            // HeijunkaBoxBoard::windowStart()) is what events, scans and the
             // manual-command cutoff are all scoped to here too, so a tick
-            // shown on the Heijunka board always has matching pulling
-            // demand, and a scan older than 24h never gets netted off
-            // against a fresh tick.
-            $from = now()->subDay();
+            // shown on the Heijunka board (however long it's been delayed)
+            // always has matching pulling demand, netted against the same
+            // scans the board matched.
+            $from = HeijunkaBoxBoard::windowStart(now());
             $events = $boxEvents->filter(fn (array $e) => $e['at']->gt($from))->values();
             $scanTimes = $scanTimes->filter(fn (Carbon $t) => $t->gt($from))->values();
         } else {
