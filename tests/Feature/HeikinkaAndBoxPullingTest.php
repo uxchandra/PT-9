@@ -69,12 +69,11 @@ class HeikinkaAndBoxPullingTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_a_scan_within_the_last_24h_nets_off_a_fresh_box_tick_even_if_it_was_the_previous_calendar_day(): void
+    public function test_a_surplus_scan_made_before_a_tick_was_released_does_not_net_it_off(): void
     {
-        // Heijunka Box loops on a rolling 24h window, not the 07:00
-        // production-day boundary — a scan 9h15m ago (still "yesterday" by
-        // calendar date) is well within that window, so it DOES net off a
-        // tick fired today.
+        // needed_new = max(0, needed_old - scanned_old) + release: a scan
+        // last night, with nothing outstanding at the time, is surplus — it
+        // must not eat into this morning's release (on the board either).
         Carbon::setTestNow('2026-09-15 08:15:00');
         $this->keseiPart('BP-3', ['07:10']);
         $this->stock('BP-3', 100, '2026-09-15 06:00');
@@ -83,9 +82,42 @@ class HeikinkaAndBoxPullingTest extends TestCase
 
         $row = app(KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'BP-3');
 
-        // Fully satisfied — needed and scanned both net to 0, so the row
-        // doesn't even show up on the pulling list.
-        $this->assertNull($row);
+        $this->assertSame(1, $row['needed']);
+        $this->assertSame(0, $row['scanned']);
+
+        $tick = collect(app(\App\Services\HeijunkaBoxBoard::class)->data()['groups'])
+            ->flatMap(fn (array $g) => $g['rows'])->firstWhere('label', 'BP-3')['ticks'][0];
+        $this->assertSame('overdue', $tick['heijunka_status']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_surplus_scans_never_show_as_scanned_over_needed_or_swallow_a_later_release(): void
+    {
+        // 2 released (07:10, 07:40), each pulled — then 3 MORE scans with
+        // nothing outstanding (e.g. made against an older version of the
+        // demand). The old one-shot netting showed "4/1" here, then let
+        // those surplus scans cancel the evening's releases ("x/0").
+        Carbon::setTestNow('2026-09-15 09:00:00');
+        $this->keseiPart('BP-SUR', ['07:10', '07:40', '20:05', '20:35']);
+        $this->stock('BP-SUR', 100, '2026-09-15 06:00');
+        $this->stock('BP-SUR', 98, '2026-09-15 07:05');
+        foreach (['07:15', '07:45', '08:00', '08:01', '08:02'] as $t) {
+            KeseiScan::create(['part_no' => 'BP-SUR', 'location' => 'finish-goods', 'raw' => 'BP-SUR', 'scanned_at' => Carbon::parse("2026-09-15 {$t}")]);
+        }
+
+        $row = app(KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'BP-SUR');
+        $this->assertSame(1, $row['needed']);
+        $this->assertSame(1, $row['scanned']);
+
+        // Another 2 kanban drop in Shift 1 → released 20:05, fires 20:05 and
+        // 20:35. Both still outstanding — the surplus didn't eat them.
+        $this->stock('BP-SUR', 96, '2026-09-15 08:30');
+        Carbon::setTestNow('2026-09-15 20:40:00');
+
+        $row = app(KeseiPull::class)->list('finish-goods')->firstWhere('part_no', 'BP-SUR');
+        $this->assertSame(2, $row['needed']);
+        $this->assertSame(0, $row['scanned']);
 
         Carbon::setTestNow();
     }

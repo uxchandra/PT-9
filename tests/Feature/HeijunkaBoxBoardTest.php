@@ -334,6 +334,32 @@ class HeijunkaBoxBoardTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_surplus_scans_never_swallow_a_pre_shown_green_tick(): void
+    {
+        // Friday-night-style release this morning: 3 kanban released at
+        // 07:10 onto 07:10 / 07:40 / 13:05. Old scans from before the
+        // release (surplus — nothing was due then) used to pair with these
+        // by position, marking even the 13:05 one "pulled" and hiding it.
+        Carbon::setTestNow('2026-09-15 12:00:00');
+        $part = Part::create(['part_no' => 'HB-SURPLUS', 'qty_kbn' => 1]);
+        KeseiPart::create(['part_id' => $part->id, 'level' => 'FINISH GOODS', 'urutan' => 1]);
+        HeijunkaBoxSchedule::create(['part_id' => $part->id, 'cycle_issue' => '1-2-X', 'slots' => ['07:10', '07:40', '13:05']]);
+
+        StockSnapshot::create(['part_no' => 'HB-SURPLUS', 'stock' => 100, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 20:30')]);
+        StockSnapshot::create(['part_no' => 'HB-SURPLUS', 'stock' => 97, 'std_min' => 0, 'captured_at' => Carbon::parse('2026-09-14 22:00')]);
+        $uid = User::factory()->create()->id;
+        foreach (['2026-09-14 10:00', '2026-09-14 10:05', '2026-09-14 10:10', '2026-09-15 11:00'] as $t) {
+            KeseiScan::create(['part_no' => 'HB-SURPLUS', 'location' => 'finish-goods', 'raw' => 'HB-SURPLUS', 'scanned_by' => $uid, 'scanned_at' => Carbon::parse($t)]);
+        }
+
+        $row = $this->flatRows(app(HeijunkaBoxBoard::class)->data())->firstWhere('label', 'HB-SURPLUS');
+
+        $this->assertSame(['07:10', '07:40', '13:05'], array_column($row['ticks'], 'time'));
+        $this->assertSame(['scanned', 'overdue', 'pending'], array_column($row['ticks'], 'heijunka_status'));
+
+        Carbon::setTestNow();
+    }
+
     public function test_backlog_older_than_the_history_window_no_longer_fires(): void
     {
         Carbon::setTestNow('2026-09-15 08:00:00');

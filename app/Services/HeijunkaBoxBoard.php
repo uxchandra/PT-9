@@ -595,8 +595,8 @@ class HeijunkaBoxBoard
      * Tags each fired tick the same way KeseiBoard::heijunkaVisualEvents()
      * does — see that method's doc for the full reasoning (grace period,
      * FIFO scan matching — a scan isn't recorded against a specific tick,
-     * only that it happened, so the oldest-first fired ticks are assumed
-     * fulfilled by the oldest-first real scans, one for one). No age cap on
+     * only that it happened, so each scan in turn is assumed to fulfil the
+     * oldest tick already due — see matchScans()). No age cap on
      * an unscanned tick — it stays (red) until a scan matches it.
      *
      * $hideOldPulled (true on the live board, false for Heikinka's history —
@@ -611,17 +611,16 @@ class HeijunkaBoxBoard
     private function colourize(Collection $fired, Carbon $now, Collection $scannedTimes, bool $hideOldPulled = true): array
     {
         $fired = $fired->sortBy('at')->values();
-        $scannedOfFired = min($scannedTimes->count(), $fired->count());
+        $matchedScanAt = $this->matchScans($fired, $scannedTimes);
 
         $result = [];
 
         foreach ($fired as $i => $event) {
-            if ($i < $scannedOfFired) {
+            if (isset($matchedScanAt[$i])) {
                 // Already pulled — the live board doesn't need to keep
                 // showing it forever; it drops off 3h after it actually
-                // turned blue, well before the 24h a still-outstanding tick
-                // gets.
-                if ($hideOldPulled && $scannedTimes[$i]->diffInMinutes($now) > 3 * 60) {
+                // turned blue, well before an outstanding tick would.
+                if ($hideOldPulled && $matchedScanAt[$i]->diffInMinutes($now) > 3 * 60) {
                     continue;
                 }
 
@@ -639,6 +638,34 @@ class HeijunkaBoxBoard
         }
 
         return $result;
+    }
+
+    /**
+     * FIFO scan → tick pairing: each scan, oldest first, fulfils the oldest
+     * not-yet-fulfilled tick that was ALREADY DUE when it was scanned. A
+     * scan with no such tick is surplus and fulfils nothing — never a tick
+     * fired later, and never a pre-shown future one. (Pairing purely by
+     * position used to let surplus scans — e.g. ones made against an older
+     * version of the demand — swallow today's releases, including the
+     * green pre-shown ones, which then vanished under the 3h hide.) Same
+     * rule the pulling services net with — see KeseiPull::netDemand().
+     *
+     * @param  Collection<int, array{time: string, at: Carbon}>  $fired  oldest first
+     * @param  Collection<int, Carbon>  $scannedTimes  oldest first
+     * @return array<int, Carbon> $fired index => the scan that fulfilled it
+     */
+    private function matchScans(Collection $fired, Collection $scannedTimes): array
+    {
+        $matched = [];
+        $next = 0;
+
+        foreach ($scannedTimes as $scanAt) {
+            if ($next < $fired->count() && $fired[$next]['at']->lte($scanAt)) {
+                $matched[$next++] = $scanAt;
+            }
+        }
+
+        return $matched;
     }
 
     /**
@@ -755,10 +782,10 @@ class HeijunkaBoxBoard
     /**
      * Every real scan timestamp for $sources in the window, oldest first —
      * merged across Kesei and Lot Making scans, since a given part_no only
-     * ever belongs to one system or the other. colourize() pairs these
-     * positionally with the oldest-first fired ticks (the same FIFO
-     * assumption KeseiBoard::heijunkaVisualEvents() makes — a scan isn't
-     * recorded against a specific tick, only that it happened), so it knows
+     * ever belongs to one system or the other. colourize() pairs these FIFO
+     * with the fired ticks already due at each scan (see matchScans() — a
+     * scan isn't recorded against a specific tick, only that it happened),
+     * so it knows
      * not just THAT a tick was pulled but WHEN — needed for the live
      * board's 3h-after-pulled hide (see colourize()'s $hideOldPulled).
      *

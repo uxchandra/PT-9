@@ -230,24 +230,13 @@ class KeseiPull
             $baseline = (int) ($row['pulling_command'] ?? 0);
         }
 
-        $totalDecrease = (int) $events->sum('kanban');
+        if ($useBaseline) {
+            $events = $events->push(['kanban' => $baseline, 'at' => $baselineSetAt]);
+        }
+
         $lastUpdateAt = $events->pluck('at')->max();   // Carbon|null
 
-        if ($useBaseline) {
-            $lastUpdateAt = $lastUpdateAt === null ? $baselineSetAt : $lastUpdateAt->max($baselineSetAt);
-        }
-
-        $scanTimes = $this->scanTimes($row);
-
-        if ($lastUpdateAt !== null) {
-            $absorbed = $scanTimes->filter(fn (Carbon $t) => $t->lte($lastUpdateAt))->count();
-            $scanned = $scanTimes->filter(fn (Carbon $t) => $t->gt($lastUpdateAt))->count();
-        } else {
-            $absorbed = 0;
-            $scanned = $scanTimes->count();
-        }
-
-        $needed = max(0, $totalDecrease + $baseline - $absorbed);
+        ['needed' => $needed, 'scanned' => $scanned] = self::netDemand($events, $this->scanTimes($row));
 
         return [
             'part_no' => $row['label'],
@@ -256,6 +245,46 @@ class KeseiPull
             'remaining' => max(0, $needed - $scanned),
             'last_update' => $lastUpdateAt?->format('H:i'),
             'done' => $needed > 0 && $scanned >= $needed,
+        ];
+    }
+
+    /**
+     * The scanner's "scanned / needed", walked release by release exactly
+     * as the page describes it (see the class doc):
+     *     needed_new = max(0, needed_old - scanned_old) + release
+     * with the scan counter resetting at every release. A scan beyond what
+     * was still needed at the time is surplus and is simply dropped — it
+     * never eats into a LATER release. (Netting total releases against
+     * total scans in one go used to let such surplus — e.g. scans made
+     * against an older version of the demand, or whose release has since
+     * aged out of the window — cut new demand to 0 and show "10/0".)
+     * Shared with LotMakingPull, and the same rule HeijunkaBoxBoard pairs
+     * scans with ticks by (see its matchScans()).
+     *
+     * @param  Collection<int, array{kanban: int, at: Carbon}>  $releases
+     * @param  Collection<int, Carbon>  $scanTimes
+     * @return array{needed: int, scanned: int}
+     */
+    public static function netDemand(Collection $releases, Collection $scanTimes): array
+    {
+        $scans = $scanTimes->sort()->values();
+        $i = 0;
+        $needed = 0;
+
+        foreach ($releases->sortBy('at') as $release) {
+            $scanned = 0;
+
+            while ($i < $scans->count() && $scans[$i]->lte($release['at'])) {
+                $scanned++;
+                $i++;
+            }
+
+            $needed = max(0, $needed - $scanned) + (int) $release['kanban'];
+        }
+
+        return [
+            'needed' => $needed,
+            'scanned' => min($needed, $scans->count() - $i),
         ];
     }
 

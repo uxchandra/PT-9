@@ -277,22 +277,13 @@ class LotMakingPull
             $baseline = $pullingCommand ?? 0;
         }
 
-        $totalDecrease = (int) $events->sum('kanban');
+        if ($useBaseline) {
+            $events = $events->push(['kanban' => $baseline, 'at' => $pullingCommandSetAt]);
+        }
+
         $lastUpdateAt = $events->pluck('at')->max();
 
-        if ($useBaseline) {
-            $lastUpdateAt = $lastUpdateAt === null ? $pullingCommandSetAt : $lastUpdateAt->max($pullingCommandSetAt);
-        }
-
-        if ($lastUpdateAt !== null) {
-            $absorbed = $scanTimes->filter(fn (Carbon $t) => $t->lte($lastUpdateAt))->count();
-            $scanned = $scanTimes->filter(fn (Carbon $t) => $t->gt($lastUpdateAt))->count();
-        } else {
-            $absorbed = 0;
-            $scanned = $scanTimes->count();
-        }
-
-        $needed = max(0, $totalDecrease + $baseline - $absorbed);
+        ['needed' => $needed, 'scanned' => $scanned] = KeseiPull::netDemand($events, $scanTimes);
 
         return [
             'part_no' => $partNo,
