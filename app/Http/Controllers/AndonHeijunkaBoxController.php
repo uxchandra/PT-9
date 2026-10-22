@@ -44,6 +44,7 @@ class AndonHeijunkaBoxController extends Controller
         $viewData['boardTitle'] = 'HEIKINKA LINE 9';
         $viewData['pollMs'] = 60000;
         $viewData['heijunkaDate'] = $asOf !== null ? $picked->toDateString() : $today->toDateString();
+        $viewData['isHistory'] = $asOf !== null;
         $viewData['heijunkaMaxDate'] = $today->toDateString();
         $viewData['heijunkaDateLabel'] = Carbon::parse($viewData['heijunkaDate'])->locale('id')->translatedFormat('l, d F Y');
 

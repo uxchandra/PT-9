@@ -202,6 +202,11 @@
                                                 && $cell['time'] >= '07:00' && $cell['time'] < '11:00') {
                                                 $tick['heijunka_status'] = 'scanned';
                                             }
+                                            // History view (a past production day): never show red —
+                                            // every unscanned tick is drawn blue (display only).
+                                            if (($isHistory ?? false) && $tick['heijunka_status'] === 'overdue') {
+                                                $tick['heijunka_status'] = 'scanned';
+                                            }
                                             $color = match ($tick['heijunka_status']) {
                                                 'scanned' => '#3b82f6',
                                                 'overdue' => '#ff3b3b',
