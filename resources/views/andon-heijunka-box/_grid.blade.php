@@ -59,6 +59,24 @@
                     $afterCurrent = true;
                 }
             }
+
+            // Slot times to the right of the progress bar — red/blue ticks
+            // there are hidden for now (only green stays visible ahead).
+            $slotsAfterProgress = [];
+            if ($progressLeft !== null) {
+                $passedCurrent = false;
+                foreach ($cells as $cell) {
+                    if ($cell['type'] !== 'slot') {
+                        continue;
+                    }
+                    if ($passedCurrent) {
+                        $slotsAfterProgress[$cell['time']] = true;
+                    }
+                    if ($cell['time'] === ($currentSlotTime ?? null)) {
+                        $passedCurrent = true;
+                    }
+                }
+            }
         @endphp
         <div class="flex flex-col relative" style="width: {{ $totalWidth }}px;" @if ($progressLeft !== null) data-progress-left="{{ $progressLeft }}" @endif>
             @if ($progressLeft !== null)
@@ -84,8 +102,14 @@
                 @endforeach
             </div>
 
+            @php
+                // Hidden red/blue ticks (see $slotsAfterProgress) don't count
+                // toward the subtotal / grand-total rows either.
+                $hiddenTotals = [];
+            @endphp
             @foreach ($groups as $group)
                 @php
+                    $hiddenSub = [];
                     // "Cyc-N" is merged from its own column up to just before the
                     // next label (rest columns in between included) or the shift
                     // 1 → 2 gap, whichever comes first.
@@ -162,6 +186,14 @@
                                      style="width: {{ $slotWidth }}px; height: 44px;">
                                     @foreach ($ticksHere as $tick)
                                         @php
+                                            $hideTick = isset($slotsAfterProgress[$cell['time']]) && in_array($tick['heijunka_status'], ['scanned', 'overdue'], true);
+                                            if ($hideTick) {
+                                                $hiddenSub[$cell['time']] = ($hiddenSub[$cell['time']] ?? 0) + 1;
+                                                $hiddenTotals[$cell['time']] = ($hiddenTotals[$cell['time']] ?? 0) + 1;
+                                            }
+                                        @endphp
+                                        @continue($hideTick)
+                                        @php
                                             $color = match ($tick['heijunka_status']) {
                                                 'scanned' => '#3b82f6',
                                                 'overdue' => '#ff3b3b',
@@ -193,7 +225,7 @@
                     </div>
                     @foreach ($cells as $cell)
                         @if ($cell['type'] === 'slot')
-                            @php $total = $group['subtotals'][$cell['time']] ?? 0; @endphp
+                            @php $total = max(0, ($group['subtotals'][$cell['time']] ?? 0) - ($hiddenSub[$cell['time']] ?? 0)); @endphp
                             <div class="shrink-0 flex items-center justify-center border-l border-white/10 text-xs font-extrabold {{ $total > 0 ? 'text-cyan-300' : 'text-transparent' }}"
                                  style="width: {{ $slotWidth }}px; height: 28px;">
                                 {{ $total > 0 ? $total : '' }}
@@ -214,7 +246,7 @@
                 </div>
                 @foreach ($cells as $cell)
                     @if ($cell['type'] === 'slot')
-                        @php $total = $totals[$cell['time']] ?? 0; @endphp
+                        @php $total = max(0, ($totals[$cell['time']] ?? 0) - ($hiddenTotals[$cell['time']] ?? 0)); @endphp
                         <div class="shrink-0 flex items-center justify-center border-l border-white/20 text-xs font-extrabold {{ $total > 0 ? 'text-white' : 'text-transparent' }}"
                              style="width: {{ $slotWidth }}px; height: 30px;">
                             {{ $total > 0 ? $total : '' }}

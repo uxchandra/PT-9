@@ -41,7 +41,7 @@ class AndonHeijunkaBoxController extends Controller
         }
 
         $viewData = $board->data($asOf);
-        $viewData['boardTitle'] = 'HEIJUNKA LINE 9';
+        $viewData['boardTitle'] = 'HEIKINKA LINE 9';
         $viewData['pollMs'] = 60000;
         $viewData['heijunkaDate'] = $asOf !== null ? $picked->toDateString() : $today->toDateString();
         $viewData['heijunkaMaxDate'] = $today->toDateString();
