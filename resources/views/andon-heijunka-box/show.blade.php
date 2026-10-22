@@ -65,6 +65,13 @@
         </div>
     </div>
 
+    <button id="hbox-scroll-pause-btn" type="button" aria-pressed="false"
+            style="position: fixed; bottom: 3rem; right: 1rem; z-index: 50;"
+            class="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full border border-white/30 bg-black/70 px-4 py-2 text-sm font-bold text-white shadow-lg hover:bg-black/90">
+        <span id="hbox-scroll-pause-icon">&#10074;&#10074;</span>
+        <span id="hbox-scroll-pause-label">{{ __('Pause') }}</span>
+    </button>
+
     <script>
         (function () {
             const el = document.getElementById('hbox-clock');
@@ -120,6 +127,49 @@
 
             setInterval(refresh, {{ $pollMs ?? 60000 }});
             setTimeout(() => window.location.reload(), 30 * 60 * 1000);
+        })();
+
+        // Slow, looping vertical auto-scroll of the grid — same behaviour as
+        // Heikinka's (see andon-kesei/show.blade.php): top -> bottom, jump
+        // straight back to the top, hold there TOP_PAUSE_MS, repeat. The
+        // scroller is re-queried every tick since refresh() swaps it out.
+        (function () {
+            const STEP_PX = 0.6;
+            const TICK_MS = 40;
+            const TOP_PAUSE_MS = 3000;
+            let resumeAt = Date.now() + TOP_PAUSE_MS;
+
+            let paused = false;
+            const btn = document.getElementById('hbox-scroll-pause-btn');
+            const icon = document.getElementById('hbox-scroll-pause-icon');
+            const label = document.getElementById('hbox-scroll-pause-label');
+            if (btn) {
+                btn.addEventListener('click', function () {
+                    paused = !paused;
+                    btn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+                    if (icon) icon.innerHTML = paused ? '&#9654;' : '&#10074;&#10074;';
+                    if (label) label.textContent = paused ? @json(__('Play')) : @json(__('Pause'));
+                });
+            }
+
+            setInterval(function () {
+                const scroller = document.querySelector('#hbox-panel .andon-scroll');
+                if (!scroller) return;
+
+                const max = scroller.scrollHeight - scroller.clientHeight;
+                if (max <= 0) return;
+
+                if (paused) return;
+                if (Date.now() < resumeAt) return;
+
+                const next = scroller.scrollTop + STEP_PX;
+                if (next >= max) {
+                    scroller.scrollTop = 0;
+                    resumeAt = Date.now() + TOP_PAUSE_MS;
+                } else {
+                    scroller.scrollTop = next;
+                }
+            }, TICK_MS);
         })();
     </script>
 </body>
