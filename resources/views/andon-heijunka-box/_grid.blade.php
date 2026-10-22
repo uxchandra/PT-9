@@ -186,7 +186,9 @@
                                      style="width: {{ $slotWidth }}px; height: 44px;">
                                     @foreach ($ticksHere as $tick)
                                         @php
-                                            $hideTick = isset($slotsAfterProgress[$cell['time']]) && in_array($tick['heijunka_status'], ['scanned', 'overdue'], true);
+                                            $hideTick = (isset($slotsAfterProgress[$cell['time']]) && in_array($tick['heijunka_status'], ['scanned', 'overdue'], true))
+                                                // History view: green (pending) ticks are hidden too.
+                                                || (($isHistory ?? false) && $tick['heijunka_status'] === 'pending');
                                             if ($hideTick) {
                                                 $hiddenSub[$cell['time']] = ($hiddenSub[$cell['time']] ?? 0) + 1;
                                                 $hiddenTotals[$cell['time']] = ($hiddenTotals[$cell['time']] ?? 0) + 1;
