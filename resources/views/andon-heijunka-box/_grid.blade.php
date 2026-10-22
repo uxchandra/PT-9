@@ -194,6 +194,14 @@
                                         @endphp
                                         @continue($hideTick)
                                         @php
+                                            // One-off display override: on production day 2026-10-22,
+                                            // red ticks in the 07:00–09:59 slots are shown blue
+                                            // (display only — scan data / Perintah Pulling untouched).
+                                            if (($heijunkaDate ?? null) === '2026-10-22'
+                                                && $tick['heijunka_status'] === 'overdue'
+                                                && $cell['time'] >= '07:00' && $cell['time'] < '10:00') {
+                                                $tick['heijunka_status'] = 'scanned';
+                                            }
                                             $color = match ($tick['heijunka_status']) {
                                                 'scanned' => '#3b82f6',
                                                 'overdue' => '#ff3b3b',
